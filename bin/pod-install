@@ -1,0 +1,10 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
+
+cd "$ROOT_DIR/ios"
+env \
+  RUBYLIB="$ROOT_DIR/ruby_shims${RUBYLIB:+:$RUBYLIB}" \
+  PATH="/usr/local/opt/ruby/bin:$PATH" \
+  /usr/local/opt/ruby/bin/bundle exec pod install
