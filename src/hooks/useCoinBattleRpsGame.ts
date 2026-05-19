@@ -31,15 +31,6 @@ type UseCoinBattleRpsGameParams = {
   ) => null | (() => void);
 };
 
-type RpsStatePayload = {
-  data?: {
-    rounds?: unknown;
-    roundResults?: unknown;
-  };
-  rounds?: unknown;
-  roundResults?: unknown;
-};
-
 const LOG_PREFIX = '[CoinBattleRps]';
 
 function logRpsEvent(message: string, payload?: unknown): void {
@@ -76,27 +67,17 @@ function extractRpsRoundResults(payload: unknown): RpsRoundResult[] {
     return [];
   }
 
-  const candidate = payload as RpsStatePayload;
-  const dataRounds = candidate.data?.rounds;
-  const dataRoundResults = candidate.data?.roundResults;
+  const candidate = payload as {
+    data?: {roundResults?: unknown};
+    roundResults?: unknown;
+  };
+  const roundResults = Array.isArray(candidate.roundResults)
+    ? candidate.roundResults
+    : Array.isArray(candidate.data?.roundResults)
+      ? candidate.data?.roundResults ?? []
+      : [];
 
-  if (Array.isArray(candidate.rounds)) {
-    return candidate.rounds as RpsRoundResult[];
-  }
-
-  if (Array.isArray(dataRounds)) {
-    return dataRounds as RpsRoundResult[];
-  }
-
-  if (Array.isArray(candidate.roundResults)) {
-    return candidate.roundResults as RpsRoundResult[];
-  }
-
-  if (Array.isArray(dataRoundResults)) {
-    return dataRoundResults as RpsRoundResult[];
-  }
-
-  return [];
+  return roundResults as RpsRoundResult[];
 }
 
 function extractLatestRoundChoices(payload: unknown): RpsPlayer[] {

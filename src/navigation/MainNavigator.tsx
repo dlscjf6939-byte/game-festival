@@ -15,13 +15,13 @@ import {icon} from '../assets/icons';
 import {CoinsScreen} from '../screens/CoinsScreen';
 import {FeedScreen} from '../screens/FeedScreen';
 import MainScreen from '../screens/MainScreen';
+import {QrScanScreen} from '../screens/QrScanScreen';
 import {CoinBattleNavigator} from './CoinBattleNavigator';
 import {PredictionNavigator} from './PredictionNavigator';
 import type {MainStackParamList} from './types';
-import {FONTS} from '../constants/theme';
 
 const Tab = createBottomTabNavigator<MainStackParamList>();
-type VisibleTabRoute = keyof MainStackParamList;
+type VisibleTabRoute = Exclude<keyof MainStackParamList, 'QrScan'>;
 
 const TAB_ICONS = {
   CoinBattle: icon.battle,
@@ -54,7 +54,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   tabLabel: {
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '700',
   },
   tabLabelFocused: {
     opacity: 1,
@@ -134,6 +135,14 @@ function PredictionTabIcon(props: TabIconProps): JSX.Element {
 
 function renderTabButton(props: BottomTabBarButtonProps): JSX.Element {
   return <TabButton {...props} />;
+}
+
+function HiddenTabButton(): null {
+  return null;
+}
+
+function HiddenTabIcon(): null {
+  return null;
 }
 
 function TabButton({
@@ -242,6 +251,15 @@ export function MainNavigator(): JSX.Element {
         component={PredictionNavigator}
         name="Prediction"
         options={{tabBarIcon: PredictionTabIcon}}
+      />
+      <Tab.Screen
+        component={QrScanScreen}
+        name="QrScan"
+        options={{
+          tabBarButton: HiddenTabButton,
+          tabBarIcon: HiddenTabIcon,
+          tabBarStyle: {display: 'none'},
+        }}
       />
     </Tab.Navigator>
   );

@@ -13,7 +13,6 @@ import {
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import type {PredictionStackParamList} from '../navigation/types';
-import {FONTS} from '../constants/theme';
 
 const teams = [
   {id: 'team-red', name: 'TEAM RED'},
@@ -219,13 +218,15 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: '#FFFFFF',
-    ...FONTS.font22B,
+    fontSize: 22,
+    fontWeight: '700',
     lineHeight: 30,
   },
   heroSubtitle: {
     marginTop: 8,
     color: 'rgba(255,255,255,0.7)',
-    ...FONTS.font16M,
+    fontSize: 16,
+    fontWeight: '500',
     lineHeight: 21,
   },
   cardList: {
@@ -263,7 +264,8 @@ const styles = StyleSheet.create({
   },
   selectChipText: {
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '700',
     lineHeight: 18,
   },
 });

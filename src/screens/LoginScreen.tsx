@@ -17,7 +17,6 @@ import LinearGradient from 'react-native-linear-gradient';
 import {AnimatedField} from '../components/AnimatedField';
 import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
-import {FONTS} from '../constants/theme';
 
 const API_BASE = 'http://121.254.240.93:8090';
 
@@ -40,11 +39,17 @@ export function LoginScreen(): JSX.Element {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const buttonAnim = useRef(new Animated.Value(0)).current;
 
-  const isEnabled = groupwareId.trim().length > 0 && password.trim().length > 9 && !isSubmitting;
+  const isEnabled =
+    groupwareId.trim().length > 0 &&
+    password.trim().length > 0 &&
+    !isSubmitting;
   const hasNativeBlur =
     Platform.OS === 'ios'
       ? Boolean(UIManager.getViewManagerConfig?.('BlurView'))
-      : Boolean(UIManager.getViewManagerConfig?.('BlurView') || UIManager.getViewManagerConfig?.('AndroidBlurView'));
+      : Boolean(
+          UIManager.getViewManagerConfig?.('BlurView') ||
+            UIManager.getViewManagerConfig?.('AndroidBlurView'),
+        );
 
   useEffect(() => {
     Animated.timing(buttonAnim, {
@@ -88,7 +93,11 @@ export function LoginScreen(): JSX.Element {
         name: json.data.name,
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '로그인 처리 중 오류가 발생했습니다.');
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : '로그인 처리 중 오류가 발생했습니다.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -143,7 +152,11 @@ export function LoginScreen(): JSX.Element {
 
         <View style={styles.centerWrap}>
           <View style={styles.logoBlock}>
-            <Image source={image.logo} style={styles.logoImage} resizeMode="contain" />
+            <Image
+              source={image.logo}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
 
           <View style={styles.formWrap}>
@@ -169,7 +182,10 @@ export function LoginScreen(): JSX.Element {
               />
             </View>
 
-            <Pressable accessibilityRole="button" onPress={handleLogin} style={styles.buttonFrame}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleLogin}
+              style={styles.buttonFrame}>
               <View style={styles.button}>
                 <Animated.View
                   pointerEvents="none"
@@ -194,7 +210,9 @@ export function LoginScreen(): JSX.Element {
                 </Animated.Text>
               </View>
             </Pressable>
-            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            {errorMessage ? (
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            ) : null}
           </View>
         </View>
       </View>
@@ -305,14 +323,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#D90B17',
   },
   buttonText: {
-    ...FONTS.font16M,
+    fontSize: 16,
+    fontWeight: '500',
     lineHeight: 21,
     textAlign: 'center',
     zIndex: 1,
   },
   errorText: {
     color: '#FF6A61',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '700',
     lineHeight: 18,
     marginTop: 12,
     textAlign: 'center',

@@ -7,7 +7,6 @@ import {
   type TextInputProps,
   View,
 } from 'react-native';
-import {FONTS} from '../constants/theme';
 
 type AnimatedFieldProps = TextInputProps & {
   value: string;
@@ -81,7 +80,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E9EAEF',
     color: '#111111',
-    ...FONTS.font16R,
+    fontSize: 16,
+    fontWeight: '400',
     lineHeight: 21,
     zIndex: 1,
   },

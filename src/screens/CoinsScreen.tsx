@@ -1,7 +1,6 @@
 import React from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {MainScaffold} from '../components/MainScaffold';
-import {FONTS} from '../constants/theme';
 
 export function CoinsScreen(): JSX.Element {
   return (
@@ -41,12 +40,14 @@ const styles = StyleSheet.create({
   },
   label: {
     color: '#A9ABB2',
-    ...FONTS.font14M,
+    fontSize: 14,
+    fontWeight: '600',
   },
   value: {
     marginTop: 10,
     color: '#FFFFFF',
-    ...FONTS.font40B,
+    fontSize: 40,
+    fontWeight: '900',
   },
   section: {
     borderRadius: 24,
@@ -57,7 +58,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: '#FFFFFF',
-    ...FONTS.font18B,
+    fontSize: 18,
+    fontWeight: '700',
     marginBottom: 14,
   },
   item: {
@@ -70,14 +72,16 @@ const styles = StyleSheet.create({
   },
   itemTitle: {
     color: '#D6D8DE',
-    ...FONTS.font15R,
+    fontSize: 15,
   },
   plus: {
     color: '#FF6A61',
-    ...FONTS.font15B,
+    fontSize: 15,
+    fontWeight: '700',
   },
   minus: {
     color: '#8A8D95',
-    ...FONTS.font15B,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

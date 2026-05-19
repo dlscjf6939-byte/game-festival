@@ -1,6 +1,9 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useNavigation, useRoute} from '@react-navigation/native';
-import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
+import type {
+  NativeStackNavigationProp,
+  NativeStackScreenProps,
+} from '@react-navigation/native-stack';
 import {
   Animated,
   Image,
@@ -19,7 +22,10 @@ import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
-import {useCoinBattleRooms, type CoinBattleRoom} from '../hooks/useCoinBattleRooms';
+import {
+  useCoinBattleRooms,
+  type CoinBattleRoom,
+} from '../hooks/useCoinBattleRooms';
 import {
   normalizeRpsResult,
   useCoinBattleRpsGame,
@@ -33,11 +39,16 @@ import {
   type PictureMatchState,
 } from '../hooks/useCoinBattlePictureMatchGame';
 import type {CoinBattleStackParamList} from '../navigation/types';
-import {FONTS} from '../constants/theme';
 
-type RouteProps = NativeStackScreenProps<CoinBattleStackParamList, 'CoinBattleRoom'>['route'];
+type RouteProps = NativeStackScreenProps<
+  CoinBattleStackParamList,
+  'CoinBattleRoom'
+>['route'];
 
-type BouncyPressableProps = Omit<React.ComponentProps<typeof Pressable>, 'ref' | 'style'> & {
+type BouncyPressableProps = Omit<
+  React.ComponentProps<typeof Pressable>,
+  'ref' | 'style'
+> & {
   style?: StyleProp<ViewStyle>;
 };
 
@@ -56,10 +67,9 @@ const rpsChoices: Array<{
   {id: 'SCISSORS', image: image.scissor, label: '가위'},
   {id: 'PAPER', image: image.paper, label: '보'},
 ];
-const rpsChoiceById = Object.fromEntries(rpsChoices.map(choice => [choice.id, choice])) as Record<
-  RpsChoice,
-  (typeof rpsChoices)[number]
->;
+const rpsChoiceById = Object.fromEntries(
+  rpsChoices.map(choice => [choice.id, choice]),
+) as Record<RpsChoice, (typeof rpsChoices)[number]>;
 const rpsResultMeta = {
   DRAW: {icon: '🤝', label: '무'},
   LOSE: {icon: '💥', label: '패'},
@@ -93,7 +103,13 @@ function normalizeRoomDetail(payload: unknown): CoinBattleRoom | undefined {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-function BouncyPressable({children, onPressIn, onPressOut, style, ...props}: BouncyPressableProps): JSX.Element {
+function BouncyPressable({
+  children,
+  onPressIn,
+  onPressOut,
+  style,
+  ...props
+}: BouncyPressableProps): JSX.Element {
   const pressScale = useRef(new Animated.Value(1)).current;
 
   const animateScale = (toValue: number) => {
@@ -187,13 +203,20 @@ function BattleSlotCard({
         {transform: [{scale: cardScale}]},
       ]}>
       {hiddenSubmitted && !choice ? (
-        <Animated.View pointerEvents="none" style={[styles.playerCardPulse, {opacity: pulseOpacity}]} />
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.playerCardPulse, {opacity: pulseOpacity}]}
+        />
       ) : null}
       <Text style={styles.playerRole}>{role}</Text>
       <Text style={styles.playerCardName}>{name}</Text>
       {choice ? (
         <View style={styles.playerChoiceFrame}>
-          <Image resizeMode="contain" source={rpsChoiceById[choice].image} style={styles.playerChoiceImage} />
+          <Image
+            resizeMode="contain"
+            source={rpsChoiceById[choice].image}
+            style={styles.playerChoiceImage}
+          />
         </View>
       ) : hiddenSubmitted ? (
         <View style={styles.hiddenChoiceCard}>
@@ -202,7 +225,11 @@ function BattleSlotCard({
       ) : (
         <Text style={styles.playerChoicePlaceholder}>?</Text>
       )}
-      <Text style={[styles.playerChoiceLabel, hiddenSubmitted && !choice && styles.playerChoiceLabelReady]}>
+      <Text
+        style={[
+          styles.playerChoiceLabel,
+          hiddenSubmitted && !choice && styles.playerChoiceLabelReady,
+        ]}>
         {label}
       </Text>
     </Animated.View>
@@ -247,17 +274,38 @@ function RpsChoiceHandCard({
   }, [active, glowOpacity, scale, translateY]);
 
   return (
-    <Animated.View style={[styles.choiceCardWrap, {transform: [{translateY}, {scale}]}]}>
-      <Animated.View pointerEvents="none" style={[styles.choiceGlow, {opacity: glowOpacity}]} />
+    <Animated.View
+      style={[
+        styles.choiceCardWrap,
+        {transform: [{translateY}, {scale}]},
+      ]}>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.choiceGlow, {opacity: glowOpacity}]}
+      />
       <BouncyPressable
         accessibilityRole="button"
         disabled={disabled}
         onPress={onPress}
-        style={[styles.choiceButton, active && styles.choiceButtonActive, disabled && styles.choiceButtonDisabled]}>
+        style={[
+          styles.choiceButton,
+          active && styles.choiceButtonActive,
+          disabled && styles.choiceButtonDisabled,
+        ]}>
         <View style={styles.choiceArtFrame}>
-          <Image resizeMode="contain" source={choice.image} style={styles.choiceImage} />
+          <Image
+            resizeMode="contain"
+            source={choice.image}
+            style={styles.choiceImage}
+          />
         </View>
-        <Text style={[styles.choiceLabel, active && styles.choiceLabelActive]}>{choice.label}</Text>
+        <Text
+          style={[
+            styles.choiceLabel,
+            active && styles.choiceLabelActive,
+          ]}>
+          {choice.label}
+        </Text>
       </BouncyPressable>
     </Animated.View>
   );
@@ -277,7 +325,11 @@ function isSamePictureMatchPlayer(
     return true;
   }
 
-  return Boolean(myUserName && player.employeeName && player.employeeName === myUserName);
+  return Boolean(
+    myUserName &&
+      player.employeeName &&
+      player.employeeName === myUserName,
+  );
 }
 
 function FlippablePictureCard({
@@ -319,7 +371,10 @@ function FlippablePictureCard({
   });
 
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={styles.pictureMatchCardShell}>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={styles.pictureMatchCardShell}>
       <Animated.View
         style={[
           styles.pictureMatchCard,
@@ -344,9 +399,15 @@ function FlippablePictureCard({
           </View>
         ) : null}
         {picture.imgUrl ? (
-          <Image resizeMode="cover" source={{uri: picture.imgUrl}} style={styles.pictureMatchImage} />
+          <Image
+            resizeMode="cover"
+            source={{uri: picture.imgUrl}}
+            style={styles.pictureMatchImage}
+          />
         ) : (
-          <Text style={styles.pictureMatchFallbackName}>{picture.employeeName ?? '카드'}</Text>
+          <Text style={styles.pictureMatchFallbackName}>
+            {picture.employeeName ?? '카드'}
+          </Text>
         )}
       </Animated.View>
     </Pressable>
@@ -367,19 +428,29 @@ function PictureMatchGamePanel({
   state: PictureMatchState | null;
 }): JSX.Element {
   const width = typeof state?.width === 'number' ? state.width : 0;
-  const players =
-    state && Array.isArray(state.players) ? state.players : state && Array.isArray(state.player) ? state.player : [];
+  const players = state && Array.isArray(state.players)
+    ? state.players
+    : state && Array.isArray(state.player)
+      ? state.player
+      : [];
   const pictures = state && Array.isArray(state.pictures) ? state.pictures : [];
   const matchPictureCount =
-    typeof state?.matchPictureCount === 'number' && state.matchPictureCount > 0 ? state.matchPictureCount : 2;
+    typeof state?.matchPictureCount === 'number' &&
+    state.matchPictureCount > 0
+      ? state.matchPictureCount
+      : 2;
   const currentTurnPlayer = players.find(player => player.isMyTurn);
-  const isMyTurn = currentTurnPlayer ? isSamePictureMatchPlayer(currentTurnPlayer, myUserId, myUserName) : false;
+  const isMyTurn = currentTurnPlayer
+    ? isSamePictureMatchPlayer(currentTurnPlayer, myUserId, myUserName)
+    : false;
   const myMatchedCardCount = pictures.reduce((count, picture) => {
     if (!picture.isMatched || picture.matchedEmployeeId === undefined) {
       return count;
     }
 
-    return myUserId !== null && myUserId !== undefined && String(picture.matchedEmployeeId) === String(myUserId)
+    return myUserId !== null &&
+      myUserId !== undefined &&
+      String(picture.matchedEmployeeId) === String(myUserId)
       ? count + 1
       : count;
   }, 0);
@@ -388,30 +459,49 @@ function PictureMatchGamePanel({
       return count;
     }
 
-    return myUserId !== null && myUserId !== undefined && String(picture.matchedEmployeeId) !== String(myUserId)
+    return myUserId !== null &&
+      myUserId !== undefined &&
+      String(picture.matchedEmployeeId) !== String(myUserId)
       ? count + 1
       : count;
   }, 0);
   const myMatchedSetCount = Math.floor(myMatchedCardCount / matchPictureCount);
-  const opponentMatchedSetCount = Math.floor(opponentMatchedCardCount / matchPictureCount);
-  const totalMatchedSetCount = Math.floor((myMatchedCardCount + opponentMatchedCardCount) / matchPictureCount);
+  const opponentMatchedSetCount = Math.floor(
+    opponentMatchedCardCount / matchPictureCount,
+  );
+  const totalMatchedSetCount = Math.floor(
+    (myMatchedCardCount + opponentMatchedCardCount) / matchPictureCount,
+  );
   const totalSetCount = Math.floor(pictures.length / matchPictureCount);
   const remainingSetCount = Math.max(totalSetCount - totalMatchedSetCount, 0);
   const allVisibleAtStart =
     pictures.length > 0 &&
     pictures.every(picture => picture.isFlipped) &&
     pictures.every(picture => !picture.isMatched);
-  const rows = Array.from({length: width > 0 ? Math.ceil(pictures.length / width) : 0}, (_, rowIndex) => {
-    const start = rowIndex * width;
-    return pictures.slice(start, start + width);
-  });
-  const turnLabel = isFinished ? '게임 종료' : allVisibleAtStart ? '기억하세요' : isMyTurn ? '내 턴' : '상대 턴';
+  const rows = Array.from(
+    {length: width > 0 ? Math.ceil(pictures.length / width) : 0},
+    (_, rowIndex) => {
+      const start = rowIndex * width;
+      return pictures.slice(start, start + width);
+    },
+  );
+  const turnLabel = isFinished
+    ? '게임 종료'
+    : allVisibleAtStart
+      ? '기억하세요'
+      : isMyTurn
+        ? '내 턴'
+        : '상대 턴';
 
   return (
     <View style={styles.pictureMatchPanel}>
       <View style={styles.pictureMatchHeader}>
         <Text style={styles.pictureMatchTitle}>같은 그림 맞추기</Text>
-        <View style={[styles.pictureMatchTurnPill, isMyTurn && styles.pictureMatchTurnPillActive]}>
+        <View
+          style={[
+            styles.pictureMatchTurnPill,
+            isMyTurn && styles.pictureMatchTurnPillActive,
+          ]}>
           <Text style={styles.pictureMatchTurnText}>{turnLabel}</Text>
         </View>
       </View>
@@ -419,7 +509,9 @@ function PictureMatchGamePanel({
       <View style={styles.pictureMatchScoreRow}>
         <View style={styles.pictureMatchScoreCard}>
           <Text style={styles.pictureMatchScoreLabel}>내 점수</Text>
-          <Text style={styles.pictureMatchScoreValue}>{myMatchedSetCount}</Text>
+          <Text style={styles.pictureMatchScoreValue}>
+            {myMatchedSetCount}
+          </Text>
         </View>
         <View style={styles.pictureMatchMetaCard}>
           <Text style={styles.pictureMatchMetaLabel}>남은 매치</Text>
@@ -427,7 +519,9 @@ function PictureMatchGamePanel({
         </View>
         <View style={styles.pictureMatchScoreCard}>
           <Text style={styles.pictureMatchScoreLabel}>상대 점수</Text>
-          <Text style={styles.pictureMatchScoreValue}>{opponentMatchedSetCount}</Text>
+          <Text style={styles.pictureMatchScoreValue}>
+            {opponentMatchedSetCount}
+          </Text>
         </View>
       </View>
 
@@ -436,7 +530,9 @@ function PictureMatchGamePanel({
           <View key={`row-${rowIndex}`} style={styles.pictureMatchRow}>
             {row.map((picture, columnIndex) => {
               const pictureIndex = rowIndex * width + columnIndex;
-              const isFaceUp = Boolean(picture.isFlipped || picture.isMatched);
+              const isFaceUp = Boolean(
+                picture.isFlipped || picture.isMatched,
+              );
               const isMine =
                 picture.isMatched &&
                 myUserId !== null &&
@@ -470,7 +566,8 @@ function PictureMatchGamePanel({
 }
 
 export function CoinBattleRoomScreen(): JSX.Element {
-  const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
   const route = useRoute<RouteProps>();
   const {auth} = useAuth();
   const {
@@ -490,17 +587,28 @@ export function CoinBattleRoomScreen(): JSX.Element {
     subscribeRps,
   } = useCoinBattleRooms({accessToken: auth?.accessToken});
   const [ready, setReady] = useState(false);
-  const [roomDetail, setRoomDetail] = useState<CoinBattleRoom | undefined>(undefined);
-  const [gameRoomSnapshot, setGameRoomSnapshot] = useState<CoinBattleRoom | undefined>(undefined);
+  const [roomDetail, setRoomDetail] = useState<CoinBattleRoom | undefined>(
+    undefined,
+  );
+  const [gameRoomSnapshot, setGameRoomSnapshot] =
+    useState<CoinBattleRoom | undefined>(undefined);
   const [hasGameStarted, setHasGameStarted] = useState(false);
-  const [finishedRoomSnapshot, setFinishedRoomSnapshot] = useState<CoinBattleRoom | undefined>(undefined);
-  const [startCountdownSeconds, setStartCountdownSeconds] = useState<number | null>(null);
-  const [roundResultOverlay, setRoundResultOverlay] = useState<RoundResultOverlay | null>(null);
-  const [pendingRpsChoice, setPendingRpsChoice] = useState<RpsChoice | null>(null);
-  const [isReturningToWaitingRoom, setIsReturningToWaitingRoom] = useState(false);
+  const [finishedRoomSnapshot, setFinishedRoomSnapshot] =
+    useState<CoinBattleRoom | undefined>(undefined);
+  const [startCountdownSeconds, setStartCountdownSeconds] = useState<
+    number | null
+  >(null);
+  const [roundResultOverlay, setRoundResultOverlay] =
+    useState<RoundResultOverlay | null>(null);
+  const [pendingRpsChoice, setPendingRpsChoice] =
+    useState<RpsChoice | null>(null);
+  const [isReturningToWaitingRoom, setIsReturningToWaitingRoom] =
+    useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const roundResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const roundResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const startRequestedRef = useRef(false);
   const latestPresentedRoundRef = useRef(0);
   const countdownBackdropOpacity = useRef(new Animated.Value(0)).current;
@@ -513,38 +621,55 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const roomContentTranslateY = useRef(new Animated.Value(0)).current;
   const {game, host, isRealtime, roomId, status, title} = route.params;
   const myUserId = auth?.employeeId ?? auth?.id;
-  const liveRoom = roomDetail ?? realtimeRooms.find(room => room.roomId === roomId);
-  const currentRoom = finishedRoomSnapshot ?? (hasGameStarted ? gameRoomSnapshot ?? liveRoom : liveRoom);
+  const liveRoom =
+    roomDetail ?? realtimeRooms.find(room => room.roomId === roomId);
+  const currentRoom =
+    finishedRoomSnapshot ??
+    (hasGameStarted ? gameRoomSnapshot ?? liveRoom : liveRoom);
   const myMember = currentRoom?.roomMembers.find(member => {
     return String(member.employeeId) === String(myUserId);
   });
   const myReady = myMember?.isReady ?? ready;
   const roomMembers = currentRoom?.roomMembers ?? [];
-  const currentMemberCount = currentRoom?.currentMemberCount ?? Math.max(roomMembers.length, 1);
+  const currentMemberCount =
+    currentRoom?.currentMemberCount ?? Math.max(roomMembers.length, 1);
   const maxMembers = currentRoom?.maxMembers ?? 2;
   const roomStatus = currentRoom?.roomStatus;
-  const roomStatusLabel = roomStatus ? roomStatusLabels[roomStatus] : status;
+  const roomStatusLabel = roomStatus
+    ? roomStatusLabels[roomStatus]
+    : status;
   const totalRoundCount = currentRoom?.totalRoundCount ?? 1;
   const emptySlotCount = Math.max(maxMembers - roomMembers.length, 0);
   const isOwner =
-    currentRoom?.ownerEmployeeId !== undefined && String(currentRoom.ownerEmployeeId) === String(myUserId);
+    currentRoom?.ownerEmployeeId !== undefined &&
+    String(currentRoom.ownerEmployeeId) === String(myUserId);
   const isGameInProgress = roomStatus === 'IN_PROGRESS';
   const isRpsGame = currentRoom?.realtimeGameId === 1;
   const isPictureMatchGame = currentRoom?.realtimeGameId === 2;
   const opponentMember = roomMembers.find(member => {
     return String(member.employeeId) !== String(myUserId);
   });
-  const {handleRpsChoice, hasOpponentSubmitted, opponentRpsChoice, resetRpsGame, rpsRoundResults, selectedRpsChoice} =
-    useCoinBattleRpsGame({
-      chooseRps,
-      isActive: hasGameStarted && isRpsGame,
-      myUserId,
-      myUserName: auth?.name,
-      requestRpsState,
-      roomId,
-      subscribeRps,
-    });
-  const {handleFlipPicture, pictureMatchState, resetPictureMatchGame} = useCoinBattlePictureMatchGame({
+  const {
+    handleRpsChoice,
+    hasOpponentSubmitted,
+    opponentRpsChoice,
+    resetRpsGame,
+    rpsRoundResults,
+    selectedRpsChoice,
+  } = useCoinBattleRpsGame({
+    chooseRps,
+    isActive: hasGameStarted && isRpsGame,
+    myUserId,
+    myUserName: auth?.name,
+    requestRpsState,
+    roomId,
+    subscribeRps,
+  });
+  const {
+    handleFlipPicture,
+    pictureMatchState,
+    resetPictureMatchGame,
+  } = useCoinBattlePictureMatchGame({
     checkPictureMatch,
     flipPictureMatch,
     isActive: hasGameStarted && isPictureMatchGame,
@@ -555,24 +680,39 @@ export function CoinBattleRoomScreen(): JSX.Element {
     subscribePictureMatch,
   });
   const completedRoundCount = rpsRoundResults.reduce((count, round) => {
-    return typeof round.judgedAt === 'string' && round.judgedAt.length > 0 ? count + 1 : count;
+    return typeof round.judgedAt === 'string' && round.judgedAt.length > 0
+      ? count + 1
+      : count;
   }, 0);
   const latestRoundNumber = rpsRoundResults.reduce((maxRound, round) => {
-    return typeof round.roundNumber === 'number' && round.roundNumber > maxRound ? round.roundNumber : maxRound;
+    return typeof round.roundNumber === 'number' &&
+      round.roundNumber > maxRound
+      ? round.roundNumber
+      : maxRound;
   }, 0);
   const currentRoundNumber = Math.min(
-    Math.max(latestRoundNumber > completedRoundCount ? latestRoundNumber : completedRoundCount + 1, 1),
+    Math.max(
+      latestRoundNumber > completedRoundCount
+        ? latestRoundNumber
+        : completedRoundCount + 1,
+      1,
+    ),
     totalRoundCount,
   );
-  const isRpsMatchFinished = totalRoundCount > 0 && completedRoundCount >= totalRoundCount;
+  const isRpsMatchFinished =
+    totalRoundCount > 0 && completedRoundCount >= totalRoundCount;
   const pictureMatchPictures =
-    pictureMatchState && Array.isArray(pictureMatchState.pictures) ? pictureMatchState.pictures : [];
-  const pictureMatchFinalResults =
-    pictureMatchState && Array.isArray(pictureMatchState.finalResults) ? pictureMatchState.finalResults : [];
+    pictureMatchState && Array.isArray(pictureMatchState.pictures)
+    ? pictureMatchState.pictures
+    : [];
   const isPictureMatchFinished =
-    pictureMatchFinalResults.length > 0 ||
-    (pictureMatchPictures.length > 0 && pictureMatchPictures.every(picture => picture.isMatched));
-  const isMatchFinished = isRpsGame ? isRpsMatchFinished : isPictureMatchGame ? isPictureMatchFinished : false;
+    pictureMatchPictures.length > 0 &&
+    pictureMatchPictures.every(picture => picture.isMatched);
+  const isMatchFinished = isRpsGame
+    ? isRpsMatchFinished
+    : isPictureMatchGame
+      ? isPictureMatchFinished
+      : false;
   const canStartCountdown =
     isRealtime &&
     Boolean(currentRoom) &&
@@ -585,7 +725,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const shouldShowGame = hasGameStarted || isMatchFinished;
   const latestJudgedRound = rpsRoundResults
     .filter(round => {
-      return typeof round.judgedAt === 'string' && round.judgedAt.trim().length > 0;
+      return (
+        typeof round.judgedAt === 'string' &&
+        round.judgedAt.trim().length > 0
+      );
     })
     .slice()
     .sort((left, right) => {
@@ -602,13 +745,23 @@ export function CoinBattleRoomScreen(): JSX.Element {
       return true;
     }
 
-    return Boolean(auth?.name && player.employeeName && player.employeeName === auth.name);
+    return Boolean(
+      auth?.name &&
+        player.employeeName &&
+        player.employeeName === auth.name,
+    );
   });
-  const latestMyRoundResult = normalizeRpsResult(latestMyRoundPlayer?.result);
+  const latestMyRoundResult = normalizeRpsResult(
+    latestMyRoundPlayer?.result,
+  );
   const displayedMyChoice = selectedRpsChoice;
   const displayedOpponentChoice = opponentRpsChoice;
   const shouldShowChoiceOverlay =
-    shouldShowGame && isRpsGame && !isMatchFinished && !selectedRpsChoice && !roundResultOverlay;
+    shouldShowGame &&
+    isRpsGame &&
+    !isMatchFinished &&
+    !selectedRpsChoice &&
+    !roundResultOverlay;
 
   useEffect(() => {
     if (__DEV__) {
@@ -758,7 +911,15 @@ export function CoinBattleRoomScreen(): JSX.Element {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [canAutoStart, canStartCountdown, currentRoom, myUserId, roomId, startCountdownSeconds, startRoom]);
+  }, [
+    canAutoStart,
+    canStartCountdown,
+    currentRoom,
+    myUserId,
+    roomId,
+    startCountdownSeconds,
+    startRoom,
+  ]);
 
   useEffect(() => {
     if (startCountdownSeconds === null) {
@@ -808,7 +969,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
         }),
       ]),
     ]).start();
-  }, [countdownBackdropOpacity, countdownOpacity, countdownScale, startCountdownSeconds]);
+  }, [
+    countdownBackdropOpacity,
+    countdownOpacity,
+    countdownScale,
+    startCountdownSeconds,
+  ]);
 
   useEffect(() => {
     if (!latestJudgedRound || !latestMyRoundResult) {
@@ -817,7 +983,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
     const nextRoundNumber = latestJudgedRound.roundNumber ?? 0;
 
-    if (nextRoundNumber <= 0 || nextRoundNumber <= latestPresentedRoundRef.current) {
+    if (
+      nextRoundNumber <= 0 ||
+      nextRoundNumber <= latestPresentedRoundRef.current
+    ) {
       return;
     }
 
@@ -880,34 +1049,37 @@ export function CoinBattleRoomScreen(): JSX.Element {
       ]),
     ]).start();
 
-    roundResultTimerRef.current = setTimeout(
-      () => {
-        Animated.parallel([
-          Animated.timing(resultBackdropOpacity, {
-            duration: 220,
-            toValue: 0,
-            useNativeDriver: true,
-          }),
-          Animated.timing(resultOpacity, {
-            duration: 180,
-            toValue: 0,
-            useNativeDriver: true,
-          }),
-        ]).start(({finished}) => {
-          if (finished) {
-            setRoundResultOverlay(null);
-          }
-        });
-      },
-      isMatchFinished ? 1800 : 1400,
-    );
+    roundResultTimerRef.current = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(resultBackdropOpacity, {
+          duration: 220,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+        Animated.timing(resultOpacity, {
+          duration: 180,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]).start(({finished}) => {
+        if (finished) {
+          setRoundResultOverlay(null);
+        }
+      });
+    }, isMatchFinished ? 1800 : 1400);
 
     return () => {
       if (roundResultTimerRef.current) {
         clearTimeout(roundResultTimerRef.current);
       }
     };
-  }, [isMatchFinished, resultBackdropOpacity, resultOpacity, resultScale, roundResultOverlay]);
+  }, [
+    isMatchFinished,
+    resultBackdropOpacity,
+    resultOpacity,
+    resultScale,
+    roundResultOverlay,
+  ]);
 
   const handleLeaveRoom = () => {
     if (__DEV__) {
@@ -972,9 +1144,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
       setGameRoomSnapshot(undefined);
       setFinishedRoomSnapshot(undefined);
       setStartCountdownSeconds(null);
-      setReady(false);
-      setPendingRpsChoice(null);
-      startRequestedRef.current = false;
+    setReady(false);
+    setPendingRpsChoice(null);
+    startRequestedRef.current = false;
       latestPresentedRoundRef.current = 0;
       resetRpsGame();
       resetPictureMatchGame();
@@ -1026,246 +1198,314 @@ export function CoinBattleRoomScreen(): JSX.Element {
               opacity: roomContentOpacity,
               transform: [{translateY: roomContentTranslateY}],
             }}>
-            {shouldShowGame ? (
-              <>
-                <View style={styles.liveCompactHeader}>
-                  <Text numberOfLines={1} style={styles.liveCompactTitle}>
-                    {title}
+          {shouldShowGame ? (
+            <>
+              <View style={styles.liveCompactHeader}>
+                <Text numberOfLines={1} style={styles.liveCompactTitle}>
+                  {title}
+                </Text>
+                <View style={styles.liveCompactMetaRow}>
+                  <Text style={styles.liveCompactMeta}>
+                    {isPictureMatchGame
+                      ? '같은그림 맞추기'
+                      : `라운드 ${
+                          isMatchFinished ? '종료' : currentRoundNumber
+                        } / ${totalRoundCount}`}
                   </Text>
-                  <View style={styles.liveCompactMetaRow}>
-                    <Text style={styles.liveCompactMeta}>
-                      {isPictureMatchGame
-                        ? '같은그림 맞추기'
-                        : `라운드 ${isMatchFinished ? '종료' : currentRoundNumber} / ${totalRoundCount}`}
-                    </Text>
-                    <View style={styles.liveCompactDot} />
-                    <Text style={styles.liveCompactMeta}>코인 {currentRoom?.betAmount ?? 1}</Text>
-                  </View>
-                  <View style={styles.liveCompactPlayersRow}>
-                    <Text numberOfLines={1} style={styles.liveCompactPlayer}>
-                      {myMember?.employeeName ?? auth?.name ?? '나'}
-                    </Text>
-                    <Text style={styles.liveCompactVs}>VS</Text>
-                    <Text numberOfLines={1} style={styles.liveCompactPlayer}>
-                      {opponentMember?.employeeName ?? '상대'}
-                    </Text>
-                  </View>
+                  <View style={styles.liveCompactDot} />
+                  <Text style={styles.liveCompactMeta}>
+                    코인 {currentRoom?.betAmount ?? 1}
+                  </Text>
                 </View>
+                <View style={styles.liveCompactPlayersRow}>
+                  <Text numberOfLines={1} style={styles.liveCompactPlayer}>
+                    {myMember?.employeeName ?? auth?.name ?? '나'}
+                  </Text>
+                  <Text style={styles.liveCompactVs}>VS</Text>
+                  <Text numberOfLines={1} style={styles.liveCompactPlayer}>
+                    {opponentMember?.employeeName ?? '상대'}
+                  </Text>
+                </View>
+              </View>
 
-                <View style={styles.gameSection}>
-                  {isPictureMatchGame ? (
-                    <PictureMatchGamePanel
-                      isFinished={isMatchFinished}
-                      myUserId={myUserId}
-                      myUserName={auth?.name}
-                      onFlip={handleFlipPicture}
-                      state={pictureMatchState}
-                    />
-                  ) : (
-                    <>
-                      {!isMatchFinished ? (
-                        <View style={styles.gameHeader}>
-                          <View>
-                            <Text style={styles.gameEyebrow}>LIVE MATCH</Text>
-                            <Text style={styles.gameTitle}>가위바위보</Text>
-                          </View>
-                          <View style={styles.roundBadge}>
-                            <Text style={styles.roundBadgeText}>
-                              {`ROUND ${currentRoundNumber} / ${totalRoundCount}`}
-                            </Text>
-                          </View>
+              <View style={styles.gameSection}>
+                {isPictureMatchGame ? (
+                  <PictureMatchGamePanel
+                    isFinished={isMatchFinished}
+                    myUserId={myUserId}
+                    myUserName={auth?.name}
+                    onFlip={handleFlipPicture}
+                    state={pictureMatchState}
+                  />
+                ) : (
+                  <>
+                    {!isMatchFinished ? (
+                      <View style={styles.gameHeader}>
+                        <View>
+                          <Text style={styles.gameEyebrow}>LIVE MATCH</Text>
+                          <Text style={styles.gameTitle}>가위바위보</Text>
                         </View>
-                      ) : null}
-
-                      {!isMatchFinished && latestJudgedRound && latestMyRoundResult ? (
-                        <View
-                          style={[
-                            styles.latestResultBanner,
-                            latestMyRoundResult === 'WIN' && styles.latestResultBannerWin,
-                            latestMyRoundResult === 'LOSE' && styles.latestResultBannerLose,
-                            latestMyRoundResult === 'DRAW' && styles.latestResultBannerDraw,
-                          ]}>
-                          <Text style={styles.latestResultEyebrow}>
-                            {latestJudgedRound.roundNumber ?? '-'}라운드 결과
+                        <View style={styles.roundBadge}>
+                          <Text style={styles.roundBadgeText}>
+                            {`ROUND ${currentRoundNumber} / ${totalRoundCount}`}
                           </Text>
-                          <Text style={styles.latestResultTitle}>
-                            {latestMyRoundResult === 'WIN'
-                              ? '승리'
-                              : latestMyRoundResult === 'LOSE'
+                        </View>
+                      </View>
+                    ) : null}
+
+                    {!isMatchFinished &&
+                    latestJudgedRound &&
+                    latestMyRoundResult ? (
+                      <View
+                        style={[
+                          styles.latestResultBanner,
+                          latestMyRoundResult === 'WIN' &&
+                            styles.latestResultBannerWin,
+                          latestMyRoundResult === 'LOSE' &&
+                            styles.latestResultBannerLose,
+                          latestMyRoundResult === 'DRAW' &&
+                            styles.latestResultBannerDraw,
+                        ]}>
+                        <Text style={styles.latestResultEyebrow}>
+                          {latestJudgedRound.roundNumber ?? '-'}라운드 결과
+                        </Text>
+                        <Text style={styles.latestResultTitle}>
+                          {latestMyRoundResult === 'WIN'
+                            ? '승리'
+                            : latestMyRoundResult === 'LOSE'
                               ? '패배'
                               : '무승부'}
-                          </Text>
-                        </View>
-                      ) : null}
+                        </Text>
+                      </View>
+                    ) : null}
 
-                      {!isMatchFinished ? (
-                        <View style={styles.matchupRow}>
-                          <BattleSlotCard
-                            choice={displayedMyChoice}
-                            label={displayedMyChoice ? rpsChoiceById[displayedMyChoice].label : '선택 대기'}
-                            name={myMember?.employeeName ?? auth?.name ?? '나'}
-                            role="나"
-                          />
+                    {!isMatchFinished ? (
+                      <View style={styles.matchupRow}>
+                        <BattleSlotCard
+                          choice={displayedMyChoice}
+                          label={
+                            displayedMyChoice
+                              ? rpsChoiceById[displayedMyChoice].label
+                              : '선택 대기'
+                          }
+                          name={myMember?.employeeName ?? auth?.name ?? '나'}
+                          role="나"
+                        />
 
-                          <Text style={styles.vsText}>VS</Text>
+                        <Text style={styles.vsText}>VS</Text>
 
-                          <BattleSlotCard
-                            choice={displayedOpponentChoice}
-                            hiddenSubmitted={!displayedOpponentChoice && hasOpponentSubmitted}
-                            label={
-                              displayedOpponentChoice
-                                ? rpsChoiceById[displayedOpponentChoice].label
-                                : hasOpponentSubmitted
+                        <BattleSlotCard
+                          choice={displayedOpponentChoice}
+                          hiddenSubmitted={
+                            !displayedOpponentChoice && hasOpponentSubmitted
+                          }
+                          label={
+                            displayedOpponentChoice
+                              ? rpsChoiceById[displayedOpponentChoice].label
+                              : hasOpponentSubmitted
                                 ? '선택 완료'
                                 : '선택 대기'
-                            }
-                            name={opponentMember?.employeeName ?? '상대'}
-                            role="상대"
-                          />
-                        </View>
-                      ) : null}
-
-                      {!isMatchFinished ? (
-                        <View style={styles.choiceLockCard}>
-                          <Text style={styles.choiceLockTitle}>
-                            {selectedRpsChoice ? '카드 선택 완료' : '카드 선택 대기'}
-                          </Text>
-                          <Text style={styles.choiceLockDescription}>
-                            {selectedRpsChoice
-                              ? '이번 라운드의 카드는 확정되었습니다.'
-                              : '라운드 시작 시 카드 선택창이 열립니다.'}
-                          </Text>
-                        </View>
-                      ) : null}
-
-                      <View style={[styles.roundHistory, isMatchFinished && styles.roundHistoryFinished]}>
-                        <Text style={styles.roundHistoryTitle}>라운드 기록</Text>
-                        {rpsRoundResults.length > 0 ? (
-                          rpsRoundResults
-                            .slice()
-                            .sort((left, right) => {
-                              return (left.roundNumber ?? 0) - (right.roundNumber ?? 0);
-                            })
-                            .map((round, index) => {
-                              return (
-                                <RpsRoundRow
-                                  key={`${round.roundNumber ?? 'round'}-${index}`}
-                                  myUserId={myUserId}
-                                  myUserName={auth?.name}
-                                  roomMembers={roomMembers}
-                                  round={round}
-                                />
-                              );
-                            })
-                        ) : (
-                          <Text style={styles.roundHistoryEmpty}>아직 진행된 라운드가 없습니다.</Text>
-                        )}
+                          }
+                          name={opponentMember?.employeeName ?? '상대'}
+                          role="상대"
+                        />
                       </View>
-                    </>
-                  )}
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.hero}>
-                  <View style={styles.statusChip}>
-                    <Text style={styles.statusText}>{roomStatusLabel}</Text>
-                  </View>
-                  <Text style={styles.title}>{title}</Text>
-                  <Text style={styles.subtitle}>방 ID {roomId}</Text>
-                </View>
+                    ) : null}
 
-                <View style={styles.infoGrid}>
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>게임</Text>
-                    <Text style={styles.infoValue}>{game}</Text>
-                  </View>
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>베팅 코인</Text>
-                    <Text style={styles.infoValue}>{currentRoom?.betAmount ?? 1}개</Text>
-                  </View>
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>라운드</Text>
-                    <Text style={styles.infoValue}>{totalRoundCount}라운드</Text>
-                  </View>
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>인원</Text>
-                    <Text style={styles.infoValue}>
-                      {currentMemberCount} / {maxMembers}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>참가자</Text>
-                  {roomMembers.length > 0 ? (
-                    roomMembers.map(member => {
-                      const memberIsOwner = currentRoom?.ownerEmployeeId === member.employeeId;
-                      const isMe = String(member.employeeId) === String(myUserId);
-                      const memberReady = isMe ? myReady : member.isReady;
-
-                      return (
-                        <View key={member.employeeId} style={styles.memberRow}>
-                          <View style={styles.avatar} />
-                          <View style={styles.memberText}>
-                            <Text style={styles.memberName}>{member.employeeName}</Text>
-                            <Text style={styles.memberRole}>{memberIsOwner ? '방장' : '참가자'}</Text>
-                          </View>
-                          <View style={[styles.readyBadge, memberReady && styles.readyBadgeActive]}>
-                            <Text style={styles.readyBadgeText}>{memberReady ? '준비완료' : '준비중'}</Text>
-                          </View>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <View style={styles.memberRow}>
-                      <View style={styles.avatar} />
-                      <View style={styles.memberText}>
-                        <Text style={styles.memberName}>{host}</Text>
-                        <Text style={styles.memberRole}>방장</Text>
+                    {!isMatchFinished ? (
+                      <View style={styles.choiceLockCard}>
+                        <Text style={styles.choiceLockTitle}>
+                          {selectedRpsChoice
+                            ? '카드 선택 완료'
+                            : '카드 선택 대기'}
+                        </Text>
+                        <Text style={styles.choiceLockDescription}>
+                          {selectedRpsChoice
+                            ? '이번 라운드의 카드는 확정되었습니다.'
+                            : '라운드 시작 시 카드 선택창이 열립니다.'}
+                        </Text>
                       </View>
-                      <View style={[styles.readyBadge, myReady && styles.readyBadgeActive]}>
-                        <Text style={styles.readyBadgeText}>{myReady ? '준비완료' : '준비중'}</Text>
-                      </View>
+                    ) : null}
+
+                    <View
+                      style={[
+                        styles.roundHistory,
+                        isMatchFinished && styles.roundHistoryFinished,
+                      ]}>
+                      <Text style={styles.roundHistoryTitle}>라운드 기록</Text>
+                      {rpsRoundResults.length > 0 ? (
+                        rpsRoundResults
+                          .slice()
+                          .sort((left, right) => {
+                            return (
+                              (left.roundNumber ?? 0) -
+                              (right.roundNumber ?? 0)
+                            );
+                          })
+                          .map((round, index) => {
+                            return (
+                              <RpsRoundRow
+                                key={`${round.roundNumber ?? 'round'}-${index}`}
+                                myUserId={myUserId}
+                                myUserName={auth?.name}
+                                roomMembers={roomMembers}
+                                round={round}
+                              />
+                            );
+                          })
+                      ) : (
+                        <Text style={styles.roundHistoryEmpty}>
+                          아직 진행된 라운드가 없습니다.
+                        </Text>
+                      )}
                     </View>
-                  )}
+                  </>
+                )}
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.hero}>
+                <View style={styles.statusChip}>
+                  <Text style={styles.statusText}>{roomStatusLabel}</Text>
+                </View>
+                <Text style={styles.title}>{title}</Text>
+                <Text style={styles.subtitle}>방 ID {roomId}</Text>
+              </View>
 
-                  {Array.from({length: emptySlotCount}).map((_, index) => (
-                    <View key={`empty-${index}`} style={styles.emptySlot}>
-                      <Text style={styles.emptySlotText}>상대 입장 대기중</Text>
+              <View style={styles.infoGrid}>
+                <View style={styles.infoCard}>
+                  <Text style={styles.infoLabel}>게임</Text>
+                  <Text style={styles.infoValue}>{game}</Text>
+                </View>
+                <View style={styles.infoCard}>
+                  <Text style={styles.infoLabel}>베팅 코인</Text>
+                  <Text style={styles.infoValue}>
+                    {currentRoom?.betAmount ?? 1}개
+                  </Text>
+                </View>
+                <View style={styles.infoCard}>
+                  <Text style={styles.infoLabel}>라운드</Text>
+                  <Text style={styles.infoValue}>{totalRoundCount}라운드</Text>
+                </View>
+                <View style={styles.infoCard}>
+                  <Text style={styles.infoLabel}>인원</Text>
+                  <Text style={styles.infoValue}>
+                    {currentMemberCount} / {maxMembers}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>참가자</Text>
+                {roomMembers.length > 0 ? (
+                  roomMembers.map(member => {
+                    const memberIsOwner =
+                      currentRoom?.ownerEmployeeId === member.employeeId;
+                    const isMe =
+                      String(member.employeeId) === String(myUserId);
+                    const memberReady = isMe ? myReady : member.isReady;
+
+                    return (
+                      <View key={member.employeeId} style={styles.memberRow}>
+                        <View style={styles.avatar} />
+                        <View style={styles.memberText}>
+                          <Text style={styles.memberName}>
+                            {member.employeeName}
+                          </Text>
+                          <Text style={styles.memberRole}>
+                            {memberIsOwner ? '방장' : '참가자'}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.readyBadge,
+                            memberReady && styles.readyBadgeActive,
+                          ]}>
+                          <Text style={styles.readyBadgeText}>
+                            {memberReady ? '준비완료' : '준비중'}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={styles.memberRow}>
+                    <View style={styles.avatar} />
+                    <View style={styles.memberText}>
+                      <Text style={styles.memberName}>{host}</Text>
+                      <Text style={styles.memberRole}>방장</Text>
                     </View>
-                  ))}
-                </View>
+                    <View
+                      style={[
+                        styles.readyBadge,
+                        myReady && styles.readyBadgeActive,
+                      ]}>
+                      <Text style={styles.readyBadgeText}>
+                        {myReady ? '준비완료' : '준비중'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
 
-                <View style={styles.actionRow}>
-                  <BouncyPressable
-                    accessibilityRole="button"
-                    onPress={handleReady}
-                    style={[styles.readyButton, myReady && styles.readyButtonActive]}>
-                    <Text style={[styles.readyButtonText, myReady && styles.readyButtonTextActive]}>
-                      {myReady ? '준비 완료' : '준비하기'}
-                    </Text>
-                  </BouncyPressable>
-                  <BouncyPressable accessibilityRole="button" onPress={handleLeaveRoom} style={styles.leaveButton}>
-                    <Text style={styles.leaveButtonText}>나가기</Text>
-                  </BouncyPressable>
-                </View>
-              </>
-            )}
+                {Array.from({length: emptySlotCount}).map((_, index) => (
+                  <View key={`empty-${index}`} style={styles.emptySlot}>
+                    <Text style={styles.emptySlotText}>상대 입장 대기중</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.actionRow}>
+                <BouncyPressable
+                  accessibilityRole="button"
+                  onPress={handleReady}
+                  style={[
+                    styles.readyButton,
+                    myReady && styles.readyButtonActive,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.readyButtonText,
+                      myReady && styles.readyButtonTextActive,
+                    ]}>
+                    {myReady ? '준비 완료' : '준비하기'}
+                  </Text>
+                </BouncyPressable>
+                <BouncyPressable
+                  accessibilityRole="button"
+                  onPress={handleLeaveRoom}
+                  style={styles.leaveButton}>
+                  <Text style={styles.leaveButtonText}>나가기</Text>
+                </BouncyPressable>
+              </View>
+            </>
+          )}
           </Animated.View>
         </ScrollView>
 
         {shouldShowGame && isMatchFinished && !isReturningToWaitingRoom ? (
           <View style={styles.finishDock}>
-            <BouncyPressable accessibilityRole="button" onPress={handleReturnToWaitingRoom} style={styles.finishButton}>
+            <BouncyPressable
+              accessibilityRole="button"
+              onPress={handleReturnToWaitingRoom}
+              style={styles.finishButton}>
               <Text style={styles.finishButtonText}>대기방으로 돌아가기</Text>
             </BouncyPressable>
           </View>
         ) : null}
 
         {startCountdownSeconds !== null ? (
-          <Animated.View pointerEvents="none" style={[styles.countdownOverlay, {opacity: countdownBackdropOpacity}]}>
-            <BlurView blurAmount={12} blurType="dark" style={styles.countdownBlur} />
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.countdownOverlay,
+              {opacity: countdownBackdropOpacity},
+            ]}>
+            <BlurView
+              blurAmount={12}
+              blurType="dark"
+              style={styles.countdownBlur}
+            />
             <View style={styles.countdownTint} />
             <Animated.View
               style={[
@@ -1276,20 +1516,36 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 },
               ]}>
               <Text style={styles.countdownEyebrow}>READY</Text>
-              <Text style={styles.countdownValue}>{startCountdownSeconds === 0 ? 'START' : startCountdownSeconds}</Text>
-              <Text style={styles.countdownHint}>{startCountdownSeconds === 0 ? '게임 시작' : '곧 시작합니다'}</Text>
+              <Text style={styles.countdownValue}>
+                {startCountdownSeconds === 0
+                  ? 'START'
+                  : startCountdownSeconds}
+              </Text>
+              <Text style={styles.countdownHint}>
+                {startCountdownSeconds === 0
+                  ? '게임 시작'
+                  : '곧 시작합니다'}
+              </Text>
             </Animated.View>
           </Animated.View>
         ) : null}
 
         {shouldShowChoiceOverlay ? (
           <View style={styles.choiceOverlay}>
-            <BlurView blurAmount={12} blurType="dark" style={styles.choiceOverlayBlur} />
+            <BlurView
+              blurAmount={12}
+              blurType="dark"
+              style={styles.choiceOverlayBlur}
+            />
             <View style={styles.choiceOverlayTint} />
             <View style={styles.choiceOverlayContent}>
-              <Text style={styles.choiceOverlayEyebrow}>ROUND {currentRoundNumber}</Text>
+              <Text style={styles.choiceOverlayEyebrow}>
+                ROUND {currentRoundNumber}
+              </Text>
               <Text style={styles.choiceOverlayTitle}>카드를 선택하세요</Text>
-              <Text style={styles.choiceOverlayHint}>한 번 고르면 이번 라운드에는 바꿀 수 없습니다.</Text>
+              <Text style={styles.choiceOverlayHint}>
+                한 번 고르면 이번 라운드에는 바꿀 수 없습니다.
+              </Text>
               <View style={styles.choiceOverlayRow}>
                 {rpsChoices.map(choice => (
                   <RpsChoiceHandCard
@@ -1305,10 +1561,19 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 accessibilityRole="button"
                 disabled={!pendingRpsChoice}
                 onPress={handleConfirmRpsChoice}
-                style={[styles.choiceConfirmButton, !pendingRpsChoice && styles.choiceConfirmButtonDisabled]}>
+                style={[
+                  styles.choiceConfirmButton,
+                  !pendingRpsChoice && styles.choiceConfirmButtonDisabled,
+                ]}>
                 <Text
-                  style={[styles.choiceConfirmButtonText, !pendingRpsChoice && styles.choiceConfirmButtonTextDisabled]}>
-                  {pendingRpsChoice ? '이 카드로 확정' : '카드를 먼저 선택하세요'}
+                  style={[
+                    styles.choiceConfirmButtonText,
+                    !pendingRpsChoice &&
+                      styles.choiceConfirmButtonTextDisabled,
+                  ]}>
+                  {pendingRpsChoice
+                    ? '이 카드로 확정'
+                    : '카드를 먼저 선택하세요'}
                 </Text>
               </BouncyPressable>
             </View>
@@ -1334,21 +1599,23 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 },
               ]}>
               <Text style={styles.resultEyebrow}>
-                {isMatchFinished ? 'FINAL ROUND' : `ROUND ${roundResultOverlay.roundNumber}`}
+                {isMatchFinished
+                  ? 'FINAL ROUND'
+                  : `ROUND ${roundResultOverlay.roundNumber}`}
               </Text>
               <Text style={styles.resultValue}>
                 {roundResultOverlay.result === 'WIN'
                   ? '승리'
                   : roundResultOverlay.result === 'LOSE'
-                  ? '패배'
-                  : '무승부'}
+                    ? '패배'
+                    : '무승부'}
               </Text>
               <Text style={styles.resultHint}>
                 {roundResultOverlay.result === 'WIN'
-                  ? '멋져요!'
+                  ? '완벽한 한 수'
                   : roundResultOverlay.result === 'LOSE'
-                  ? '다음 라운드를 노려보세요'
-                  : '승부는 다음 라운드로'}
+                    ? '다음 라운드를 노려보세요'
+                    : '승부는 다음 라운드로'}
               </Text>
             </Animated.View>
           </Animated.View>
@@ -1374,7 +1641,9 @@ function RpsRoundRow({
 }): JSX.Element {
   const players = Array.isArray(round.rpsPlayers) ? round.rpsPlayers : [];
   const [leftMember, rightMember] = roomMembers;
-  const leftChoice = players.find(player => player.employeeId === leftMember?.employeeId) ?? players[0];
+  const leftChoice =
+    players.find(player => player.employeeId === leftMember?.employeeId) ??
+    players[0];
   const rightChoice =
     players.find(player => player.employeeId === rightMember?.employeeId) ??
     players.find(player => player !== leftChoice);
@@ -1397,22 +1666,45 @@ function RpsRoundRow({
     fallbackName: string,
   ) => {
     const normalizedChoice =
-      player?.choice === 'ROCK' || player?.choice === 'PAPER' || player?.choice === 'SCISSORS' ? player.choice : null;
-    const choiceMeta = normalizedChoice ? rpsChoices.find(choice => choice.id === normalizedChoice) : null;
+      player?.choice === 'ROCK' ||
+      player?.choice === 'PAPER' ||
+      player?.choice === 'SCISSORS'
+        ? player.choice
+        : null;
+    const choiceMeta = normalizedChoice
+      ? rpsChoices.find(choice => choice.id === normalizedChoice)
+      : null;
     const result = normalizeRpsResult(player?.result);
     const resultMeta = result ? rpsResultMeta[result] : null;
     const isMe =
-      (member && myUserId !== null && myUserId !== undefined && String(member.employeeId) === String(myUserId)) ||
-      Boolean(myUserName && (member?.employeeName === myUserName || player?.employeeName === myUserName));
+      (member &&
+        myUserId !== null &&
+        myUserId !== undefined &&
+        String(member.employeeId) === String(myUserId)) ||
+      Boolean(
+        myUserName &&
+          (member?.employeeName === myUserName ||
+            player?.employeeName === myUserName),
+      );
 
     return (
-      <View style={[styles.roundPlayerLine, isMe && styles.roundPlayerLineMine]}>
-        <Text style={[styles.roundPlayerName, isMe && styles.roundPlayerNameMine]}>
+      <View
+        style={[
+          styles.roundPlayerLine,
+          isMe && styles.roundPlayerLineMine,
+        ]}>
+        <Text
+          style={[
+            styles.roundPlayerName,
+            isMe && styles.roundPlayerNameMine,
+          ]}>
           {resultMeta ? `${resultMeta.icon} ${resultMeta.label} · ` : ''}
           {member?.employeeName ?? player?.employeeName ?? fallbackName}
           {isMe ? ' (나)' : ''}
         </Text>
-        <Text style={styles.roundPlayerChoice}>{choiceMeta ? choiceMeta.label : '대기'}</Text>
+        <Text style={styles.roundPlayerChoice}>
+          {choiceMeta ? choiceMeta.label : '대기'}
+        </Text>
       </View>
     );
   };
@@ -1427,14 +1719,20 @@ function RpsRoundRow({
         return true;
       }
 
-      return Boolean(myUserName && player.employeeName && player.employeeName === myUserName);
+      return Boolean(
+        myUserName &&
+          player.employeeName &&
+          player.employeeName === myUserName,
+      );
     }) ?? null;
   const myRoundResult = normalizeRpsResult(myRoundPlayer?.result);
 
   return (
     <View style={styles.roundHistoryItem}>
       <View style={styles.roundHistoryHeader}>
-        <Text style={styles.roundHistoryItemTitle}>라운드 {round.roundNumber ?? '-'}</Text>
+        <Text style={styles.roundHistoryItemTitle}>
+          라운드 {round.roundNumber ?? '-'}
+        </Text>
         {myRoundResult ? (
           <View
             style={[
@@ -1444,7 +1742,12 @@ function RpsRoundRow({
               myRoundResult === 'DRAW' && styles.roundResultChipDraw,
             ]}>
             <Text style={styles.roundResultChipText}>
-              내 결과 {myRoundResult === 'WIN' ? '승' : myRoundResult === 'LOSE' ? '패' : '무'}
+              내 결과{' '}
+              {myRoundResult === 'WIN'
+                ? '승'
+                : myRoundResult === 'LOSE'
+                  ? '패'
+                  : '무'}
             </Text>
           </View>
         ) : null}
@@ -1482,17 +1785,20 @@ const styles = StyleSheet.create({
   },
   statusText: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
   },
   title: {
     color: '#FFFFFF',
-    ...FONTS.font22B,
+    fontSize: 22,
+    fontWeight: '800',
     lineHeight: 30,
   },
   subtitle: {
     marginTop: 10,
     color: '#898989',
-    ...FONTS.font12M,
+    fontSize: 12,
+    fontWeight: '600',
   },
   countdownOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1512,13 +1818,15 @@ const styles = StyleSheet.create({
   },
   countdownEyebrow: {
     color: '#FF9AA3',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '900',
     letterSpacing: 2,
   },
   countdownValue: {
     marginTop: 4,
     color: '#FFFFFF',
-    ...FONTS.font68B,
+    fontSize: 68,
+    fontWeight: '900',
     lineHeight: 76,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: {width: 0, height: 3},
@@ -1527,7 +1835,8 @@ const styles = StyleSheet.create({
   countdownHint: {
     marginTop: -2,
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
   },
   resultOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1549,14 +1858,16 @@ const styles = StyleSheet.create({
   },
   resultEyebrow: {
     color: '#FFFFFF',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '900',
     letterSpacing: 2,
     opacity: 0.78,
   },
   resultValue: {
     marginTop: 8,
     color: '#FFFFFF',
-    ...FONTS.font44B,
+    fontSize: 44,
+    fontWeight: '900',
     lineHeight: 52,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: {width: 0, height: 3},
@@ -1565,7 +1876,8 @@ const styles = StyleSheet.create({
   resultHint: {
     marginTop: 6,
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
     opacity: 0.9,
   },
   infoGrid: {
@@ -1584,12 +1896,14 @@ const styles = StyleSheet.create({
   },
   infoLabel: {
     color: '#8B8E96',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '700',
   },
   infoValue: {
     marginTop: 8,
     color: '#FFFFFF',
-    ...FONTS.font15B,
+    fontSize: 15,
+    fontWeight: '800',
     lineHeight: 20,
   },
   liveCompactHeader: {
@@ -1602,7 +1916,8 @@ const styles = StyleSheet.create({
   },
   liveCompactTitle: {
     color: '#FFFFFF',
-    ...FONTS.font17B,
+    fontSize: 17,
+    fontWeight: '900',
     lineHeight: 23,
   },
   liveCompactMetaRow: {
@@ -1612,7 +1927,8 @@ const styles = StyleSheet.create({
   },
   liveCompactMeta: {
     color: '#A5A7AD',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '800',
   },
   liveCompactDot: {
     width: 3,
@@ -1630,12 +1946,14 @@ const styles = StyleSheet.create({
   liveCompactPlayer: {
     flex: 1,
     color: '#FFFFFF',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '800',
     textAlign: 'center',
   },
   liveCompactVs: {
     color: '#F40D21',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '900',
     paddingHorizontal: 10,
   },
   section: {
@@ -1643,7 +1961,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: '#FFFFFF',
-    ...FONTS.font18B,
+    fontSize: 18,
+    fontWeight: '800',
     marginBottom: 12,
   },
   memberRow: {
@@ -1668,13 +1987,15 @@ const styles = StyleSheet.create({
   },
   memberName: {
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
     lineHeight: 19,
   },
   memberRole: {
     marginTop: 3,
     color: '#8B8E96',
-    ...FONTS.font12M,
+    fontSize: 12,
+    fontWeight: '600',
   },
   readyBadge: {
     borderRadius: 999,
@@ -1689,7 +2010,8 @@ const styles = StyleSheet.create({
   },
   readyBadgeText: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
   },
   emptySlot: {
     height: 58,
@@ -1703,7 +2025,8 @@ const styles = StyleSheet.create({
   },
   emptySlotText: {
     color: '#777777',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '700',
   },
   gameSection: {
     marginTop: 24,
@@ -1720,13 +2043,15 @@ const styles = StyleSheet.create({
   },
   gameEyebrow: {
     color: '#F40D21',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
     letterSpacing: 1,
   },
   gameTitle: {
     marginTop: 6,
     color: '#FFFFFF',
-    ...FONTS.font22B,
+    fontSize: 22,
+    fontWeight: '900',
   },
   roundBadge: {
     borderRadius: 999,
@@ -1738,7 +2063,8 @@ const styles = StyleSheet.create({
   },
   roundBadgeText: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
   },
   matchupRow: {
     flexDirection: 'row',
@@ -1767,12 +2093,14 @@ const styles = StyleSheet.create({
   },
   latestResultEyebrow: {
     color: '#C7C8CC',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '700',
   },
   latestResultTitle: {
     marginTop: 4,
     color: '#FFFFFF',
-    ...FONTS.font24B,
+    fontSize: 24,
+    fontWeight: '900',
   },
   playerCard: {
     flex: 1,
@@ -1796,13 +2124,15 @@ const styles = StyleSheet.create({
   },
   playerRole: {
     color: '#FF8A94',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
     letterSpacing: 1,
   },
   playerCardName: {
     marginTop: 5,
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
   },
   playerChoiceFrame: {
     marginTop: 12,
@@ -1822,7 +2152,8 @@ const styles = StyleSheet.create({
   playerChoicePlaceholder: {
     marginTop: 12,
     color: '#FFFFFF',
-    ...FONTS.font38B,
+    fontSize: 38,
+    fontWeight: '900',
   },
   hiddenChoiceCard: {
     marginTop: 12,
@@ -1837,20 +2168,23 @@ const styles = StyleSheet.create({
   },
   hiddenChoiceGlyph: {
     color: '#F40D21',
-    ...FONTS.font30B,
+    fontSize: 30,
+    fontWeight: '900',
   },
   playerChoiceLabel: {
     marginTop: 8,
     color: '#C7C8CC',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '700',
   },
   playerChoiceLabelReady: {
     color: '#F40D21',
-    ...FONTS.font12B,
+    fontWeight: '900',
   },
   vsText: {
     color: '#F40D21',
-    ...FONTS.font15B,
+    fontSize: 15,
+    fontWeight: '900',
   },
   choiceLockCard: {
     marginTop: 22,
@@ -1863,12 +2197,14 @@ const styles = StyleSheet.create({
   },
   choiceLockTitle: {
     color: '#F40D21',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '900',
   },
   choiceLockDescription: {
     marginTop: 4,
     color: '#C7C8CC',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '700',
   },
   choiceRow: {
     flexDirection: 'row',
@@ -1922,7 +2258,8 @@ const styles = StyleSheet.create({
   choiceLabel: {
     marginTop: 10,
     color: '#C7C8CC',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '800',
   },
   choiceLabelActive: {
     color: '#F40D21',
@@ -1943,20 +2280,23 @@ const styles = StyleSheet.create({
   },
   choiceOverlayEyebrow: {
     color: '#F40D21',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '900',
     letterSpacing: 1.5,
     textAlign: 'center',
   },
   choiceOverlayTitle: {
     marginTop: 10,
     color: '#FFFFFF',
-    ...FONTS.font28B,
+    fontSize: 28,
+    fontWeight: '900',
     textAlign: 'center',
   },
   choiceOverlayHint: {
     marginTop: 8,
     color: '#D4D4D4',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '700',
     textAlign: 'center',
   },
   choiceOverlayRow: {
@@ -1979,7 +2319,8 @@ const styles = StyleSheet.create({
   },
   choiceConfirmButtonText: {
     color: '#FFFFFF',
-    ...FONTS.font15B,
+    fontSize: 15,
+    fontWeight: '900',
   },
   choiceConfirmButtonTextDisabled: {
     color: '#A5A7AD',
@@ -1997,12 +2338,14 @@ const styles = StyleSheet.create({
   },
   roundHistoryTitle: {
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
   },
   roundHistoryEmpty: {
     marginTop: 8,
     color: '#8B8E96',
-    ...FONTS.font13M,
+    fontSize: 13,
+    fontWeight: '600',
   },
   roundHistoryItem: {
     marginTop: 12,
@@ -2012,7 +2355,8 @@ const styles = StyleSheet.create({
   },
   roundHistoryItemTitle: {
     color: '#FFFFFF',
-    ...FONTS.font13B,
+    fontSize: 13,
+    fontWeight: '800',
   },
   roundHistoryHeader: {
     flexDirection: 'row',
@@ -2041,7 +2385,8 @@ const styles = StyleSheet.create({
   },
   roundResultChipText: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
   },
   roundPlayerLine: {
     flexDirection: 'row',
@@ -2058,14 +2403,16 @@ const styles = StyleSheet.create({
   roundPlayerName: {
     flex: 1,
     color: '#C7C8CC',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '700',
   },
   roundPlayerNameMine: {
     color: '#FFFFFF',
   },
   roundPlayerChoice: {
     color: '#FFFFFF',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '800',
   },
   placeholderGameCard: {
     marginTop: 18,
@@ -2079,7 +2426,8 @@ const styles = StyleSheet.create({
   },
   placeholderGameText: {
     color: '#FFFFFF',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
   },
   pictureMatchPanel: {},
   pictureMatchHeader: {
@@ -2089,7 +2437,8 @@ const styles = StyleSheet.create({
   },
   pictureMatchTitle: {
     color: '#FFFFFF',
-    ...FONTS.font22B,
+    fontSize: 22,
+    fontWeight: '900',
   },
   pictureMatchTurnPill: {
     borderRadius: 999,
@@ -2105,7 +2454,8 @@ const styles = StyleSheet.create({
   },
   pictureMatchTurnText: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '900',
   },
   pictureMatchScoreRow: {
     flexDirection: 'row',
@@ -2134,21 +2484,25 @@ const styles = StyleSheet.create({
   },
   pictureMatchScoreLabel: {
     color: '#8B8E96',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '700',
   },
   pictureMatchScoreValue: {
     marginTop: 5,
     color: '#FFFFFF',
-    ...FONTS.font22B,
+    fontSize: 22,
+    fontWeight: '900',
   },
   pictureMatchMetaLabel: {
     color: '#FF8A94',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
   },
   pictureMatchMetaValue: {
     marginTop: 5,
     color: '#FFFFFF',
-    ...FONTS.font22B,
+    fontSize: 22,
+    fontWeight: '900',
   },
   pictureMatchBoard: {
     gap: 8,
@@ -2190,11 +2544,13 @@ const styles = StyleSheet.create({
   },
   pictureMatchBackText: {
     color: '#FFFFFF',
-    ...FONTS.font28B,
+    fontSize: 28,
+    fontWeight: '900',
   },
   pictureMatchFallbackName: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    fontSize: 11,
+    fontWeight: '800',
     textAlign: 'center',
     paddingHorizontal: 6,
   },
@@ -2212,7 +2568,8 @@ const styles = StyleSheet.create({
   },
   pictureMatchMineBadgeText: {
     color: '#FFFFFF',
-    ...FONTS.font12B,
+    fontSize: 12,
+    fontWeight: '900',
   },
   finishDock: {
     position: 'absolute',
@@ -2230,7 +2587,8 @@ const styles = StyleSheet.create({
   },
   finishButtonText: {
     color: '#000000',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '900',
   },
   actionRow: {
     flexDirection: 'row',
@@ -2250,7 +2608,8 @@ const styles = StyleSheet.create({
   },
   readyButtonText: {
     color: '#000000',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
   },
   readyButtonTextActive: {
     color: '#FFFFFF',
@@ -2266,6 +2625,7 @@ const styles = StyleSheet.create({
   },
   leaveButtonText: {
     color: '#D7D7D7',
-    ...FONTS.font14B,
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

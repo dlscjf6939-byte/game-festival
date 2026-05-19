@@ -13,12 +13,9 @@ export type PictureMatchPlayer = {
   employeeId?: number;
   employeeName?: string;
   isMyTurn?: boolean;
-  result?: unknown;
-  submittedAt?: string;
 };
 
 export type PictureMatchState = {
-  finalResults?: PictureMatchPlayer[];
   height?: number;
   matchPictureCount?: number;
   pictures?: PictureMatchPicture[];

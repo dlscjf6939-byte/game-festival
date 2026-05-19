@@ -1,10 +1,9 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {Animated, Platform, StyleSheet, View} from 'react-native';
+import {Animated, StyleSheet, View} from 'react-native';
 import {useAuth} from '../auth/AuthProvider';
 import {SplashScreen} from '../components/SplashScreen';
 import {LoginScreen} from '../screens/LoginScreen';
-import {QrScanScreen} from '../screens/QrScanScreen';
 import {MainNavigator} from './MainNavigator';
 import type {RootStackParamList} from './types';
 
@@ -51,23 +50,7 @@ export function RootNavigator(): JSX.Element {
         <Stack.Navigator
           screenOptions={{headerShown: false, animation: 'fade'}}>
           {auth ? (
-            <>
-              <Stack.Screen component={MainNavigator} name="Main" />
-              <Stack.Screen
-                component={QrScanScreen}
-                name="QrScan"
-                options={{
-                  animation:
-                    Platform.OS === 'ios'
-                      ? 'slide_from_bottom'
-                      : 'fade_from_bottom',
-                  gestureDirection:
-                    Platform.OS === 'ios' ? 'vertical' : undefined,
-                  presentation:
-                    Platform.OS === 'ios' ? 'fullScreenModal' : 'card',
-                }}
-              />
-            </>
+            <Stack.Screen component={MainNavigator} name="Main" />
           ) : (
             <Stack.Screen component={LoginScreen} name="Login" />
           )}

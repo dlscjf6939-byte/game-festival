@@ -1,10 +1,7 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {useIsFocused, useNavigation, type NavigationProp} from '@react-navigation/native';
+import React from 'react';
+import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {
-  Animated,
-  Easing,
-  PermissionsAndroid,
-  Platform,
+  Image,
   Pressable,
   SafeAreaView,
   StatusBar,
@@ -12,98 +9,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import {Camera, CameraType} from 'react-native-camera-kit';
-import type {RootStackParamList} from '../navigation/types';
-import {FONTS} from '../constants/theme';
-
-const PAYMENT_PATH = '/coin/payment';
-
-type ScanState =
-  | {
-      kind: 'idle';
-    }
-  | {
-      kind: 'invalid';
-      value: string;
-    }
-  | {
-      kind: 'valid';
-      value: string;
-    };
-
-function normalizeUrl(value: string): URL | null {
-  const trimmedValue = value.trim();
-
-  if (!trimmedValue) {
-    return null;
-  }
-
-  try {
-    return new URL(trimmedValue);
-  } catch {
-    try {
-      return new URL(`http://${trimmedValue}`);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function isPaymentQr(value: string): boolean {
-  const parsedUrl = normalizeUrl(value);
-
-  return parsedUrl?.pathname.replace(/\/+$/, '') === PAYMENT_PATH;
-}
+import {image} from '../assets/images';
+import type {MainStackParamList} from '../navigation/types';
 
 export function QrScanScreen(): JSX.Element {
-  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const isFocused = useIsFocused();
-  const [hasCameraPermission, setHasCameraPermission] = useState(Platform.OS === 'ios');
-  const [scanState, setScanState] = useState<ScanState>({kind: 'idle'});
-  const scanLockedRef = useRef(false);
-  const lastScannedValueRef = useRef<string | null>(null);
-  const chromeProgress = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function requestCameraPermission() {
-      const status = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
-        buttonNegative: '취소',
-        buttonPositive: '허용',
-        message: 'QR 코드를 스캔하려면 카메라 권한이 필요합니다.',
-        title: '카메라 권한',
-      });
-
-      if (!cancelled) {
-        setHasCameraPermission(status === PermissionsAndroid.RESULTS.GRANTED);
-      }
-    }
-
-    void requestCameraPermission();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isFocused) {
-      return;
-    }
-
-    chromeProgress.setValue(0);
-    Animated.timing(chromeProgress, {
-      toValue: 1,
-      duration: Platform.OS === 'ios' ? 260 : 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [chromeProgress, isFocused]);
+  const navigation = useNavigation<NavigationProp<MainStackParamList>>();
 
   const handleClose = () => {
     if (navigation.canGoBack()) {
@@ -111,60 +21,14 @@ export function QrScanScreen(): JSX.Element {
       return;
     }
 
-    navigation.navigate('Main', {screen: 'Home'});
+    navigation.navigate('Home');
   };
-
-  const handleReadCode = (event: {
-    nativeEvent: {
-      codeStringValue: string;
-    };
-  }) => {
-    const value = event.nativeEvent.codeStringValue.trim();
-
-    if (!value || scanLockedRef.current || lastScannedValueRef.current === value) {
-      return;
-    }
-
-    lastScannedValueRef.current = value;
-
-    if (!isPaymentQr(value)) {
-      setScanState({kind: 'invalid', value});
-      return;
-    }
-
-    scanLockedRef.current = true;
-    setScanState({kind: 'valid', value});
-  };
-
-  const handleRetry = () => {
-    scanLockedRef.current = false;
-    lastScannedValueRef.current = null;
-    setScanState({kind: 'idle'});
-  };
-
-  const guideText =
-    scanState.kind === 'valid'
-      ? '결제용 QR 코드를 인식했습니다.'
-      : scanState.kind === 'invalid'
-      ? '결제용 QR 코드가 아닙니다. 다시 시도해주세요.'
-      : 'QR 코드를 화면 중앙에 맞춰주세요.';
-  const chromeTranslateY = chromeProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [Platform.OS === 'ios' ? 8 : 12, 0],
-  });
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
-      <Animated.View
-        style={[
-          styles.header,
-          {
-            opacity: chromeProgress,
-            transform: [{translateY: chromeTranslateY}],
-          },
-        ]}>
+      <View style={styles.header}>
         <Text style={styles.title}>QR 스캔</Text>
         <Pressable
           accessibilityLabel="QR 스캔 닫기"
@@ -173,57 +37,18 @@ export function QrScanScreen(): JSX.Element {
           style={styles.closeButton}>
           <Text style={styles.closeText}>×</Text>
         </Pressable>
-      </Animated.View>
+      </View>
 
       <View style={styles.body}>
-        {hasCameraPermission && isFocused ? (
-          <Camera
-            cameraType={CameraType.Back}
-            onReadCode={handleReadCode}
-            scanBarcode={!scanLockedRef.current}
-            scanThrottleDelay={1200}
-            style={styles.camera}
-          />
-        ) : null}
+        <View style={styles.scanFrame}>
+          <View style={[styles.corner, styles.cornerTopLeft]} />
+          <View style={[styles.corner, styles.cornerTopRight]} />
+          <View style={[styles.corner, styles.cornerBottomLeft]} />
+          <View style={[styles.corner, styles.cornerBottomRight]} />
+          <Image source={image.qrCode} style={styles.qrIcon} />
+        </View>
 
-        <View pointerEvents="none" style={styles.cameraShade} />
-
-        <Animated.View
-          style={[
-            styles.overlayContent,
-            {
-              opacity: chromeProgress,
-              transform: [{translateY: chromeTranslateY}],
-            },
-          ]}>
-          <View style={styles.scanFrame}>
-            <View style={[styles.corner, styles.cornerTopLeft]} />
-            <View style={[styles.corner, styles.cornerTopRight]} />
-            <View style={[styles.corner, styles.cornerBottomLeft]} />
-            <View style={[styles.corner, styles.cornerBottomRight]} />
-          </View>
-
-          <Text style={styles.guideText}>{guideText}</Text>
-
-          {!hasCameraPermission ? (
-            <Text style={styles.permissionText}>카메라 권한이 없어 QR 스캔을 시작할 수 없습니다.</Text>
-          ) : null}
-
-          {scanState.kind === 'valid' ? (
-            <View style={styles.resultCard}>
-              <Text style={styles.resultLabel}>인식된 결제 QR</Text>
-              <Text numberOfLines={2} style={styles.resultValue}>
-                {scanState.value}
-              </Text>
-            </View>
-          ) : null}
-
-          {scanState.kind !== 'idle' ? (
-            <Pressable accessibilityRole="button" onPress={handleRetry} style={styles.retryButton}>
-              <Text style={styles.retryButtonText}>다시 스캔</Text>
-            </Pressable>
-          ) : null}
-        </Animated.View>
+        <Text style={styles.guideText}>QR 코드를 화면 중앙에 맞춰주세요.</Text>
       </View>
     </SafeAreaView>
   );
@@ -243,7 +68,8 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#FFFFFF',
-    ...FONTS.font20B,
+    fontSize: 20,
+    fontWeight: '800',
   },
   closeButton: {
     width: 36,
@@ -255,7 +81,8 @@ const styles = StyleSheet.create({
   },
   closeText: {
     color: '#FFFFFF',
-    ...FONTS.font28L,
+    fontSize: 28,
+    fontWeight: '300',
     lineHeight: 32,
   },
   body: {
@@ -264,23 +91,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
     paddingBottom: 92,
-    overflow: 'hidden',
-  },
-  camera: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  cameraShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.38)',
-  },
-  overlayContent: {
-    alignItems: 'center',
-    width: '100%',
   },
   scanFrame: {
     width: 244,
     height: 244,
     borderRadius: 18,
+    backgroundColor: '#0F0F0F',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -318,49 +134,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 4,
     borderBottomRightRadius: 18,
   },
+  qrIcon: {
+    width: 72,
+    height: 72,
+    tintColor: '#FFFFFF',
+  },
   guideText: {
     marginTop: 24,
-    color: '#FFFFFF',
-    ...FONTS.font14B,
+    color: '#B7B9C0',
+    fontSize: 14,
+    fontWeight: '700',
     lineHeight: 20,
     textAlign: 'center',
-  },
-  permissionText: {
-    marginTop: 12,
-    color: '#FFB7BE',
-    ...FONTS.font13M,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  resultCard: {
-    width: '100%',
-    marginTop: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: 'rgba(15, 15, 15, 0.88)',
-  },
-  resultLabel: {
-    color: '#F40D21',
-    ...FONTS.font12B,
-  },
-  resultValue: {
-    marginTop: 6,
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-    lineHeight: 20,
-  },
-  retryButton: {
-    marginTop: 16,
-    minWidth: 120,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
-    backgroundColor: '#F40D21',
-    alignItems: 'center',
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
   },
 });

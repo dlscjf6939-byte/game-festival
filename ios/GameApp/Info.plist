@@ -46,17 +46,8 @@
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
-	<key>NSCameraUsageDescription</key>
-	<string>QR 코드를 스캔하기 위해 카메라 접근 권한이 필요합니다.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
-	<key>UIAppFonts</key>
-	<array>
-		<string>NetflixSans-Regular.otf</string>
-		<string>NetflixSans-Medium.otf</string>
-		<string>NetflixSans-Light.otf</string>
-		<string>NetflixSans-Bold.otf</string>
-	</array>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>
