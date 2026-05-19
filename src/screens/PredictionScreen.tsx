@@ -15,6 +15,7 @@ import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {image} from '../assets/images';
 import type {PredictionStackParamList} from '../navigation/types';
+import {FONTS} from '../constants/theme';
 
 const predictionCards = [
   {
@@ -139,8 +140,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
+    ...FONTS.font22B,
     lineHeight: 29,
   },
   tabRow: {
@@ -164,8 +164,7 @@ const styles = StyleSheet.create({
   },
   tabChipText: {
     color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '600',
+    ...FONTS.font14M,
     lineHeight: 18,
   },
   tabChipTextActive: {
@@ -199,15 +198,13 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
+    ...FONTS.font12B,
     lineHeight: 16,
     marginBottom: 4,
   },
   cardDescription: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
-    fontWeight: '500',
+    ...FONTS.font12M,
     lineHeight: 16,
     marginBottom: 20,
   },
@@ -221,8 +218,7 @@ const styles = StyleSheet.create({
   },
   predictButtonText: {
     color: '#000000',
-    fontSize: 14,
-    fontWeight: '500',
+    ...FONTS.font14M,
     lineHeight: 24,
     letterSpacing: 0.5,
   },

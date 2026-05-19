@@ -1,58 +1,40 @@
 import React, {useCallback, useMemo, useRef, useState} from 'react';
-import BottomSheet, {
-  BottomSheetBackdrop,
-  BottomSheetFlatList,
-  BottomSheetTextInput,
-} from '@gorhom/bottom-sheet';
-import {
-  Animated,
-  Image,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import BottomSheet, {BottomSheetBackdrop, BottomSheetFlatList, BottomSheetTextInput} from '@gorhom/bottom-sheet';
+import {Animated, Image, Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
+import {FONTS} from '../constants/theme';
 
 const stories = [
   {
     id: 'kim-sojin',
     name: '김소진',
-    image:
-      'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
+    image: 'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
     showAdd: true,
   },
   {
     id: 'lee-incheol',
     name: '이인철',
-    image:
-      'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
+    image: 'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
   },
   {
     id: 'gil-gihan',
     name: '길기환',
-    image:
-      'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
+    image: 'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
   },
   {
     id: 'kim-sojin-2',
     name: '김소진',
-    image:
-      'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
+    image: 'https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=200&q=80',
   },
 ];
 
-const postImage =
-  'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=80';
+const postImage = 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=80';
 
 const initialComments = [
-  {id: '1', user: 'User name', text: '하잉하이하잉하이잉하이이~~~'},
-  {id: '2', user: 'User name', text: '하잉하이하잉하이잉하이이~~~'},
+  {id: '1', user: 'User name', text: '주니어보드 화이팅입니다~~'},
+  {id: '2', user: 'User name', text: '화이팅 입니다~~~'},
   {id: '3', user: 'User name', text: '하잉하이하잉하이잉하이이~~~'},
   {id: '4', user: 'User name', text: '하잉하이하잉하이잉하이이~~~'},
   {id: '5', user: 'User name', text: '하잉하이하잉하이잉하이이~~~'},
@@ -78,22 +60,13 @@ export function FeedScreen(): JSX.Element {
       return;
     }
 
-    setComments(prevComments => [
-      ...prevComments,
-      {id: String(Date.now()), user: 'User name', text: trimmedComment},
-    ]);
+    setComments(prevComments => [...prevComments, {id: String(Date.now()), user: 'User name', text: trimmedComment}]);
     setCommentDraft('');
   }, [commentDraft]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        opacity={0.45}
-        pressBehavior="close"
-      />
+      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.45} pressBehavior="close" />
     ),
     [],
   );
@@ -123,15 +96,9 @@ export function FeedScreen(): JSX.Element {
                 bounces={false}
                 contentContainerStyle={styles.feedFrame}
                 showsVerticalScrollIndicator={false}
-                onScroll={Animated.event(
-                  [{nativeEvent: {contentOffset: {y: scrollY}}}],
-                  {useNativeDriver: true},
-                )}
+                onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
                 scrollEventThrottle={16}>
-                <ScrollView
-                  horizontal
-                  contentContainerStyle={styles.storyRow}
-                  showsHorizontalScrollIndicator={false}>
+                <ScrollView horizontal contentContainerStyle={styles.storyRow} showsHorizontalScrollIndicator={false}>
                   {stories.map(story => (
                     <View key={story.id} style={styles.storyItem}>
                       <View style={styles.storyAvatarWrap}>
@@ -141,10 +108,7 @@ export function FeedScreen(): JSX.Element {
                           end={{x: 0.85, y: 1}}
                           style={styles.storyRingGradient}>
                           <View style={styles.storyRing}>
-                            <Image
-                              source={{uri: story.image}}
-                              style={styles.storyImage}
-                            />
+                            <Image source={{uri: story.image}} style={styles.storyImage} />
                           </View>
                         </LinearGradient>
                         {story.showAdd ? (
@@ -190,9 +154,7 @@ export function FeedScreen(): JSX.Element {
                     하잉하이하잉하이잉하이이~~~
                   </Text>
                   <Pressable onPress={openComments}>
-                    <Text style={styles.commentLink}>
-                      View all {comments.length} comments
-                    </Text>
+                    <Text style={styles.commentLink}>View all {comments.length} comments</Text>
                   </Pressable>
                 </View>
               </Animated.ScrollView>
@@ -228,9 +190,7 @@ export function FeedScreen(): JSX.Element {
                 value={commentDraft}
                 onChangeText={setCommentDraft}
               />
-              <Pressable
-                style={styles.commentSubmitButton}
-                onPress={handleCommentSubmit}>
+              <Pressable style={styles.commentSubmitButton} onPress={handleCommentSubmit}>
                 <Text style={styles.commentSubmitIcon}>↑</Text>
               </Pressable>
             </View>
@@ -335,8 +295,7 @@ const styles = StyleSheet.create({
   storyName: {
     marginTop: 10,
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    ...FONTS.font16M,
   },
   postHeader: {
     width: '100%',
@@ -358,12 +317,11 @@ const styles = StyleSheet.create({
   },
   profileName: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    ...FONTS.font15B,
   },
   moreIcon: {
     color: '#FFFFFF',
-    fontSize: 22,
+    ...FONTS.font22R,
     lineHeight: 22,
     letterSpacing: 1,
   },
@@ -390,16 +348,16 @@ const styles = StyleSheet.create({
   },
   captionLine: {
     color: '#FFFFFF',
-    fontSize: 14,
+    ...FONTS.font14R,
     lineHeight: 22,
   },
   captionUser: {
-    fontWeight: '700',
+    ...FONTS.font14B,
   },
   commentLink: {
     marginTop: 2,
     color: '#E2E2E2',
-    fontSize: 14,
+    ...FONTS.font14R,
     lineHeight: 22,
   },
   sheetHandleArea: {
@@ -424,15 +382,13 @@ const styles = StyleSheet.create({
   },
   sheetTitle: {
     color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+    ...FONTS.font20B,
     lineHeight: 34,
   },
   sheetCloseIcon: {
     color: '#FFFFFF',
-    fontSize: 32,
+    ...FONTS.font32L,
     lineHeight: 32,
-    fontWeight: '300',
   },
   commentListContent: {
     paddingHorizontal: 16,
@@ -443,11 +399,11 @@ const styles = StyleSheet.create({
   },
   commentLine: {
     color: '#F5F5F5',
-    fontSize: 14,
+    ...FONTS.font14R,
     lineHeight: 32,
   },
   commentUser: {
-    fontWeight: '700',
+    ...FONTS.font14B,
   },
   commentInputWrap: {
     flexDirection: 'row',
@@ -465,7 +421,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#232427',
     color: '#FFFFFF',
     paddingHorizontal: 14,
-    fontSize: 18,
+    ...FONTS.font18R,
   },
   commentSubmitButton: {
     width: 40,
@@ -477,8 +433,7 @@ const styles = StyleSheet.create({
   },
   commentSubmitIcon: {
     color: '#FFFFFF',
-    fontSize: 22,
+    ...FONTS.font22B,
     lineHeight: 24,
-    fontWeight: '700',
   },
 });

@@ -6,7 +6,6 @@ export type MainStackParamList = {
   Feed: undefined;
   CoinBattle: NavigatorScreenParams<CoinBattleStackParamList> | undefined;
   Prediction: undefined;
-  QrScan: undefined;
 };
 
 export type CoinBattleStackParamList = {
@@ -29,4 +28,5 @@ export type PredictionStackParamList = {
 export type RootStackParamList = {
   Login: undefined;
   Main: NavigatorScreenParams<MainStackParamList> | undefined;
+  QrScan: undefined;
 };

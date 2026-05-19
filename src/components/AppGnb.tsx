@@ -2,7 +2,10 @@ import React from 'react';
 import {Image, Pressable, StyleSheet, View} from 'react-native';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {image} from '../assets/images';
-import type {MainStackParamList} from '../navigation/types';
+import type {
+  MainStackParamList,
+  RootStackParamList,
+} from '../navigation/types';
 
 function HeaderAction({
   onPress,
@@ -34,9 +37,9 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
 
   const handleQrPress = () => {
     const parentNavigation =
-      navigation.getParent<NavigationProp<MainStackParamList>>();
+      navigation.getParent<NavigationProp<RootStackParamList>>();
 
-    (parentNavigation ?? navigation).navigate('QrScan');
+    parentNavigation?.navigate('QrScan');
   };
 
   return (
