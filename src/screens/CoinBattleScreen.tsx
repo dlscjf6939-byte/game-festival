@@ -25,6 +25,7 @@ import {
   type CoinBattleRoomStatus,
 } from '../hooks/useCoinBattleRooms';
 import type {CoinBattleStackParamList} from '../navigation/types';
+import {FONTS} from '../constants/theme';
 
 const SCREENSHOT_WIDTH = 375;
 const SCREENSHOT_HEIGHT = 812;
@@ -665,8 +666,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
+    ...FONTS.font22B,
     lineHeight: 29,
   },
   filterRow: {
@@ -691,8 +691,7 @@ const styles = StyleSheet.create({
   },
   filterText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
+    ...FONTS.font14B,
     lineHeight: 18,
   },
   filterTextActive: {
@@ -708,8 +707,7 @@ const styles = StyleSheet.create({
   },
   emptyRoomText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    ...FONTS.font16B,
     lineHeight: 22,
   },
   roomRow: {
@@ -747,8 +745,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
+    ...FONTS.font10B,
     lineHeight: 13,
   },
   roomInfo: {
@@ -758,8 +755,7 @@ const styles = StyleSheet.create({
   },
   roomTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+    ...FONTS.font15B,
     lineHeight: 21,
   },
   hostRow: {
@@ -777,8 +773,7 @@ const styles = StyleSheet.create({
   hostName: {
     flex: 1,
     color: '#E0E0E0',
-    fontSize: 12,
-    fontWeight: '500',
+    ...FONTS.font12M,
     lineHeight: 16,
   },
   gameChip: {
@@ -794,8 +789,7 @@ const styles = StyleSheet.create({
   },
   gameChipText: {
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '500',
+    ...FONTS.font11M,
     lineHeight: 15,
   },
   fab: {
@@ -816,8 +810,7 @@ const styles = StyleSheet.create({
   },
   fabPlus: {
     color: '#FFFFFF',
-    fontSize: 34,
-    fontWeight: '300',
+    ...FONTS.font34L,
     lineHeight: 40,
     marginTop: -2,
   },
@@ -837,8 +830,7 @@ const styles = StyleSheet.create({
   },
   quickActionIcon: {
     color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '500',
+    ...FONTS.font30M,
     lineHeight: 36,
   },
   modalOverlay: {
@@ -864,15 +856,13 @@ const styles = StyleSheet.create({
   },
   createTitle: {
     color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '800',
+    ...FONTS.font20B,
     lineHeight: 26,
     marginBottom: 18,
   },
   createLabel: {
     color: '#B7B9C0',
-    fontSize: 13,
-    fontWeight: '700',
+    ...FONTS.font13B,
     lineHeight: 18,
     marginBottom: 8,
     marginTop: 12,
@@ -884,8 +874,7 @@ const styles = StyleSheet.create({
     borderColor: '#333333',
     backgroundColor: '#0A0A0A',
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    ...FONTS.font14M,
     paddingHorizontal: 12,
   },
   optionRow: {
@@ -918,8 +907,7 @@ const styles = StyleSheet.create({
   },
   optionText: {
     color: '#D9D9D9',
-    fontSize: 13,
-    fontWeight: '700',
+    ...FONTS.font13B,
   },
   optionTextActive: {
     color: '#FFFFFF',
@@ -942,15 +930,13 @@ const styles = StyleSheet.create({
   },
   stepperButtonText: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '500',
+    ...FONTS.font22M,
     lineHeight: 26,
   },
   stepperValue: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    ...FONTS.font16B,
     textAlign: 'center',
   },
   createActions: {
@@ -969,8 +955,7 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     color: '#D7D7D7',
-    fontSize: 14,
-    fontWeight: '800',
+    ...FONTS.font14B,
   },
   submitButton: {
     flex: 1,
@@ -982,7 +967,6 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+    ...FONTS.font14B,
   },
 });

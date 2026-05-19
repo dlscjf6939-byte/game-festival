@@ -1,17 +1,9 @@
 import React, {useRef} from 'react';
-import {
-  Animated,
-  Dimensions,
-  Image,
-  SafeAreaView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import {Animated, Dimensions, Image, SafeAreaView, StatusBar, StyleSheet, Text, View} from 'react-native';
 import {image} from '../assets/images';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
+import {FONTS} from '../constants/theme';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
@@ -50,13 +42,7 @@ function MainScreen(): JSX.Element {
   const scrollY = useRef(new Animated.Value(0)).current;
 
   const renderStoryCard = React.useCallback(
-    ({
-      item,
-      index,
-    }: {
-      item: (typeof storyCards)[number];
-      index: number;
-    }): JSX.Element => {
+    ({item, index}: {item: (typeof storyCards)[number]; index: number}): JSX.Element => {
       const inputRange = [
         (index - 1) * STORY_SNAP_INTERVAL,
         index * STORY_SNAP_INTERVAL,
@@ -120,11 +106,7 @@ function MainScreen(): JSX.Element {
                 },
               ]}
             /> */}
-            <Image
-              source={image.poster}
-              resizeMode="contain"
-              style={styles.storyPosterImage}
-            />
+            <Image source={image.poster} resizeMode="contain" style={styles.storyPosterImage} />
             <View style={styles.storyNoise} />
             <View style={styles.storyGradient}>
               <Animated.View
@@ -136,9 +118,7 @@ function MainScreen(): JSX.Element {
                     backgroundColor: `${item.accent}22`,
                   },
                 ]}>
-                <Text style={[styles.storyBadgeText, {color: item.accent}]}>
-                  {item.tag}
-                </Text>
+                <Text style={[styles.storyBadgeText, {color: item.accent}]}>{item.tag}</Text>
               </Animated.View>
               <Text style={styles.storyEyebrow}>{item.subtitle}</Text>
               <Text style={styles.storyTitle}>{item.title}</Text>
@@ -209,10 +189,7 @@ function MainScreen(): JSX.Element {
               bounces={false}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
-              onScroll={Animated.event(
-                [{nativeEvent: {contentOffset: {y: scrollY}}}],
-                {useNativeDriver: true},
-              )}
+              onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
               scrollEventThrottle={16}>
               <Animated.FlatList
                 data={storyCards}
@@ -227,10 +204,7 @@ function MainScreen(): JSX.Element {
                 initialNumToRender={storyCards.length}
                 initialScrollIndex={1}
                 keyExtractor={item => item.id}
-                onScroll={Animated.event(
-                  [{nativeEvent: {contentOffset: {x: scrollX}}}],
-                  {useNativeDriver: true},
-                )}
+                onScroll={Animated.event([{nativeEvent: {contentOffset: {x: scrollX}}}], {useNativeDriver: true})}
                 renderItem={renderStoryCard}
                 scrollEventThrottle={16}
                 showsHorizontalScrollIndicator={false}
@@ -275,10 +249,7 @@ function MainScreen(): JSX.Element {
                     alignItems: 'center',
                     marginBottom: 16,
                   }}>
-                  <Image
-                    source={image.profile}
-                    style={{width: 40, height: 40, marginRight: 12}}
-                  />
+                  <Image source={image.profile} style={{width: 40, height: 40, marginRight: 12}} />
                   <Text style={styles.greeting}>서비스개발팀 이인철님</Text>
                 </View>
                 <View style={styles.coinCard}>
@@ -294,21 +265,15 @@ function MainScreen(): JSX.Element {
 
                   <View style={styles.coinRows}>
                     <View style={styles.coinRow}>
-                      <Text style={styles.coinRowLabel}>
-                        승부예측 참여 완료
-                      </Text>
+                      <Text style={styles.coinRowLabel}>승부예측 참여 완료</Text>
                       <Text style={styles.coinRowValue}>-2개</Text>
                     </View>
                     <View style={styles.coinRow}>
-                      <Text style={styles.coinRowLabel}>
-                        주니어보드 설문 참여 완료
-                      </Text>
+                      <Text style={styles.coinRowLabel}>주니어보드 설문 참여 완료</Text>
                       <Text style={styles.coinRowValue}>+2개</Text>
                     </View>
                     <View style={styles.coinRow}>
-                      <Text style={styles.coinRowLabel}>
-                        섹타나인 임직원 기본 지급
-                      </Text>
+                      <Text style={styles.coinRowLabel}>섹타나인 임직원 기본 지급</Text>
                       <Text style={styles.coinRowValue}>+2개</Text>
                     </View>
                   </View>
@@ -459,27 +424,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   storyBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
+    ...FONTS.font10B,
     letterSpacing: 1.1,
   },
   storyEyebrow: {
     color: '#F2F3F5',
-    fontSize: 13,
-    fontWeight: '600',
+    ...FONTS.font13M,
     letterSpacing: 0.4,
   },
   storyTitle: {
     marginTop: 8,
     color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '800',
+    ...FONTS.font30B,
   },
   storyMeta: {
     marginTop: 14,
     color: 'rgba(255,255,255,0.58)',
-    fontSize: 11,
-    fontWeight: '700',
+    ...FONTS.font11B,
     letterSpacing: 1.2,
   },
   storyPagination: {
@@ -501,8 +462,7 @@ const styles = StyleSheet.create({
   },
   greeting: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '600',
+    ...FONTS.font22M,
   },
   coinCard: {
     borderRadius: 20,
@@ -517,8 +477,7 @@ const styles = StyleSheet.create({
   },
   coinHeaderTitle: {
     color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    ...FONTS.font18B,
   },
   coinValueWrap: {
     flexDirection: 'row',
@@ -526,8 +485,7 @@ const styles = StyleSheet.create({
   },
   coinValue: {
     color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    ...FONTS.font18B,
   },
   coinChevron: {
     width: 8,
@@ -554,13 +512,11 @@ const styles = StyleSheet.create({
   },
   coinRowLabel: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '500',
+    ...FONTS.font14M,
   },
   coinRowValue: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '500',
+    ...FONTS.font14M,
   },
 });
 

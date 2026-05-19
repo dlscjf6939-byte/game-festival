@@ -2,6 +2,7 @@ import React from 'react';
 import {Image, StyleSheet, Text, View} from 'react-native';
 import {MainScaffold} from '../components/MainScaffold';
 import {image} from '../assets/images';
+import {FONTS} from '../constants/theme';
 
 export function HomeScreen(): JSX.Element {
   return (
@@ -9,9 +10,7 @@ export function HomeScreen(): JSX.Element {
       <View style={styles.heroCard}>
         <Text style={styles.heroEyebrow}>2026 GAME TOURNAMENT</Text>
         <Text style={styles.heroTitle}>사내 게임대회가 시작됐어요</Text>
-        <Text style={styles.heroDescription}>
-          코인을 모으고 승부예측에 참여하면서 팀 랭킹을 올려보세요.
-        </Text>
+        <Text style={styles.heroDescription}>코인을 모으고 승부예측에 참여하면서 팀 랭킹을 올려보세요.</Text>
       </View>
 
       <View style={styles.coinCard}>
@@ -55,21 +54,19 @@ const styles = StyleSheet.create({
   },
   heroEyebrow: {
     color: '#FF6A61',
-    fontSize: 12,
-    fontWeight: '700',
+    ...FONTS.font12B,
     letterSpacing: 1.1,
   },
   heroTitle: {
     marginTop: 12,
     color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '800',
+    ...FONTS.font28B,
     lineHeight: 34,
   },
   heroDescription: {
     marginTop: 10,
     color: '#A9ABB2',
-    fontSize: 14,
+    ...FONTS.font14R,
     lineHeight: 22,
   },
   coinCard: {
@@ -82,14 +79,12 @@ const styles = StyleSheet.create({
   },
   coinLabel: {
     color: '#B7B9C0',
-    fontSize: 14,
-    fontWeight: '600',
+    ...FONTS.font14M,
   },
   coinValue: {
     marginTop: 8,
     color: '#FFFFFF',
-    fontSize: 38,
-    fontWeight: '900',
+    ...FONTS.font38B,
   },
   coinRow: {
     flexDirection: 'row',
@@ -99,25 +94,22 @@ const styles = StyleSheet.create({
   },
   coinRowLabel: {
     color: '#D6D8DE',
-    fontSize: 14,
+    ...FONTS.font14R,
   },
   coinRowPlus: {
     color: '#FF6A61',
-    fontSize: 14,
-    fontWeight: '700',
+    ...FONTS.font14B,
   },
   coinRowMinus: {
     color: '#8A8D95',
-    fontSize: 14,
-    fontWeight: '700',
+    ...FONTS.font14B,
   },
   posterSection: {
     marginBottom: 20,
   },
   sectionTitle: {
     color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    ...FONTS.font18B,
     marginBottom: 12,
   },
   posterCard: {
@@ -138,12 +130,11 @@ const styles = StyleSheet.create({
   },
   posterTitle: {
     color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
+    ...FONTS.font24B,
   },
   posterSubtitle: {
     marginTop: 8,
     color: '#A2A4AB',
-    fontSize: 14,
+    ...FONTS.font14R,
   },
 });
