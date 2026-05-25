@@ -4,11 +4,24 @@ import {Animated, Platform, StyleSheet, View} from 'react-native';
 import {useAuth} from '../auth/AuthProvider';
 import {SplashScreen} from '../components/SplashScreen';
 import {LoginScreen} from '../screens/LoginScreen';
+import {ProfileSetupScreen} from '../screens/ProfileSetupScreen';
 import {QrScanScreen} from '../screens/QrScanScreen';
 import {MainNavigator} from './MainNavigator';
 import type {RootStackParamList} from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+function isFirstLogin(firstLoginYn: unknown): boolean {
+  return (
+    firstLoginYn === undefined ||
+    firstLoginYn === null ||
+    firstLoginYn === true ||
+    firstLoginYn === 'Y' ||
+    firstLoginYn === 'y' ||
+    firstLoginYn === 'true' ||
+    firstLoginYn === '1'
+  );
+}
 
 export function RootNavigator(): JSX.Element {
   const {auth, isRestoring} = useAuth();
@@ -52,7 +65,11 @@ export function RootNavigator(): JSX.Element {
           screenOptions={{headerShown: false, animation: 'fade'}}>
           {auth ? (
             <>
-              <Stack.Screen component={MainNavigator} name="Main" />
+              {isFirstLogin(auth.firstLoginYn) ? (
+                <Stack.Screen component={ProfileSetupScreen} name="ProfileSetup" />
+              ) : (
+                <Stack.Screen component={MainNavigator} name="Main" />
+              )}
               <Stack.Screen
                 component={QrScanScreen}
                 name="QrScan"

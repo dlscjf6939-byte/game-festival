@@ -319,6 +319,12 @@ export function useCoinBattleRooms({
           return true;
         }
 
+        if (realtimeGameId === 21) {
+          logRoomEvent('Starting typing room', {roomId});
+          clientRef.current.publish(`/pub/rooms/${roomId}/typing/start`, {});
+          return true;
+        }
+
         if (userId === null || userId === undefined || userId === '') {
           setErrorMessage('사용자 정보를 찾을 수 없어 게임을 시작할 수 없습니다.');
           return false;
@@ -488,6 +494,79 @@ export function useCoinBattleRooms({
     }
   }, []);
 
+  const subscribeTyping = useCallback(
+    (
+      roomId: string,
+      callback: (body: string) => void,
+    ): null | (() => void) => {
+      if (!clientRef.current.isConnected()) {
+        setErrorMessage('소켓이 연결되지 않아 타자게임을 구독할 수 없습니다.');
+        return null;
+      }
+
+      try {
+        logRoomEvent('Subscribing typing room', {roomId});
+        return clientRef.current.subscribe(
+          `/sub/rooms/${roomId}/typing`,
+          callback,
+        );
+      } catch (error) {
+        logRoomEvent('Subscribe typing room failed', error);
+        setConnectionStatus('error');
+        setErrorMessage(
+          error instanceof Error ? error.message : '타자게임 구독 실패',
+        );
+        return null;
+      }
+    },
+    [],
+  );
+
+  const requestTypingState = useCallback((roomId: string): boolean => {
+    if (!clientRef.current.isConnected()) {
+      setErrorMessage('소켓이 연결되지 않아 타자게임 상태를 불러올 수 없습니다.');
+      return false;
+    }
+
+    try {
+      logRoomEvent('Requesting typing state', {roomId});
+      clientRef.current.publish(`/pub/rooms/${roomId}/typing`, {});
+      return true;
+    } catch (error) {
+      logRoomEvent('Request typing state failed', error);
+      setConnectionStatus('error');
+      setErrorMessage(
+        error instanceof Error ? error.message : '타자게임 동기화 실패',
+      );
+      return false;
+    }
+  }, []);
+
+  const submitTypingSentence = useCallback(
+    (roomId: string, sentence: string): boolean => {
+      if (!clientRef.current.isConnected()) {
+        setErrorMessage('소켓이 연결되지 않아 문장을 제출할 수 없습니다.');
+        return false;
+      }
+
+      try {
+        logRoomEvent('Submitting typing sentence', {roomId});
+        clientRef.current.publish(`/pub/rooms/${roomId}/typing/submit`, {
+          sentence,
+        });
+        return true;
+      } catch (error) {
+        logRoomEvent('Submit typing sentence failed', error);
+        setConnectionStatus('error');
+        setErrorMessage(
+          error instanceof Error ? error.message : '타자게임 제출 실패',
+        );
+        return false;
+      }
+    },
+    [],
+  );
+
   const flipPictureMatch = useCallback(
     (roomId: string, pictureIndex: number): boolean => {
       if (!clientRef.current.isConnected()) {
@@ -616,10 +695,13 @@ export function useCoinBattleRooms({
     requestRoomState,
     requestRpsState,
     requestRooms,
+    requestTypingState,
     rooms,
     startRoom,
     subscribePictureMatch,
     subscribeRoom,
     subscribeRps,
+    subscribeTyping,
+    submitTypingSentence,
   };
 }

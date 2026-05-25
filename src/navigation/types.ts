@@ -28,5 +28,6 @@ export type PredictionStackParamList = {
 export type RootStackParamList = {
   Login: undefined;
   Main: NavigatorScreenParams<MainStackParamList> | undefined;
+  ProfileSetup: undefined;
   QrScan: undefined;
 };

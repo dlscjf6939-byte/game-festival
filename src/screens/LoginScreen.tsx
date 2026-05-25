@@ -26,6 +26,7 @@ type LoginResponse = {
   data?: {
     accessToken: string;
     employeeId?: number | string;
+    firstLoginYn?: boolean | 'Y' | 'N' | 'y' | 'n' | 'true' | 'false' | '1' | '0';
     name: string;
   };
   message: string;
@@ -84,6 +85,7 @@ export function LoginScreen(): JSX.Element {
       await setAuth({
         accessToken: json.data.accessToken,
         employeeId: json.data.employeeId,
+        firstLoginYn: json.data.firstLoginYn ?? 'Y',
         id: groupwareId.trim(),
         name: json.data.name,
       });

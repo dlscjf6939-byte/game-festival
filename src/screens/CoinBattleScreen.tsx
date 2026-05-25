@@ -60,6 +60,7 @@ const quickActions = [
 const gameOptions = [
   {id: 1, label: '가위바위보'},
   {id: 2, label: '같은 카드 맞추기'},
+  {id: 21, label: '타자게임'},
 ];
 const roundOptions = [1, 2, 3, 4, 5];
 const MIN_BET_AMOUNT = 1;
@@ -78,6 +79,7 @@ const roomStatusLabels: Record<CoinBattleRoomStatus, string> = {
 const gameTitleById: Record<number, string> = {
   1: '가위바위보',
   2: '같은 카드 맞추기',
+  21: '타자게임',
 };
 
 function getRoomStatusLabel(status?: CoinBattleRoomStatus): string {
@@ -506,10 +508,10 @@ export function CoinBattleScreen(): JSX.Element {
               styles.fab,
               quickActionOpen ? styles.fabOpen : styles.fabClosed,
             ]}>
-            <Animated.Text
-              style={[styles.fabPlus, {transform: [{rotate: fabRotate}]}]}>
-              ＋
-            </Animated.Text>
+            <Animated.View style={[styles.fabPlusGlyph, {transform: [{rotate: fabRotate}]}]}>
+              <View style={[styles.fabPlusLine, styles.fabPlusHorizontal]} />
+              <View style={[styles.fabPlusLine, styles.fabPlusVertical]} />
+            </Animated.View>
           </BouncyPressable>
 
           <Modal
@@ -808,11 +810,24 @@ const styles = StyleSheet.create({
   fabOpen: {
     backgroundColor: '#F40D21',
   },
-  fabPlus: {
-    color: '#FFFFFF',
-    ...FONTS.font34L,
-    lineHeight: 40,
-    marginTop: -2,
+  fabPlusGlyph: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fabPlusLine: {
+    position: 'absolute',
+    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
+  },
+  fabPlusHorizontal: {
+    width: 20,
+    height: 2,
+  },
+  fabPlusVertical: {
+    width: 2,
+    height: 20,
   },
   quickActionList: {
     position: 'absolute',

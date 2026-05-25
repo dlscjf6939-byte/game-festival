@@ -10,6 +10,7 @@ import React, {
 export type AuthState = {
   accessToken: string;
   employeeId?: number | string;
+  firstLoginYn?: boolean | 'Y' | 'N' | 'y' | 'n' | 'true' | 'false' | '1' | '0';
   id: string;
   name: string;
   profile?: Record<string, unknown>;
@@ -104,7 +105,10 @@ export function AuthProvider({
             if (!cancelled && profileResponse.data) {
               const nextAuth = {
                 ...restoredAuth,
-                profile: profileResponse.data,
+                profile: {
+                  ...(restoredAuth.profile ?? {}),
+                  ...profileResponse.data,
+                },
               };
 
               await AsyncStorage.setItem(
@@ -168,7 +172,10 @@ export function AuthProvider({
           if (profileResponse.data) {
             const nextAuthWithProfile = {
               ...nextAuth,
-              profile: profileResponse.data,
+              profile: {
+                ...(nextAuth.profile ?? {}),
+                ...profileResponse.data,
+              },
             };
 
             await AsyncStorage.setItem(

@@ -11,6 +11,7 @@ import {
   StyleSheet,
   StyleProp,
   Text,
+  TextInput,
   View,
   ViewStyle,
 } from 'react-native';
@@ -32,6 +33,13 @@ import {
   type PictureMatchPlayer,
   type PictureMatchState,
 } from '../hooks/useCoinBattlePictureMatchGame';
+import {
+  useCoinBattleTypingGame,
+  type TypingFinalResult,
+  type TypingGameState,
+  type TypingPlayer,
+  type TypingRound,
+} from '../hooks/useCoinBattleTypingGame';
 import type {CoinBattleStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 
@@ -70,6 +78,16 @@ const START_COUNTDOWN_SECONDS = 3;
 type RoundResultOverlay = {
   result: RpsResult;
   roundNumber: number;
+  source?: 'rps' | 'typing';
+  winnerName?: string;
+};
+
+type TypingRankingItem = {
+  elapsedSeconds?: number;
+  employeeId?: number;
+  employeeName?: string;
+  submittedAt?: string;
+  winCount: number;
 };
 
 function normalizeRoomDetail(payload: unknown): CoinBattleRoom | undefined {
@@ -469,6 +487,361 @@ function PictureMatchGamePanel({
   );
 }
 
+function isSameTypingPlayer(
+  player: TypingPlayer | TypingFinalResult,
+  myUserId?: null | number | string,
+  myUserName?: string,
+): boolean {
+  if (
+    myUserId !== null &&
+    myUserId !== undefined &&
+    player.employeeId !== undefined &&
+    String(player.employeeId) === String(myUserId)
+  ) {
+    return true;
+  }
+
+  return Boolean(myUserName && player.employeeName && player.employeeName === myUserName);
+}
+
+function getCorrectPrefixLength(answerSentence: string, inputValue: string): number {
+  let correctLength = 0;
+
+  while (
+    correctLength < inputValue.length &&
+    correctLength < answerSentence.length &&
+    inputValue[correctLength] === answerSentence[correctLength]
+  ) {
+    correctLength += 1;
+  }
+
+  return correctLength;
+}
+
+function formatTypingElapsed(seconds?: number): string {
+  if (typeof seconds !== 'number' || Number.isNaN(seconds)) {
+    return '-';
+  }
+
+  return `${seconds.toFixed(seconds % 1 === 0 ? 0 : 1)}초`;
+}
+
+function isTypingPlayerCompleted(player: TypingPlayer): boolean {
+  return (
+    (typeof player.submittedAt === 'string' && player.submittedAt.trim().length > 0) ||
+    typeof player.elapsedSeconds === 'number' ||
+    typeof player.result === 'string'
+  );
+}
+
+function getTypingRoundWinner(players: TypingPlayer[]): TypingPlayer | undefined {
+  const resultWinner = players.find(player => player.result === 'WIN');
+
+  if (resultWinner) {
+    return resultWinner;
+  }
+
+  return players
+    .filter(isTypingPlayerCompleted)
+    .slice()
+    .sort((left, right) => {
+      const leftElapsed = typeof left.elapsedSeconds === 'number' ? left.elapsedSeconds : Number.POSITIVE_INFINITY;
+      const rightElapsed = typeof right.elapsedSeconds === 'number' ? right.elapsedSeconds : Number.POSITIVE_INFINITY;
+
+      if (leftElapsed !== rightElapsed) {
+        return leftElapsed - rightElapsed;
+      }
+
+      return String(left.submittedAt).localeCompare(String(right.submittedAt));
+    })[0];
+}
+
+function isTypingRoundCompleted(round?: {
+  judgedAt?: string;
+  typingPlayers?: TypingPlayer[];
+}): boolean {
+  if (!round) {
+    return false;
+  }
+
+  if (typeof round.judgedAt === 'string' && round.judgedAt.trim().length > 0) {
+    return true;
+  }
+
+  return Boolean(
+    getTypingRoundWinner(round.typingPlayers ?? []) ||
+      round.typingPlayers?.some(isTypingPlayerCompleted),
+  );
+}
+
+function getTypingPlayerKey(player: TypingPlayer | TypingFinalResult): string {
+  if (player.employeeId !== undefined) {
+    return `id:${player.employeeId}`;
+  }
+
+  return `name:${player.employeeName ?? 'unknown'}`;
+}
+
+function buildTypingRanking(
+  rounds: TypingRound[],
+  finalResults: TypingFinalResult[],
+): TypingRankingItem[] {
+  if (finalResults.length > 0) {
+    return finalResults.map(result => ({
+      elapsedSeconds: result.elapsedSeconds,
+      employeeId: result.employeeId,
+      employeeName: result.employeeName,
+      submittedAt: result.submittedAt,
+      winCount: 0,
+    }));
+  }
+
+  const rankingMap = new Map<string, TypingRankingItem>();
+
+  rounds.forEach(round => {
+    const players = round.typingPlayers ?? [];
+    const winner = getTypingRoundWinner(players);
+
+    players.forEach(player => {
+      const key = getTypingPlayerKey(player);
+      const previous = rankingMap.get(key);
+      const elapsedSeconds =
+        typeof player.elapsedSeconds === 'number'
+          ? (previous?.elapsedSeconds ?? 0) + player.elapsedSeconds
+          : previous?.elapsedSeconds;
+
+      rankingMap.set(key, {
+        elapsedSeconds,
+        employeeId: player.employeeId,
+        employeeName: player.employeeName,
+        submittedAt: player.submittedAt ?? previous?.submittedAt,
+        winCount:
+          (previous?.winCount ?? 0) +
+          (winner && getTypingPlayerKey(winner) === key ? 1 : 0),
+      });
+    });
+  });
+
+  return Array.from(rankingMap.values()).sort((left, right) => {
+    if (right.winCount !== left.winCount) {
+      return right.winCount - left.winCount;
+    }
+
+    const leftElapsed =
+      typeof left.elapsedSeconds === 'number' ? left.elapsedSeconds : Number.POSITIVE_INFINITY;
+    const rightElapsed =
+      typeof right.elapsedSeconds === 'number' ? right.elapsedSeconds : Number.POSITIVE_INFINITY;
+
+    return leftElapsed - rightElapsed;
+  });
+}
+
+function TypingGamePanel({
+  disabled,
+  myUserId,
+  myUserName,
+  onSubmit,
+  state,
+}: {
+  disabled?: boolean;
+  myUserId?: null | number | string;
+  myUserName?: string;
+  onSubmit: (sentence: string) => boolean;
+  state: TypingGameState | null;
+}): JSX.Element {
+  const [inputValue, setInputValue] = useState('');
+  const submittedRoundKeyRef = useRef<string | null>(null);
+  const rounds = state?.rounds ?? [];
+  const currentRound = rounds.at(-1);
+  const answerSentence = currentRound?.answerSentence ?? '';
+  const currentRoundKey = `${state?.roomId ?? ''}:${currentRound?.roundNumber ?? rounds.length}:${answerSentence}`;
+  const players = currentRound?.typingPlayers ?? [];
+  const finalResults = state?.finalResults ?? [];
+  const rankingItems = buildTypingRanking(rounds, finalResults);
+  const myPlayer = players.find(player => isSameTypingPlayer(player, myUserId, myUserName));
+  const roundWinner = getTypingRoundWinner(players);
+  const hasSubmitted = Boolean(myPlayer?.submittedAt);
+  const isJudged = Boolean(currentRound?.judgedAt);
+  const isMatchFinished = finalResults.length > 0;
+  const correctPrefixLength = getCorrectPrefixLength(answerSentence, inputValue);
+  const hasMistake = inputValue.length > correctPrefixLength;
+  const isComplete = answerSentence.length > 0 && inputValue === answerSentence;
+  const progressPercent =
+    answerSentence.length > 0
+      ? Math.min((correctPrefixLength / answerSentence.length) * 100, 100)
+      : 0;
+  const isSubmitPending = submittedRoundKeyRef.current === currentRoundKey;
+  const editable =
+    Boolean(answerSentence) &&
+    !disabled &&
+    !isSubmitPending &&
+    !hasSubmitted &&
+    !isJudged &&
+    !isMatchFinished;
+  const statusMessage = hasSubmitted
+    ? roundWinner && isSameTypingPlayer(roundWinner, myUserId, myUserName)
+      ? '가장 먼저 입력했어요. 라운드 승리!'
+      : '제출 완료! 판정을 기다리는 중입니다.'
+    : isMatchFinished
+    ? '타자게임이 종료되었습니다.'
+    : isJudged
+    ? '이번 라운드 판정이 완료되었습니다.'
+    : isSubmitPending
+    ? '제출 중입니다. 잠시만 기다려 주세요.'
+    : hasMistake
+    ? '오타가 있어요. 정확히 입력하면 제출할 수 있습니다.'
+    : isComplete
+    ? '완벽합니다. 바로 제출하세요!'
+    : answerSentence
+    ? '문장을 그대로 입력해 주세요.'
+    : '출제 문장을 기다리는 중입니다.';
+
+  useEffect(() => {
+    setInputValue('');
+    submittedRoundKeyRef.current = null;
+  }, [currentRoundKey]);
+
+  const handleSubmit = () => {
+    if (!isComplete || hasSubmitted || isSubmitPending) {
+      return;
+    }
+
+    const submitted = onSubmit(inputValue);
+
+    if (submitted) {
+      submittedRoundKeyRef.current = currentRoundKey;
+      setInputValue('');
+    }
+  };
+
+  return (
+    <View style={styles.typingPanel}>
+      <View style={styles.typingHeader}>
+        <View>
+          <Text style={styles.gameEyebrow}>LIVE MATCH</Text>
+          <Text style={styles.typingTitle}>타자게임</Text>
+        </View>
+        <View style={styles.roundBadge}>
+          <Text style={styles.roundBadgeText}>
+            {isMatchFinished ? 'FINISH' : `ROUND ${currentRound?.roundNumber ?? '-'}`}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.typingSentenceCard}>
+        <Text style={styles.typingSentenceLabel}>출제 문장</Text>
+        <Text style={styles.typingSentence}>
+          {answerSentence || '잠시 후 문장이 표시됩니다.'}
+        </Text>
+      </View>
+
+      <View style={styles.typingProgressTrack}>
+        <View style={[styles.typingProgressFill, {width: `${progressPercent}%`}]} />
+      </View>
+
+      <View style={styles.typingStatusRow}>
+        <Text style={[styles.typingStatusText, hasMistake && styles.typingStatusError]}>
+          {statusMessage}
+        </Text>
+        <Text style={styles.typingCountText}>
+          {correctPrefixLength}/{answerSentence.length || 0}
+        </Text>
+      </View>
+
+      <View style={styles.typingButtonRow}>
+        <Pressable
+          disabled={!editable || inputValue.length === 0}
+          onPress={() => setInputValue('')}
+          style={[styles.typingSubButton, (!editable || inputValue.length === 0) && styles.typingButtonDisabled]}>
+          <Text style={styles.typingSubButtonText}>다시 입력</Text>
+        </Pressable>
+        <Pressable
+          disabled={!isComplete || hasSubmitted || isSubmitPending}
+          onPress={handleSubmit}
+          style={[
+            styles.typingPrimaryButton,
+            (!isComplete || hasSubmitted || isSubmitPending) && styles.typingButtonDisabled,
+          ]}>
+          <Text style={styles.typingPrimaryButtonText}>{isSubmitPending ? '제출 중' : '제출'}</Text>
+        </Pressable>
+      </View>
+
+      <TextInput
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={editable}
+        blurOnSubmit
+        multiline
+        onChangeText={setInputValue}
+        onSubmitEditing={handleSubmit}
+        placeholder="문장을 입력하세요"
+        placeholderTextColor="#777777"
+        returnKeyType="done"
+        style={[
+          styles.typingInput,
+          hasMistake && styles.typingInputError,
+          isComplete && styles.typingInputComplete,
+          !editable && styles.typingInputDisabled,
+        ]}
+        value={inputValue}
+      />
+
+      <View style={styles.typingPlayersCard}>
+        <Text style={styles.roundHistoryTitle}>참가 현황</Text>
+        {players.length > 0 ? (
+          players.map((player, index) => {
+            const isMine = isSameTypingPlayer(player, myUserId, myUserName);
+
+            return (
+              <View
+                key={`${player.employeeId ?? player.employeeName ?? 'player'}-${index}`}
+                style={[styles.typingPlayerRow, isMine && styles.typingPlayerRowMine]}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
+                  {isMine ? '나' : player.employeeName ?? '참가자'}
+                </Text>
+                <Text style={styles.typingPlayerMeta}>
+                  {isTypingPlayerCompleted(player) ? `완료 · ${formatTypingElapsed(player.elapsedSeconds)}` : '입력중'}
+                </Text>
+              </View>
+            );
+          })
+        ) : (
+          <Text style={styles.roundHistoryEmpty}>아직 제출한 참가자가 없습니다.</Text>
+        )}
+      </View>
+
+      {rankingItems.length > 0 ? (
+        <View style={styles.typingPlayersCard}>
+          <Text style={styles.roundHistoryTitle}>최종 순위</Text>
+          {rankingItems.map((result, index) => {
+            const isMine = isSameTypingPlayer(result, myUserId, myUserName);
+
+            return (
+              <View
+                key={`${result.employeeId ?? result.employeeName ?? 'result'}-${index}`}
+                style={[styles.typingPlayerRow, isMine && styles.typingPlayerRowMine]}>
+                <Text style={styles.typingRankText}>{index + 1}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
+                  {isMine ? `${result.employeeName ?? '나'} · 내 기록` : result.employeeName ?? '참가자'}
+                </Text>
+                <Text style={styles.typingPlayerMeta}>
+                  {result.winCount > 0
+                    ? `${result.winCount}승 · ${formatTypingElapsed(result.elapsedSeconds)}`
+                    : formatTypingElapsed(result.elapsedSeconds)}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function CoinBattleRoomScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
   const route = useRoute<RouteProps>();
@@ -483,11 +856,14 @@ export function CoinBattleRoomScreen(): JSX.Element {
     requestPictureMatchState,
     requestRoomState,
     requestRpsState,
+    requestTypingState,
     rooms: realtimeRooms,
     startRoom,
     subscribePictureMatch,
     subscribeRoom,
     subscribeRps,
+    subscribeTyping,
+    submitTypingSentence,
   } = useCoinBattleRooms({accessToken: auth?.accessToken});
   const [ready, setReady] = useState(false);
   const [roomDetail, setRoomDetail] = useState<CoinBattleRoom | undefined>(undefined);
@@ -503,6 +879,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const roundResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRequestedRef = useRef(false);
   const latestPresentedRoundRef = useRef(0);
+  const latestTypingSyncRequestedRoundRef = useRef(0);
   const countdownBackdropOpacity = useRef(new Animated.Value(0)).current;
   const countdownScale = useRef(new Animated.Value(0.72)).current;
   const countdownOpacity = useRef(new Animated.Value(0)).current;
@@ -531,6 +908,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const isGameInProgress = roomStatus === 'IN_PROGRESS';
   const isRpsGame = currentRoom?.realtimeGameId === 1;
   const isPictureMatchGame = currentRoom?.realtimeGameId === 2;
+  const isTypingGame = currentRoom?.realtimeGameId === 21;
   const opponentMember = roomMembers.find(member => {
     return String(member.employeeId) !== String(myUserId);
   });
@@ -554,6 +932,18 @@ export function CoinBattleRoomScreen(): JSX.Element {
     roomId,
     subscribePictureMatch,
   });
+  const {
+    completedTypingRoundCount: trackedCompletedTypingRoundCount,
+    handleSubmitTyping,
+    resetTypingGame,
+    typingGameState,
+  } = useCoinBattleTypingGame({
+    isActive: hasGameStarted && isTypingGame,
+    requestTypingState,
+    roomId,
+    submitTypingSentence,
+    subscribeTyping,
+  });
   const completedRoundCount = rpsRoundResults.reduce((count, round) => {
     return typeof round.judgedAt === 'string' && round.judgedAt.length > 0 ? count + 1 : count;
   }, 0);
@@ -572,7 +962,44 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const isPictureMatchFinished =
     pictureMatchFinalResults.length > 0 ||
     (pictureMatchPictures.length > 0 && pictureMatchPictures.every(picture => picture.isMatched));
-  const isMatchFinished = isRpsGame ? isRpsMatchFinished : isPictureMatchGame ? isPictureMatchFinished : false;
+  const typingFinalResults =
+    typingGameState && Array.isArray(typingGameState.finalResults) ? typingGameState.finalResults : [];
+  const typingRounds = typingGameState && Array.isArray(typingGameState.rounds) ? typingGameState.rounds : [];
+  const typingTotalRoundCount =
+    typingGameState &&
+    Array.isArray(typingGameState.roundSentences) &&
+    typingGameState.roundSentences.length > 0
+      ? typingGameState.roundSentences.length
+      : totalRoundCount;
+  const visibleCompletedTypingRoundCount = typingRounds.reduce((count, round) => {
+    return isTypingRoundCompleted(round) ? count + 1 : count;
+  }, 0);
+  const completedTypingRoundCount = Math.max(
+    visibleCompletedTypingRoundCount,
+    trackedCompletedTypingRoundCount,
+  );
+  const latestCompletedTypingRoundNumber = typingRounds.reduce((latestRoundNumber, round, index) => {
+    if (!isTypingRoundCompleted(round)) {
+      return latestRoundNumber;
+    }
+
+    const roundNumber = typeof round.roundNumber === 'number' ? round.roundNumber : index + 1;
+
+    return Math.max(latestRoundNumber, roundNumber);
+  }, 0);
+  const isTypingMatchFinished =
+    typingFinalResults.length > 0 ||
+    (isTypingGame &&
+      typingTotalRoundCount > 0 &&
+      (completedTypingRoundCount >= typingTotalRoundCount ||
+        latestCompletedTypingRoundNumber >= typingTotalRoundCount));
+  const isMatchFinished = isRpsGame
+    ? isRpsMatchFinished
+    : isPictureMatchGame
+    ? isPictureMatchFinished
+    : isTypingGame
+    ? isTypingMatchFinished
+    : false;
   const canStartCountdown =
     isRealtime &&
     Boolean(currentRoom) &&
@@ -605,6 +1032,27 @@ export function CoinBattleRoomScreen(): JSX.Element {
     return Boolean(auth?.name && player.employeeName && player.employeeName === auth.name);
   });
   const latestMyRoundResult = normalizeRpsResult(latestMyRoundPlayer?.result);
+  const latestTypingCompletedRound = typingRounds
+    .filter(round => {
+      return isTypingRoundCompleted(round);
+    })
+    .slice()
+    .sort((left, right) => {
+      return (left.roundNumber ?? 0) - (right.roundNumber ?? 0);
+    })
+    .at(-1);
+  const latestTypingWinner = latestTypingCompletedRound
+    ? getTypingRoundWinner(latestTypingCompletedRound.typingPlayers ?? [])
+    : undefined;
+  const latestMyTypingPlayer = latestTypingCompletedRound?.typingPlayers?.find(player => {
+    return isSameTypingPlayer(player, myUserId, auth?.name);
+  });
+  const latestMyTypingResult =
+    latestTypingWinner && isSameTypingPlayer(latestTypingWinner, myUserId, auth?.name)
+      ? 'WIN'
+      : latestTypingWinner
+      ? 'LOSE'
+      : null;
   const displayedMyChoice = selectedRpsChoice;
   const displayedOpponentChoice = opponentRpsChoice;
   const shouldShowChoiceOverlay =
@@ -829,6 +1277,49 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [latestJudgedRound, latestMyRoundResult]);
 
   useEffect(() => {
+    if (!isTypingGame || !latestTypingCompletedRound || !latestMyTypingResult) {
+      return;
+    }
+
+    const nextRoundNumber = latestTypingCompletedRound.roundNumber ?? 0;
+
+    if (nextRoundNumber <= 0 || nextRoundNumber <= latestPresentedRoundRef.current) {
+      return;
+    }
+
+    latestPresentedRoundRef.current = nextRoundNumber;
+    setRoundResultOverlay({
+      result: latestMyTypingResult,
+      roundNumber: nextRoundNumber,
+      source: 'typing',
+      winnerName: latestTypingWinner?.employeeName,
+    });
+  }, [isTypingGame, latestMyTypingResult, latestTypingCompletedRound, latestTypingWinner]);
+
+  useEffect(() => {
+    if (!isTypingGame || !latestTypingCompletedRound || isTypingMatchFinished) {
+      return;
+    }
+
+    const completedRoundNumber = latestTypingCompletedRound.roundNumber ?? 0;
+
+    if (
+      completedRoundNumber <= 0 ||
+      completedRoundNumber <= latestTypingSyncRequestedRoundRef.current
+    ) {
+      return;
+    }
+
+    latestTypingSyncRequestedRoundRef.current = completedRoundNumber;
+
+    const timer = setTimeout(() => {
+      requestTypingState(roomId);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [isTypingGame, isTypingMatchFinished, latestTypingCompletedRound, requestTypingState, roomId]);
+
+  useEffect(() => {
     if (!selectedRpsChoice) {
       setPendingRpsChoice(null);
     }
@@ -899,7 +1390,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
           }
         });
       },
-      isMatchFinished ? 1800 : 1400,
+      roundResultOverlay.source === 'typing' ? 3000 : isMatchFinished ? 1800 : 1400,
     );
 
     return () => {
@@ -976,8 +1467,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
       setPendingRpsChoice(null);
       startRequestedRef.current = false;
       latestPresentedRoundRef.current = 0;
+      latestTypingSyncRequestedRoundRef.current = 0;
       resetRpsGame();
       resetPictureMatchGame();
+      resetTypingGame();
       requestRoomState(roomId);
       scrollViewRef.current?.scrollTo({animated: false, y: 0});
 
@@ -1018,8 +1511,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
         <ScrollView
           ref={scrollViewRef}
+          automaticallyAdjustKeyboardInsets
           bounces={false}
           contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <Animated.View
             style={{
@@ -1034,7 +1529,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   </Text>
                   <View style={styles.liveCompactMetaRow}>
                     <Text style={styles.liveCompactMeta}>
-                      {isPictureMatchGame
+                      {isTypingGame
+                        ? '타자게임'
+                        : isPictureMatchGame
                         ? '같은그림 맞추기'
                         : `라운드 ${isMatchFinished ? '종료' : currentRoundNumber} / ${totalRoundCount}`}
                     </Text>
@@ -1053,7 +1550,15 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 </View>
 
                 <View style={styles.gameSection}>
-                  {isPictureMatchGame ? (
+                  {isTypingGame ? (
+                    <TypingGamePanel
+                      disabled={Boolean(roundResultOverlay)}
+                      myUserId={myUserId}
+                      myUserName={auth?.name}
+                      onSubmit={handleSubmitTyping}
+                      state={typingGameState}
+                    />
+                  ) : isPictureMatchGame ? (
                     <PictureMatchGamePanel
                       isFinished={isMatchFinished}
                       myUserId={myUserId}
@@ -1337,14 +1842,24 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 {isMatchFinished ? 'FINAL ROUND' : `ROUND ${roundResultOverlay.roundNumber}`}
               </Text>
               <Text style={styles.resultValue}>
-                {roundResultOverlay.result === 'WIN'
+                {roundResultOverlay.source === 'typing' && roundResultOverlay.result === 'WIN'
+                  ? '라운드 승리'
+                  : roundResultOverlay.source === 'typing'
+                  ? '라운드 패배'
+                  : roundResultOverlay.result === 'WIN'
                   ? '승리'
                   : roundResultOverlay.result === 'LOSE'
                   ? '패배'
                   : '무승부'}
               </Text>
               <Text style={styles.resultHint}>
-                {roundResultOverlay.result === 'WIN'
+                {roundResultOverlay.source === 'typing' && roundResultOverlay.result === 'WIN'
+                  ? '가장 먼저 입력했어요'
+                  : roundResultOverlay.source === 'typing' && roundResultOverlay.winnerName
+                  ? `${roundResultOverlay.winnerName}님이 먼저 입력했어요`
+                  : roundResultOverlay.source === 'typing'
+                  ? '다음 문장을 노려보세요'
+                  : roundResultOverlay.result === 'WIN'
                   ? '멋져요!'
                   : roundResultOverlay.result === 'LOSE'
                   ? '다음 라운드를 노려보세요'
@@ -1463,7 +1978,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 132,
+    paddingBottom: 180,
   },
   hero: {
     borderRadius: 18,
@@ -1644,10 +2159,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: '#FFFFFF',
     ...FONTS.font18B,
-    marginBottom: 12,
+    marginBottom: 6,
   },
   memberRow: {
-    minHeight: 72,
+    minHeight: 80,
+    marginTop: 10,
     borderRadius: 14,
     backgroundColor: '#111111',
     borderWidth: 1,
@@ -1657,11 +2173,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#FFFFFF',
-    marginRight: 12,
+    marginRight: 14,
   },
   memberText: {
     flex: 1,
@@ -2213,6 +2729,166 @@ const styles = StyleSheet.create({
   pictureMatchMineBadgeText: {
     color: '#FFFFFF',
     ...FONTS.font12B,
+  },
+  typingPanel: {},
+  typingHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  typingTitle: {
+    marginTop: 6,
+    color: '#FFFFFF',
+    ...FONTS.font22B,
+  },
+  typingSentenceCard: {
+    marginTop: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#292929',
+    backgroundColor: '#161616',
+    padding: 16,
+  },
+  typingSentenceLabel: {
+    color: '#FF8A94',
+    ...FONTS.font11B,
+    letterSpacing: 0.6,
+  },
+  typingSentence: {
+    marginTop: 8,
+    color: '#FFFFFF',
+    ...FONTS.font18B,
+    lineHeight: 27,
+  },
+  typingProgressTrack: {
+    height: 7,
+    marginTop: 14,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: '#292929',
+  },
+  typingProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#F40D21',
+  },
+  typingInput: {
+    minHeight: 88,
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#343434',
+    backgroundColor: '#0C0C0C',
+    color: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    textAlignVertical: 'top',
+    ...FONTS.font15M,
+  },
+  typingInputError: {
+    borderColor: '#F40D21',
+    backgroundColor: '#180C0E',
+  },
+  typingInputComplete: {
+    borderColor: 'rgba(62, 183, 105, 0.65)',
+    backgroundColor: 'rgba(62, 183, 105, 0.08)',
+  },
+  typingInputDisabled: {
+    opacity: 0.62,
+  },
+  typingStatusRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  typingStatusText: {
+    flex: 1,
+    color: '#C7C8CC',
+    ...FONTS.font12M,
+  },
+  typingStatusError: {
+    color: '#FF8A94',
+  },
+  typingCountText: {
+    color: '#8B8E96',
+    ...FONTS.font12B,
+  },
+  typingButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  typingSubButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#343434',
+  },
+  typingSubButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+  },
+  typingPrimaryButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F40D21',
+  },
+  typingPrimaryButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+  },
+  typingButtonDisabled: {
+    opacity: 0.45,
+  },
+  typingPlayersCard: {
+    marginTop: 16,
+    borderRadius: 14,
+    backgroundColor: '#161616',
+    borderWidth: 1,
+    borderColor: '#292929',
+    padding: 14,
+  },
+  typingPlayerRow: {
+    minHeight: 40,
+    marginTop: 10,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 10,
+    backgroundColor: '#101010',
+  },
+  typingPlayerRowMine: {
+    backgroundColor: 'rgba(244, 13, 33, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 13, 33, 0.35)',
+  },
+  typingPlayerName: {
+    flex: 1,
+    color: '#C7C8CC',
+    ...FONTS.font12B,
+  },
+  typingPlayerNameMine: {
+    color: '#FFFFFF',
+  },
+  typingPlayerMeta: {
+    color: '#8B8E96',
+    ...FONTS.font11B,
+  },
+  typingRankText: {
+    width: 20,
+    color: '#F40D21',
+    ...FONTS.font13B,
   },
   finishDock: {
     position: 'absolute',
