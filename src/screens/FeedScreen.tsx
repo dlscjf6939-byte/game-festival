@@ -287,9 +287,11 @@ export function FeedScreen(): JSX.Element {
   const highlightHeaderTop = topSafeArea + 22;
   const highlightTextBottom = Math.max(insets.bottom + 32, 42);
   const isCommentSubmittable = commentDraft.trim().length > 0;
-  const profileImageUri =
-    typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
-  const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
+  const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
+  const myAvatarSource = useMemo<ImageSourcePropType>(
+    () => (profileImageUri ? {uri: profileImageUri} : image.profile),
+    [profileImageUri],
+  );
   const myName = auth?.name ?? '이인철';
   const myTeamName =
     getProfileText(auth?.profile, [
@@ -527,13 +529,11 @@ export function FeedScreen(): JSX.Element {
       images: composeImageUris.map(uri => ({uri})),
       title: '현장 피드',
       caption,
-      hashtags: (
-        draftTag
-          ? [
-              ...composeTags,
-              `#${draftTag.replace(/^#+/, '')}`,
-            ].filter((tag, index, tags) => tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index)
-          : composeTags
+      hashtags: (draftTag
+        ? [...composeTags, `#${draftTag.replace(/^#+/, '')}`].filter(
+            (tag, index, tags) => tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index,
+          )
+        : composeTags
       ).slice(0, 6),
       time: '방금 전',
       likes: 0,
@@ -547,7 +547,16 @@ export function FeedScreen(): JSX.Element {
     }));
     setSelectedPostId(newPost.id);
     closeCompose();
-  }, [closeCompose, composeCaption, composeImageUris, composeTagDraft, composeTags, myAvatarSource, myName, myTeamName]);
+  }, [
+    closeCompose,
+    composeCaption,
+    composeImageUris,
+    composeTagDraft,
+    composeTags,
+    myAvatarSource,
+    myName,
+    myTeamName,
+  ]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -681,16 +690,15 @@ export function FeedScreen(): JSX.Element {
                               {postImages.map((_, index) => (
                                 <View
                                   key={`${post.id}-dot-${index}`}
-                                  style={[
-                                    styles.postImageDot,
-                                    index === activeImageIndex && styles.postImageDotActive,
-                                  ]}
+                                  style={[styles.postImageDot, index === activeImageIndex && styles.postImageDotActive]}
                                 />
                               ))}
                             </View>
                           </>
                         ) : null}
-                        <View pointerEvents="none" style={[styles.imageTitleWrap, postImages.length > 1 && styles.imageTitleWrapWithDots]}>
+                        <View
+                          pointerEvents="none"
+                          style={[styles.imageTitleWrap, postImages.length > 1 && styles.imageTitleWrapWithDots]}>
                           <Text style={styles.imageTitle}>{post.title}</Text>
                           <Text style={styles.imageTime}>{post.time}</Text>
                         </View>
@@ -783,7 +791,11 @@ export function FeedScreen(): JSX.Element {
             ref={bottomSheetRef}
             index={-1}
             snapPoints={snapPoints}
+            android_keyboardInputMode="adjustResize"
             enablePanDownToClose
+            keyboardBehavior="interactive"
+            keyboardBlurBehavior="restore"
+            bottomInset={insets.bottom}
             backdropComponent={renderBackdrop}
             handleIndicatorStyle={styles.sheetHandle}
             handleStyle={styles.sheetHandleArea}
@@ -800,7 +812,7 @@ export function FeedScreen(): JSX.Element {
               contentContainerStyle={styles.commentListContent}
             />
 
-            <View style={styles.commentInputWrap}>
+            <View style={[styles.commentInputWrap, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
               <Image source={image.profile} style={styles.inputAvatar} />
               <BottomSheetTextInput
                 placeholder="댓글 달기"
@@ -821,11 +833,7 @@ export function FeedScreen(): JSX.Element {
             </View>
           </BottomSheet>
 
-          <Modal
-            animationType="fade"
-            onRequestClose={closeHighlight}
-            transparent
-            visible={isHighlightVisible}>
+          <Modal animationType="fade" onRequestClose={closeHighlight} transparent visible={isHighlightVisible}>
             {selectedHighlightGroup && selectedHighlightItem ? (
               <View style={styles.highlightViewer}>
                 <View style={[styles.highlightProgressRow, {top: highlightProgressTop}]}>
@@ -886,26 +894,24 @@ export function FeedScreen(): JSX.Element {
           </Modal>
 
           <Modal animationType="slide" onRequestClose={closeCompose} visible={isComposeVisible}>
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              style={styles.composeScreen}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.composeScreen}>
               <StatusBar barStyle="light-content" backgroundColor="#050505" />
 
               <View style={[styles.composeHeader, {paddingTop: topSafeArea + 12}]}>
                 <Pressable accessibilityRole="button" onPress={closeCompose} style={styles.composeHeaderButton}>
                   <Text style={styles.composeHeaderButtonText}>×</Text>
                 </Pressable>
-                <Text style={styles.composeTitle}>
-                  {composeStep === 'select' ? '새 게시물' : '문구 입력'}
-                </Text>
+                <Text style={styles.composeTitle}>{composeStep === 'select' ? '새 게시물' : '문구 입력'}</Text>
                 <View style={styles.composeHeaderButton} />
               </View>
 
               <ScrollView
+                automaticallyAdjustKeyboardInsets
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
                 style={styles.composeScroll}
-                contentContainerStyle={[styles.composeContent, {paddingBottom: Math.max(insets.bottom + 104, 120)}]}>
+                contentContainerStyle={[styles.composeContent, {paddingBottom: Math.max(insets.bottom + 24, 40)}]}>
                 {composeStep === 'select' ? (
                   <>
                     <Pressable
@@ -929,9 +935,7 @@ export function FeedScreen(): JSX.Element {
                         <View style={styles.composeImagePlaceholder}>
                           <Text style={styles.composeImagePlus}>＋</Text>
                           <Text style={styles.composeImageTitle}>사진을 선택하세요</Text>
-                          <Text style={styles.composeImageDescription}>
-                            피드에 올릴 현장 사진을 먼저 골라주세요.
-                          </Text>
+                          <Text style={styles.composeImageDescription}>피드에 올릴 현장 사진을 먼저 골라주세요.</Text>
                         </View>
                       )}
                     </Pressable>
@@ -1435,7 +1439,6 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
     paddingTop: 12,
-    paddingBottom: 24,
     borderTopWidth: 1,
     borderTopColor: '#282828',
     backgroundColor: '#111111',
@@ -1817,10 +1820,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   composeFooter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
     backgroundColor: '#050505',
