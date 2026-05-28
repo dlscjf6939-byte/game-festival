@@ -1,8 +1,9 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useNavigation} from '@react-navigation/native';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useFocusEffect, useNavigation, useRoute, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
   Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -14,20 +15,41 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
   type ImageSourcePropType,
 } from 'react-native';
+import LottieView from 'lottie-react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
+import {icon} from '../assets/icons';
+import {logo} from '../assets/logo';
 import type {PredictionStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 
 const teams = [
-  {id: 'team-red', imageSource: image.tekken, name: 'TEAM RED', tone: '#F40D21'},
-  {id: 'team-black', imageSource: image.tekken7, name: 'TEAM BLACK', tone: '#4B5568'},
+  {
+    id: 'team-red',
+    imageSource: logo.boongkwon,
+    members: ['이인철', '김아랑', '정현석'],
+    name: '전국붕권노동조합총연맹',
+    tone: '#E50914',
+  },
+  {
+    id: 'team-black',
+    imageSource: logo.gwantaekdong,
+    members: ['서현택', '김정관', '황동익'],
+    name: '관택동',
+    tone: '#4B5568',
+  },
 ] as const;
+
+const compareVsLottie = require('../assets/lotties/Compare.json');
+const isLottieNativeAvailable = Boolean(UIManager.getViewManagerConfig?.('LottieAnimationView'));
 
 type TeamId = (typeof teams)[number]['id'];
 type PredictionStep = 'select' | 'comment' | 'result';
@@ -75,7 +97,7 @@ const initialCheerComments: CheerComment[] = [
 ];
 
 function getTeamName(teamId: TeamId): string {
-  return teams.find(team => team.id === teamId)?.name ?? 'TEAM RED';
+  return teams.find(team => team.id === teamId)?.name ?? '붕권';
 }
 
 function ChoiceCard({
@@ -138,20 +160,39 @@ function ChoiceCard({
           ],
         },
       ]}>
-      <Pressable
+      <AnimatedPressable
         accessibilityRole="button"
         onPress={onPress}
         onPressIn={handlePressIn}
-        onPressOut={handlePressOut}>
-        <Animated.View
-          style={[styles.choiceCard, isSelected && styles.choiceCardSelected]}>
-          <View style={[styles.placeholderArt, {backgroundColor: team.tone}]}>
-            <Image source={team.imageSource} style={styles.teamCardImage} resizeMode="cover" />
-            <View style={styles.teamCardDim} />
-            <View style={styles.teamCardTextBlock}>
-              <Text style={styles.teamCardName}>{team.name}</Text>
-              <Text style={styles.teamCardHint}>승리 예측</Text>
-            </View>
+        onPressOut={handlePressOut}
+        style={styles.choicePressable}>
+        <Animated.View style={[styles.choiceCard, isSelected && styles.choiceCardSelected]}>
+          <View style={styles.teamLogoBox}>
+            <Animated.Image
+              source={team.imageSource}
+              style={[
+                styles.teamCardImage,
+                {
+                  transform: [
+                    {
+                      scale: selectAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.92, 1.12],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+              resizeMode="contain"
+            />
+          </View>
+          <View style={styles.teamCardTextBlock}>
+            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.teamCardName}>
+              {team.name}
+            </Text>
+            <Text numberOfLines={2} style={styles.teamCardMembers}>
+              {team.members.join(' / ')}
+            </Text>
           </View>
 
           <Animated.View
@@ -169,65 +210,84 @@ function ChoiceCard({
                 ],
               },
             ]}>
-            <Text style={styles.selectChipText}>
-              {isSelected ? '선택됨' : '선택'}
-            </Text>
+            <Text style={styles.selectChipText}>{isSelected ? '선택됨' : '선택'}</Text>
           </Animated.View>
         </Animated.View>
-      </Pressable>
+      </AnimatedPressable>
     </Animated.View>
   );
 }
 
-function BackIcon(): JSX.Element {
-  return (
-    <View style={styles.backIconWrap}>
-      <View style={[styles.backStroke, styles.backStrokeTop]} />
-      <View style={[styles.backStroke, styles.backStrokeBottom]} />
-    </View>
-  );
-}
-
 export function PredictionDetailScreen(): JSX.Element {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
+  const route = useRoute<RouteProp<PredictionStackParamList, 'PredictionDetail'>>();
   const {auth} = useAuth();
-  const profileImageUri =
-    typeof auth?.profile?.profileImageUri === 'string'
-      ? auth.profile.profileImageUri
-      : null;
+  const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
   const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const myName = auth?.name ?? '이인철';
-  const [step, setStep] = useState<PredictionStep>('select');
-  const [selectedTeam, setSelectedTeam] = useState<TeamId>('team-red');
+  const initialSelectedTeam = route.params?.selectedTeamId ?? 'team-red';
+  const isParticipatedDetail = route.params?.mode === 'participated';
+  const [step, setStep] = useState<PredictionStep>(isParticipatedDetail ? 'result' : 'select');
+  const [selectedTeam, setSelectedTeam] = useState<TeamId>(initialSelectedTeam);
+  const [expandedTeam, setExpandedTeam] = useState<TeamId | null>(isParticipatedDetail ? initialSelectedTeam : null);
+  const [matchupStageSize, setMatchupStageSize] = useState({height: 0, width: 0});
   const [cheerDraft, setCheerDraft] = useState('');
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
-  const [submittedComment, setSubmittedComment] = useState<CheerComment | null>(
-    null,
-  );
+  const [submittedComment, setSubmittedComment] = useState<CheerComment | null>(() => {
+    if (!isParticipatedDetail) {
+      return null;
+    }
+
+    return {
+      id: 'my-participated-cheer',
+      avatar: myAvatarSource,
+      isMine: true,
+      name: myName,
+      teamId: initialSelectedTeam,
+      text: route.params?.cheerComment ?? '',
+      time: '참여 완료',
+    };
+  });
   const stepTransition = useRef(new Animated.Value(1)).current;
+  const stageIntroProgress = useRef(new Animated.Value(0)).current;
+  const teamDetailProgress = useRef(new Animated.Value(isParticipatedDetail ? 1 : 0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
-  const selectedTeamInfo =
-    teams.find(team => team.id === selectedTeam) ?? teams[0];
+  const selectedTeamInfo = teams.find(team => team.id === selectedTeam) ?? teams[0];
+  const expandedTeamInfo = expandedTeam ? teams.find(team => team.id === expandedTeam) ?? teams[0] : null;
 
   const voteCounts = {
     ...initialVoteCounts,
     ...(submittedComment
       ? {
-          [submittedComment.teamId]:
-            initialVoteCounts[submittedComment.teamId] + 1,
+          [submittedComment.teamId]: initialVoteCounts[submittedComment.teamId] + 1,
         }
       : {}),
   };
   const totalVotes = voteCounts['team-red'] + voteCounts['team-black'];
-  const redRatio = totalVotes
-    ? Math.round((voteCounts['team-red'] / totalVotes) * 100)
-    : 0;
+  const redRatio = totalVotes ? Math.round((voteCounts['team-red'] / totalVotes) * 100) : 0;
   const blackRatio = 100 - redRatio;
-  const cheerComments = submittedComment
-    ? [submittedComment, ...initialCheerComments]
-    : initialCheerComments;
+  const cheerComments = submittedComment ? [submittedComment, ...initialCheerComments] : initialCheerComments;
+  const matchupSplitLineStyle = useMemo(() => {
+    const {height, width} = matchupStageSize;
+
+    if (!width || !height) {
+      return {
+        marginLeft: -1,
+        transform: [{rotate: '-35deg'}],
+        width: 2,
+      };
+    }
+
+    const diagonalLength = Math.sqrt(width * width + height * height);
+    const diagonalAngle = Math.atan2(height, width) * (180 / Math.PI);
+
+    return {
+      marginLeft: -diagonalLength / 2,
+      transform: [{rotate: `${-diagonalAngle}deg`}],
+      width: diagonalLength,
+    };
+  }, [matchupStageSize]);
   const stepTransitionStyle = {
     opacity: stepTransition,
     transform: [
@@ -239,6 +299,92 @@ export function PredictionDetailScreen(): JSX.Element {
       },
     ],
   };
+  const leftLogoIntroStyle = {
+    opacity: stageIntroProgress,
+    transform: [
+      {
+        translateX: stageIntroProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-136, 0],
+        }),
+      },
+      {
+        scale: stageIntroProgress.interpolate({
+          inputRange: [0, 0.7, 1],
+          outputRange: [0.72, 1.08, 1],
+        }),
+      },
+    ],
+  };
+  const rightLogoIntroStyle = {
+    opacity: stageIntroProgress,
+    transform: [
+      {
+        translateX: stageIntroProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [136, 0],
+        }),
+      },
+      {
+        scale: stageIntroProgress.interpolate({
+          inputRange: [0, 0.7, 1],
+          outputRange: [0.72, 1.08, 1],
+        }),
+      },
+    ],
+  };
+  const teamDetailStyle = {
+    opacity: teamDetailProgress,
+    transform: [
+      {
+        translateY: teamDetailProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [28, 0],
+        }),
+      },
+      {
+        scale: teamDetailProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.78, 1],
+        }),
+      },
+    ],
+  };
+  const matchupIdleStyle = {
+    opacity: expandedTeam
+      ? teamDetailProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [1, 0],
+        })
+      : 1,
+  };
+
+  const playStageIntro = useCallback(() => {
+    if (step !== 'select') {
+      return;
+    }
+
+    stageIntroProgress.setValue(0);
+    Animated.sequence([
+      Animated.delay(360),
+      Animated.timing(stageIntroProgress, {
+        toValue: 1,
+        duration: 760,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [stageIntroProgress, step]);
+
+  useEffect(() => {
+    playStageIntro();
+  }, [playStageIntro]);
+
+  useFocusEffect(
+    useCallback(() => {
+      playStageIntro();
+    }, [playStageIntro]),
+  );
 
   const transitionToStep = useCallback(
     (nextStep: PredictionStep) => {
@@ -295,8 +441,39 @@ export function PredictionDetailScreen(): JSX.Element {
   };
 
   const handleSelectNext = () => {
+    if (!expandedTeam) {
+      return;
+    }
+
     transitionToStep('comment');
   };
+
+  const handleTeamLogoPress = useCallback(
+    (teamId: TeamId) => {
+      setSelectedTeam(teamId);
+      setExpandedTeam(teamId);
+      teamDetailProgress.stopAnimation();
+      teamDetailProgress.setValue(0);
+      Animated.spring(teamDetailProgress, {
+        toValue: 1,
+        speed: 15,
+        bounciness: 10,
+        useNativeDriver: true,
+      }).start();
+    },
+    [teamDetailProgress],
+  );
+
+  const handleCloseTeamDetail = useCallback(() => {
+    teamDetailProgress.stopAnimation();
+    Animated.timing(teamDetailProgress, {
+      toValue: 0,
+      duration: 160,
+      useNativeDriver: true,
+    }).start(() => {
+      setExpandedTeam(null);
+    });
+  }, [teamDetailProgress]);
 
   const openSubmitConfirm = () => {
     const trimmedComment = cheerDraft.trim();
@@ -339,197 +516,244 @@ export function PredictionDetailScreen(): JSX.Element {
           <AppGnb />
 
           <View style={styles.backRow}>
-            <Pressable
+            <AnimatedPressable
               accessibilityLabel="뒤로가기"
               accessibilityRole="button"
               onPress={handleBackPress}
               style={styles.backButton}>
-              <BackIcon />
-            </Pressable>
+              <Image source={icon.backBtn} style={styles.backIcon} />
+            </AnimatedPressable>
           </View>
 
           <Animated.View style={[styles.stepAnimatedShell, stepTransitionStyle]}>
             {step === 'result' && submittedComment ? (
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.resultContent}>
-              <View style={styles.resultHero}>
-                <Text style={styles.resultEyebrow}>내 선택</Text>
-                <Text style={styles.resultTitle}>{getTeamName(submittedComment.teamId)}</Text>
-                <Text style={styles.resultSubtitle}>
-                  내 응원댓글이 전체 댓글에 반영됐어요.
-                </Text>
-              </View>
-
-              <View style={styles.voteCard}>
-                <View style={styles.voteHeader}>
-                  <Text style={styles.voteTitle}>투표 현황</Text>
-                  <Text style={styles.voteTotal}>총 {totalVotes}표</Text>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
+                <View style={styles.resultHero}>
+                  <Text style={styles.resultEyebrow}>내 선택</Text>
+                  <Text style={styles.resultTitle}>{getTeamName(submittedComment.teamId)}</Text>
+                  <Text style={styles.resultSubtitle}>경기 종료 후 결과에 따라 코인을 지급받을 수 있어요</Text>
                 </View>
 
-                <View style={styles.voteGraphTrack}>
-                  <View style={[styles.voteGraphRed, {flex: voteCounts['team-red']}]} />
-                  <View style={[styles.voteGraphBlack, {flex: voteCounts['team-black']}]} />
-                </View>
-
-                <View style={styles.voteLegendRow}>
-                  <View style={styles.voteLegendItem}>
-                    <View style={[styles.voteDot, {backgroundColor: '#F40D21'}]} />
-                    <Text style={styles.voteLegendText}>
-                      TEAM RED {voteCounts['team-red']}표 · {redRatio}%
-                    </Text>
+                <View style={styles.voteCard}>
+                  <View style={styles.voteHeader}>
+                    <Text style={styles.voteTitle}>투표 현황</Text>
+                    <Text style={styles.voteTotal}>총 {totalVotes}표</Text>
                   </View>
-                  <View style={styles.voteLegendItem}>
-                    <View style={[styles.voteDot, {backgroundColor: '#4B5568'}]} />
-                    <Text style={styles.voteLegendText}>
-                      TEAM BLACK {voteCounts['team-black']}표 · {blackRatio}%
-                    </Text>
+
+                  <View style={styles.voteGraphTrack}>
+                    <View style={[styles.voteGraphRed, {flex: voteCounts['team-red']}]} />
+                    <View style={[styles.voteGraphBlack, {flex: voteCounts['team-black']}]} />
                   </View>
-                </View>
-              </View>
 
-              <View style={styles.commentSectionHeader}>
-                <Text style={styles.commentSectionTitle}>전체 응원댓글</Text>
-                <Text style={styles.commentSectionCount}>{cheerComments.length}개</Text>
-              </View>
-
-              <View style={styles.cheerCommentList}>
-                {cheerComments.map(comment => (
-                  <View
-                    key={comment.id}
-                    style={[
-                      styles.cheerCommentRow,
-                      comment.isMine && styles.myCheerCommentRow,
-                    ]}>
-                    <Image
-                      source={comment.avatar}
-                      style={styles.cheerAvatar}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.cheerCommentBody}>
-                      <View style={styles.cheerCommentMetaRow}>
-                        <Text style={styles.cheerName}>{comment.name}</Text>
-                        <View
-                          style={[
-                            styles.cheerTeamBadge,
-                            comment.teamId === 'team-red'
-                              ? styles.cheerTeamBadgeRed
-                              : styles.cheerTeamBadgeBlack,
-                          ]}>
-                          <Text style={styles.cheerTeamBadgeText}>
-                            {getTeamName(comment.teamId)}
-                          </Text>
-                        </View>
-                        {comment.isMine ? (
-                          <Text style={styles.mineLabel}>내 댓글</Text>
-                        ) : null}
-                      </View>
-                      <Text style={styles.cheerText}>{comment.text}</Text>
-                      <Text style={styles.cheerTime}>{comment.time}</Text>
+                  <View style={styles.voteLegendRow}>
+                    <View style={styles.voteLegendItem}>
+                      <View style={[styles.voteDot, {backgroundColor: '#E50914'}]} />
+                      <Text style={styles.voteLegendText}>
+                        {getTeamName('team-red')} {voteCounts['team-red']}표 · {redRatio}%
+                      </Text>
+                    </View>
+                    <View style={styles.voteLegendItem}>
+                      <View style={[styles.voteDot, {backgroundColor: '#4B5568'}]} />
+                      <Text style={styles.voteLegendText}>
+                        {getTeamName('team-black')} {voteCounts['team-black']}표 · {blackRatio}%
+                      </Text>
                     </View>
                   </View>
-                ))}
-              </View>
+                </View>
+
+                <View style={styles.commentSectionHeader}>
+                  <Text style={styles.commentSectionTitle}>전체 응원댓글</Text>
+                  <Text style={styles.commentSectionCount}>{cheerComments.length}개</Text>
+                </View>
+
+                <View style={styles.cheerCommentList}>
+                  {cheerComments.map(comment => (
+                    <View key={comment.id} style={[styles.cheerCommentRow, comment.isMine && styles.myCheerCommentRow]}>
+                      <Image source={comment.avatar} style={styles.cheerAvatar} resizeMode="cover" />
+                      <View style={styles.cheerCommentBody}>
+                        <View style={styles.cheerCommentMetaRow}>
+                          <Text style={styles.cheerName}>{comment.name}</Text>
+                          <View
+                            style={[
+                              styles.cheerTeamBadge,
+                              comment.teamId === 'team-red' ? styles.cheerTeamBadgeRed : styles.cheerTeamBadgeBlack,
+                            ]}>
+                            <Text style={styles.cheerTeamBadgeText}>{getTeamName(comment.teamId)}</Text>
+                          </View>
+                          {comment.isMine ? <Text style={styles.mineLabel}>내 댓글</Text> : null}
+                        </View>
+                        <Text style={styles.cheerText}>{comment.text}</Text>
+                        <Text style={styles.cheerTime}>{comment.time}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
               </ScrollView>
             ) : step === 'select' ? (
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.voteInputStep}>
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.voteInputContent}>
-                <View style={styles.heroBlock}>
-                  <Text style={styles.heroTitle}>
-                    어느 팀이{'\n'}우승을 할지 맞춰보세요.
-                  </Text>
-                  <Text style={styles.heroSubtitle}>
-                    먼저 응원할 팀을 선택해주세요.
-                  </Text>
-                </View>
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.voteInputContent}>
+                  <View style={styles.heroBlock}>
+                    <Text style={styles.heroTitle}>철권7 결승전</Text>
+                    <Text style={styles.heroSubtitle}>승리할 팀을 선택해주세요.</Text>
+                  </View>
 
-                <View style={styles.cardList}>
-                  {teams.map(team => {
-                    const isSelected = selectedTeam === team.id;
-
-                    return (
-                      <ChoiceCard
-                        key={team.id}
-                        team={team}
-                        onPress={() => setSelectedTeam(team.id)}
-                        isSelected={isSelected}
+                  <View
+                    onLayout={({nativeEvent}) => {
+                      const {height, width} = nativeEvent.layout;
+                      setMatchupStageSize(prev =>
+                        prev.width === width && prev.height === height ? prev : {height, width},
+                      );
+                    }}
+                    style={styles.matchupStage}>
+                    <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
+                      <LinearGradient
+                        pointerEvents="none"
+                        colors={[
+                          'rgba(229,9,20,0)',
+                          'rgba(229,9,20,0.95)',
+                          'rgba(229,9,20,0.95)',
+                          'rgba(229,9,20,0)',
+                        ]}
+                        end={{x: 1, y: 0.5}}
+                        locations={[0, 0.1, 0.9, 1]}
+                        start={{x: 0, y: 0.5}}
+                        style={[styles.matchupSplitLine, matchupSplitLineStyle]}
                       />
-                    );
-                  })}
+
+                      <View pointerEvents="none" style={styles.vsBadgeCenter}>
+                        {isLottieNativeAvailable ? (
+                          <LottieView autoPlay loop source={compareVsLottie} style={styles.vsLottie} />
+                        ) : (
+                          <View style={styles.vsFallbackBadge}>
+                            <Text style={styles.vsFallbackText}>VS</Text>
+                          </View>
+                        )}
+                      </View>
+                    </Animated.View>
+
+                    <Animated.View
+                      style={[styles.wallLogoPressable, styles.wallLogoLeft, leftLogoIntroStyle, matchupIdleStyle]}>
+                      <AnimatedPressable
+                        accessibilityRole="button"
+                        disabled={Boolean(expandedTeam)}
+                        onPress={() => handleTeamLogoPress(teams[0].id)}
+                        style={styles.wallLogoTouchArea}>
+                        <Animated.View
+                          style={[
+                          styles.wallLogoShell,
+                          styles.wallLogoShellLeft,
+                          selectedTeam === teams[0].id && styles.wallLogoShellActive,
+                        ]}>
+                          <Image source={teams[0].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                        </Animated.View>
+                      </AnimatedPressable>
+                    </Animated.View>
+
+                    <Animated.View
+                      style={[styles.wallLogoPressable, styles.wallLogoRight, rightLogoIntroStyle, matchupIdleStyle]}>
+                      <AnimatedPressable
+                        accessibilityRole="button"
+                        disabled={Boolean(expandedTeam)}
+                        onPress={() => handleTeamLogoPress(teams[1].id)}
+                        style={styles.wallLogoTouchArea}>
+                        <Animated.View
+                          style={[
+                          styles.wallLogoShell,
+                          styles.wallLogoShellRight,
+                          selectedTeam === teams[1].id && styles.wallLogoShellActive,
+                        ]}>
+                          <Image source={teams[1].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                        </Animated.View>
+                      </AnimatedPressable>
+                    </Animated.View>
+
+                    {expandedTeamInfo ? (
+                      <Animated.View style={[styles.expandedTeamPanel, teamDetailStyle]}>
+                        <AnimatedPressable
+                          accessibilityLabel="팀 상세 닫기"
+                          accessibilityRole="button"
+                          onPress={handleCloseTeamDetail}
+                          style={styles.expandedCloseButton}>
+                          <Image source={icon.closeBtn} style={styles.expandedCloseIcon} />
+                        </AnimatedPressable>
+                        <View style={styles.expandedLogoRing}>
+                          <Image
+                            source={expandedTeamInfo.imageSource}
+                            resizeMode="contain"
+                            style={styles.expandedTeamLogo}
+                          />
+                        </View>
+                        <View style={styles.expandedTextBlock}>
+                          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.expandedTeamName}>
+                            {expandedTeamInfo.name}
+                          </Text>
+                          <Text numberOfLines={2} style={styles.expandedTeamMembers}>
+                            {expandedTeamInfo.members.join(' / ')}
+                          </Text>
+                        </View>
+                      </Animated.View>
+                    ) : null}
+                  </View>
+                </ScrollView>
+
+                <View style={styles.bottomActionWrap}>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    disabled={!expandedTeam}
+                    onPress={handleSelectNext}
+                    style={[styles.nextButton, !expandedTeam && styles.nextButtonDisabled]}>
+                    <Text style={[styles.nextButtonText, !expandedTeam && styles.nextButtonTextDisabled]}>다음</Text>
+                  </AnimatedPressable>
                 </View>
-
-              </ScrollView>
-
-              <View style={styles.bottomActionWrap}>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={handleSelectNext}
-                  style={styles.nextButton}>
-                  <Text style={styles.nextButtonText}>
-                    다음
-                  </Text>
-                </Pressable>
-              </View>
               </KeyboardAvoidingView>
             ) : (
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.voteInputStep}>
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.voteInputContent}>
-                <View
-                  style={[
-                    styles.selectedTeamHero,
-                    {backgroundColor: selectedTeamInfo.tone},
-                  ]}>
-                  <Image source={selectedTeamInfo.imageSource} style={styles.selectedTeamImage} resizeMode="cover" />
-                  <View style={styles.selectedTeamDim} />
-                  <View style={styles.selectedTeamTextBlock}>
-                    <Text style={styles.selectedTeamEyebrow}>내가 선택한 팀</Text>
-                    <Text style={styles.selectedTeamName}>{selectedTeamInfo.name}</Text>
-                    <Text style={styles.selectedTeamDescription}>
-                      응원댓글을 남기면 투표 결과를 볼 수 있어요.
-                    </Text>
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.voteInputContent}>
+                  <View style={[styles.selectedTeamHero, {backgroundColor: selectedTeamInfo.tone}]}>
+                    <Image
+                      source={selectedTeamInfo.imageSource}
+                      style={styles.selectedTeamImage}
+                      resizeMode="contain"
+                    />
+                    <View style={styles.selectedTeamTextBlock}>
+                      <Text style={styles.selectedTeamEyebrow}>내가 선택한 팀</Text>
+                      <Text adjustsFontSizeToFit numberOfLines={1} style={styles.selectedTeamName}>
+                        {selectedTeamInfo.name}
+                      </Text>
+                      <Text style={styles.selectedTeamMembers}>{selectedTeamInfo.members.join(' / ')}</Text>
+                      {/* <Text style={styles.selectedTeamDescription}>응원댓글을 남기면 투표 결과를 볼 수 있어요.</Text> */}
+                    </View>
                   </View>
-                </View>
 
-                <View style={styles.commentOnlyInputBlock}>
-                  <Text style={styles.commentOnlyLabel}>응원댓글</Text>
-                  <TextInput
-                    multiline
-                    autoFocus
-                    placeholder={`${selectedTeamInfo.name} 응원댓글 달기`}
-                    placeholderTextColor="#777A82"
-                    style={styles.commentOnlyInput}
-                    value={cheerDraft}
-                    onChangeText={setCheerDraft}
-                  />
-                </View>
-              </ScrollView>
+                  <View style={styles.commentOnlyInputBlock}>
+                    <Text style={styles.commentOnlyLabel}>응원댓글</Text>
+                    <TextInput
+                      multiline
+                      autoFocus
+                      placeholder={`${selectedTeamInfo.name} 응원댓글 달기`}
+                      placeholderTextColor="#777A82"
+                      style={styles.commentOnlyInput}
+                      value={cheerDraft}
+                      onChangeText={setCheerDraft}
+                    />
+                  </View>
+                </ScrollView>
 
-              <View style={styles.bottomActionWrap}>
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={!cheerDraft.trim()}
-                  onPress={openSubmitConfirm}
-                  style={[
-                    styles.nextButton,
-                    !cheerDraft.trim() && styles.nextButtonDisabled,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.nextButtonText,
-                      !cheerDraft.trim() && styles.nextButtonTextDisabled,
-                    ]}>
-                    다음
-                  </Text>
-                </Pressable>
-              </View>
+                <View style={styles.bottomActionWrap}>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    disabled={!cheerDraft.trim()}
+                    onPress={openSubmitConfirm}
+                    style={[styles.nextButton, !cheerDraft.trim() && styles.nextButtonDisabled]}>
+                    <Text style={[styles.nextButtonText, !cheerDraft.trim() && styles.nextButtonTextDisabled]}>
+                      다음
+                    </Text>
+                  </AnimatedPressable>
+                </View>
               </KeyboardAvoidingView>
             )}
           </Animated.View>
@@ -556,18 +780,18 @@ export function PredictionDetailScreen(): JSX.Element {
                 </Text>
 
                 <View style={styles.confirmActions}>
-                  <Pressable
+                  <AnimatedPressable
                     accessibilityRole="button"
                     onPress={() => setIsConfirmVisible(false)}
                     style={[styles.confirmButton, styles.confirmCancelButton]}>
                     <Text style={styles.confirmCancelText}>취소</Text>
-                  </Pressable>
-                  <Pressable
+                  </AnimatedPressable>
+                  <AnimatedPressable
                     accessibilityRole="button"
                     onPress={handleConfirmSubmit}
                     style={[styles.confirmButton, styles.confirmSubmitButton]}>
                     <Text style={styles.confirmSubmitText}>등록</Text>
-                  </Pressable>
+                  </AnimatedPressable>
                 </View>
               </View>
             </View>
@@ -628,26 +852,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backIconWrap: {
+  backIcon: {
     width: 24,
     height: 24,
-    justifyContent: 'center',
-  },
-  backStroke: {
-    position: 'absolute',
-    left: 4,
-    width: 11,
-    height: 2.5,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
-  },
-  backStrokeTop: {
-    transform: [{rotate: '-45deg'}],
-    top: 8,
-  },
-  backStrokeBottom: {
-    transform: [{rotate: '45deg'}],
-    top: 14,
+    resizeMode: 'contain',
   },
   heroBlock: {
     paddingHorizontal: 20,
@@ -665,49 +873,303 @@ const styles = StyleSheet.create({
     ...FONTS.font16M,
     lineHeight: 21,
   },
-  cardList: {
-    paddingHorizontal: 20,
-    gap: 20,
+  matchupStage: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    height: 360,
+    position: 'relative',
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#0B0B0D',
   },
-  choiceCardShell: {},
+  matchupIdleLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  matchupSplitLine: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    marginTop: -3,
+    height: 6,
+    borderRadius: 999,
+    zIndex: 3,
+  },
+  teamInfoBlock: {
+    position: 'absolute',
+    width: '44%',
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: 'rgba(17,17,20,0.9)',
+    borderWidth: 1,
+    borderColor: '#27292F',
+  },
+  teamInfoBlockTop: {
+    left: 14,
+    top: 18,
+    alignItems: 'flex-start',
+  },
+  teamInfoBlockBottom: {
+    right: 14,
+    bottom: 18,
+    alignItems: 'flex-end',
+  },
+  teamInfoBlockActive: {
+    borderColor: '#E50914',
+    backgroundColor: 'rgba(38,12,16,0.95)',
+  },
+  teamInfoLogo: {
+    width: 56,
+    height: 56,
+  },
+  teamInfoLabel: {
+    marginTop: 10,
+    color: '#9EA6B6',
+    ...FONTS.font12B,
+    lineHeight: 16,
+  },
+  teamInfoName: {
+    marginTop: 4,
+    color: '#FFFFFF',
+    ...FONTS.font18B,
+    lineHeight: 23,
+  },
+  teamInfoMembers: {
+    marginTop: 4,
+    color: '#D0D4DC',
+    ...FONTS.font12M,
+    lineHeight: 17,
+  },
+  wallLogoPressable: {
+    position: 'absolute',
+    width: 156,
+    height: 156,
+    zIndex: 5,
+  },
+  wallLogoTouchArea: {
+    width: 156,
+    height: 156,
+  },
+  wallLogoLeft: {
+    left: -16,
+    top: 2,
+  },
+  wallLogoRight: {
+    right: -16,
+    bottom: 2,
+  },
+  wallLogoShell: {
+    width: 156,
+    height: 156,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wallLogoShellLeft: {
+    paddingLeft: 30,
+    paddingTop: 20,
+  },
+  wallLogoShellRight: {
+    paddingRight: 30,
+    paddingBottom: 20,
+  },
+  wallLogoShellActive: {
+    transform: [{scale: 1.04}],
+  },
+  wallTeamLogo: {
+    width: 122,
+    height: 122,
+  },
+  vsBadgeCenter: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 112,
+    height: 112,
+    marginTop: -56,
+    marginLeft: -56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 4,
+  },
+  vsLottie: {
+    width: 112,
+    height: 112,
+  },
+  vsFallbackBadge: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E50914',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    shadowColor: '#E50914',
+    shadowOpacity: 0.42,
+    shadowRadius: 18,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 8,
+  },
+  vsFallbackText: {
+    color: '#FFFFFF',
+    ...FONTS.font24B,
+    lineHeight: 30,
+  },
+  expandedTeamPanel: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 30,
+    zIndex: 8,
+  },
+  expandedCloseButton: {
+    position: 'absolute',
+    top: 18,
+    right: 18,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  expandedCloseIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  expandedLogoRing: {
+    width: 178,
+    height: 178,
+    borderRadius: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expandedTeamLogo: {
+    width: 152,
+    height: 152,
+  },
+  expandedTextBlock: {
+    width: '100%',
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  expandedTeamName: {
+    width: '100%',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    ...FONTS.font24B,
+    lineHeight: 30,
+  },
+  expandedTeamMembers: {
+    marginTop: 8,
+    width: '100%',
+    color: '#DADDE4',
+    textAlign: 'center',
+    ...FONTS.font14B,
+    lineHeight: 20,
+  },
+  matchupCards: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
+  },
+  diagonalCardSlot: {
+    position: 'absolute',
+    width: '74%',
+  },
+  diagonalCardSlotTop: {
+    left: 0,
+    top: 0,
+  },
+  diagonalCardSlotBottom: {
+    right: 0,
+    bottom: 0,
+  },
+  vsBadge: {
+    position: 'absolute',
+    top: 149,
+    left: '50%',
+    width: 84,
+    height: 84,
+    marginLeft: -42,
+    borderRadius: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 3,
+    borderColor: '#000000',
+    shadowColor: '#E50914',
+    shadowOpacity: 0.36,
+    shadowRadius: 18,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 8,
+    zIndex: 5,
+    overflow: 'hidden',
+  },
+  vsText: {
+    color: '#E50914',
+    ...FONTS.font20B,
+    lineHeight: 24,
+  },
+  choiceCardShell: {
+    width: '100%',
+  },
+  choicePressable: {
+    width: '100%',
+  },
   choiceCard: {
-    height: 140,
+    width: '100%',
+    height: 164,
     borderRadius: 22,
-    backgroundColor: '#111114',
+    backgroundColor: '#111111',
     position: 'relative',
     overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
   },
   choiceCardSelected: {
     borderWidth: 2,
     borderColor: '#E50914',
+    backgroundColor: '#180C0E',
   },
-  placeholderArt: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'flex-end',
+  teamLogoBox: {
+    width: 112,
+    height: 112,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
   },
   teamCardImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  teamCardDim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.42)',
+    width: 96,
+    height: 88,
   },
   teamCardTextBlock: {
-    position: 'relative',
-    zIndex: 1,
+    flex: 1,
+    marginLeft: 13,
+    paddingBottom: 36,
+    alignItems: 'flex-start',
   },
   teamCardName: {
     color: '#FFFFFF',
-    ...FONTS.font28B,
-    lineHeight: 34,
+    textAlign: 'left',
+    ...FONTS.font22B,
+    lineHeight: 28,
   },
-  teamCardHint: {
-    marginTop: 5,
-    color: 'rgba(255,255,255,0.78)',
-    ...FONTS.font13M,
+  teamCardMembers: {
+    marginTop: 7,
+    color: '#C9CBD2',
+    textAlign: 'left',
+    ...FONTS.font12M,
     lineHeight: 18,
   },
   selectChip: {
@@ -730,12 +1192,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   selectedTeamHero: {
-    marginHorizontal: 20,
+    // marginHorizontal: 20,
     marginTop: 20,
-    minHeight: 220,
+    minHeight: 260,
     borderRadius: 28,
     padding: 24,
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     overflow: 'hidden',
   },
   selectedTeamEyebrow: {
@@ -755,22 +1218,22 @@ const styles = StyleSheet.create({
     ...FONTS.font14M,
     lineHeight: 20,
   },
-  selectedTeamImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
+  selectedTeamMembers: {
+    marginTop: 8,
+    color: 'rgba(255,255,255,0.84)',
+    ...FONTS.font14B,
+    lineHeight: 19,
   },
-  selectedTeamDim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+  selectedTeamImage: {
+    width: '76%',
+    height: 126,
   },
   selectedTeamTextBlock: {
-    position: 'relative',
-    zIndex: 1,
+    width: '100%',
   },
   commentOnlyInputBlock: {
     marginHorizontal: 20,
-    marginTop: 22,
+    // marginTop: 22,
     borderRadius: 22,
     padding: 18,
     backgroundColor: '#111114',
@@ -811,7 +1274,7 @@ const styles = StyleSheet.create({
     borderColor: '#2A2B31',
   },
   confirmEyebrow: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font13B,
     lineHeight: 18,
   },
@@ -847,7 +1310,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#242428',
   },
   confirmSubmitButton: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   confirmCancelText: {
     color: '#D6D8DE',
@@ -878,7 +1341,7 @@ const styles = StyleSheet.create({
     height: 7,
     borderRadius: 4,
     marginRight: 10,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   toastText: {
     color: '#FFFFFF',
@@ -935,7 +1398,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   nextButtonDisabled: {
     backgroundColor: '#242428',
@@ -961,7 +1424,7 @@ const styles = StyleSheet.create({
     borderColor: '#242428',
   },
   resultEyebrow: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font13B,
     lineHeight: 18,
   },
@@ -1009,7 +1472,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#242428',
   },
   voteGraphRed: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   voteGraphBlack: {
     backgroundColor: '#4B5568',
@@ -1062,8 +1525,8 @@ const styles = StyleSheet.create({
     borderColor: '#1B1B1F',
   },
   myCheerCommentRow: {
-    backgroundColor: 'rgba(244,13,33,0.12)',
-    borderColor: 'rgba(244,13,33,0.5)',
+    backgroundColor: 'rgba(229,9,20,0.12)',
+    borderColor: 'rgba(229,9,20,0.5)',
   },
   cheerAvatar: {
     width: 38,
@@ -1094,7 +1557,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cheerTeamBadgeRed: {
-    backgroundColor: 'rgba(244,13,33,0.24)',
+    backgroundColor: 'rgba(229,9,20,0.24)',
   },
   cheerTeamBadgeBlack: {
     backgroundColor: 'rgba(75,85,104,0.5)',
@@ -1105,7 +1568,7 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   mineLabel: {
-    color: '#FF6A61',
+    color: '#E50914',
     ...FONTS.font11B,
     lineHeight: 15,
   },

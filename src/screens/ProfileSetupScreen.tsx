@@ -1,7 +1,6 @@
 import React, {useMemo, useState} from 'react';
 import {
   Image,
-  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -12,6 +11,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {FONTS} from '../constants/theme';
 
 type ProfileChoice = 'default' | 'album';
@@ -105,7 +105,7 @@ export function ProfileSetupScreen(): JSX.Element {
         </View>
 
         <View style={styles.choiceStack}>
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={() => setSelectedChoice('default')}
             style={[styles.choiceCard, selectedChoice === 'default' && styles.choiceCardSelected]}>
@@ -117,9 +117,9 @@ export function ProfileSetupScreen(): JSX.Element {
             <View style={[styles.radio, selectedChoice === 'default' && styles.radioSelected]}>
               {selectedChoice === 'default' ? <View style={styles.radioDot} /> : null}
             </View>
-          </Pressable>
+          </AnimatedPressable>
 
-          <Pressable
+          <AnimatedPressable
             accessibilityRole="button"
             onPress={openImageLibrary}
             style={[styles.choiceCard, selectedChoice === 'album' && styles.choiceCardSelected]}>
@@ -139,15 +139,15 @@ export function ProfileSetupScreen(): JSX.Element {
             <View style={[styles.radio, selectedChoice === 'album' && styles.radioSelected]}>
               {selectedChoice === 'album' ? <View style={styles.radioDot} /> : null}
             </View>
-          </Pressable>
+          </AnimatedPressable>
         </View>
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
         <Text style={styles.helperText}>사진은 이 기기에서 선택한 이미지로 표시됩니다.</Text>
 
-        <Pressable accessibilityRole="button" onPress={completeProfileSetup} style={styles.nextButton}>
+        <AnimatedPressable accessibilityRole="button" onPress={completeProfileSetup} style={styles.nextButton}>
           <Text style={styles.nextButtonText}>시작하기</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
     </SafeAreaView>
   );
@@ -220,8 +220,8 @@ const styles = StyleSheet.create({
     borderColor: '#242428',
   },
   choiceCardSelected: {
-    borderColor: '#F40D21',
-    backgroundColor: 'rgba(244,13,33,0.12)',
+    borderColor: '#E50914',
+    backgroundColor: 'rgba(229,9,20,0.12)',
   },
   choiceAvatar: {
     width: 46,
@@ -267,13 +267,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radioSelected: {
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
   },
   radioDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   helperText: {
     marginTop: 16,
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     marginTop: 14,
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font13M,
     lineHeight: 18,
   },
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   nextButtonText: {
     color: '#FFFFFF',

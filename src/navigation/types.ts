@@ -22,7 +22,13 @@ export type CoinBattleStackParamList = {
 
 export type PredictionStackParamList = {
   PredictionHome: undefined;
-  PredictionDetail: undefined;
+  PredictionDetail:
+    | {
+        cheerComment?: string;
+        mode?: 'participated';
+        selectedTeamId?: 'team-red' | 'team-black';
+      }
+    | undefined;
 };
 
 export type RootStackParamList = {

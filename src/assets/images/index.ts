@@ -3,6 +3,9 @@ import type {ImageSourcePropType} from 'react-native';
 type ImageMap = {
   crazyarcade: ImageSourcePropType;
   crazyarcadeLetter: ImageSourcePropType;
+  gameFestival1: ImageSourcePropType;
+  gameFestival2: ImageSourcePropType;
+  gameFestival3: ImageSourcePropType;
   // coinBattle: ImageSourcePropType;
   homeBanner: ImageSourcePropType;
   logo: ImageSourcePropType;
@@ -23,6 +26,9 @@ type ImageMap = {
 export const image: ImageMap = {
   crazyarcade: require('./crazyarcade.png'),
   crazyarcadeLetter: require('./crazyarcade_letter.png'),
+  gameFestival1: require('./게임대회1.jpg'),
+  gameFestival2: require('./게임대회2.jpg'),
+  gameFestival3: require('./게임대회3.jpg'),
   // coinBattle: require('./코인대전.png'),
   homeBanner: require('./home-banner.png'),
   logo: require('./logo.png'),

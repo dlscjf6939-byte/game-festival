@@ -6,7 +6,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -19,207 +18,21 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import {launchImageLibrary} from 'react-native-image-picker';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
-
-type HighlightItem = {
-  id: string;
-  image: ImageSourcePropType;
-  title: string;
-  description: string;
-  time: string;
-};
-
-type HighlightGroup = {
-  id: string;
-  label: string;
-  cover: ImageSourcePropType;
-  items: HighlightItem[];
-};
-
-type Comment = {
-  id: string;
-  user: string;
-  text: string;
-  time: string;
-};
-
-type FeedPost = {
-  id: string;
-  user: string;
-  role: string;
-  avatar: ImageSourcePropType;
-  image?: ImageSourcePropType;
-  images?: ImageSourcePropType[];
-  title: string;
-  caption: string;
-  hashtags: string[];
-  time: string;
-  likes: number;
-  comments: Comment[];
-};
+import {
+  feedPosts,
+  highlightGroups,
+  type FeedComment,
+  type FeedPost,
+} from '../dummyData/feedDummyData';
 
 type ComposeStep = 'select' | 'details';
-
-const highlightGroups: HighlightGroup[] = [
-  {
-    id: 'tekken7',
-    label: '철권7',
-    cover: image.tekken7,
-    items: [
-      {
-        id: 'tekken-bracket',
-        image: image.tekken,
-        title: '철권7 결승 진출전',
-        description: '마지막 라운드까지 이어진 긴장감 넘치는 플레이.',
-        time: '12분 전',
-      },
-      {
-        id: 'tekken-main',
-        image: image.poster,
-        title: '오늘의 메인 매치',
-        description: '결승 무대를 앞둔 선수들의 현장 스냅.',
-        time: '21분 전',
-      },
-    ],
-  },
-  {
-    id: 'final',
-    label: '결승전',
-    cover: image.homeBanner,
-    items: [
-      {
-        id: 'final-red-black',
-        image: image.homeBanner,
-        title: 'TEAM RED vs TEAM BLACK',
-        description: '오늘 가장 뜨거운 결승전 매치업.',
-        time: '방금 전',
-      },
-      {
-        id: 'final-poster',
-        image: image.poster,
-        title: '결승전 타임라인',
-        description: '응원 댓글과 승부예측이 가장 많이 몰린 경기.',
-        time: '8분 전',
-      },
-    ],
-  },
-  {
-    id: 'coin-mission',
-    label: '코인미션',
-    cover: image.poster,
-    items: [
-      {
-        id: 'coin-qr',
-        image: image.poster,
-        title: '오늘의 응원 미션',
-        description: '피드 댓글과 현장 QR 참여로 보너스 코인을 받아보세요.',
-        time: '28분 전',
-      },
-      {
-        id: 'coin-prediction',
-        image: image.homeBanner,
-        title: '승부예측 참여 보상',
-        description: '예측 참여 완료 시 코인 변동 내역에 바로 반영됩니다.',
-        time: '35분 전',
-      },
-    ],
-  },
-  {
-    id: 'snap',
-    label: '현장스냅',
-    cover: image.profile,
-    items: [
-      {
-        id: 'snap-lobby',
-        image: image.profile,
-        title: '현장 입장 인증',
-        description: '서비스개발팀부터 운영팀까지 하나씩 모이는 중.',
-        time: '42분 전',
-      },
-      {
-        id: 'snap-games',
-        image: image.crazyarcade,
-        title: '대기존 분위기',
-        description: '다음 경기를 기다리는 동안 미니게임으로 몸풀기.',
-        time: '51분 전',
-      },
-    ],
-  },
-  {
-    id: 'starcraft',
-    label: '스타전',
-    cover: image.starcraft,
-    items: [
-      {
-        id: 'starcraft-pick',
-        image: image.starcraft,
-        title: '스타크래프트 인기 픽',
-        description: '승부예측 참여율이 빠르게 올라가고 있어요.',
-        time: '1시간 전',
-      },
-    ],
-  },
-];
-
-const feedPosts: FeedPost[] = [
-  {
-    id: 'main-event',
-    user: 'Game Festival',
-    role: '운영팀',
-    avatar: image.logo,
-    image: image.homeBanner,
-    title: 'TEAM RED vs TEAM BLACK',
-    caption:
-      '오늘 가장 뜨거운 매치업. 응원 댓글과 승부예측으로 코인을 모아보세요. 현장 응원 열기가 높을수록 보너스 이벤트가 추가로 열릴 수 있어요. 경기 시작 전까지 팀을 선택하고 친구들과 함께 응원 메시지를 남겨주세요.',
-    hashtags: ['#결승전', '#팀레드', '#팀블랙', '#승부예측'],
-    time: '방금 전',
-    likes: 248,
-    comments: [
-      {id: '1', user: '이인철', text: '레드팀 폼 미쳤다. 오늘은 이긴다.', time: '방금 전'},
-      {id: '2', user: '김소진', text: '블랙팀 응원합니다. 코인 걸었어요.', time: '2분 전'},
-      {id: '3', user: '길기환', text: '현장 분위기 진짜 좋네요.', time: '5분 전'},
-    ],
-  },
-  {
-    id: 'tekken-highlight',
-    user: 'Junior Board',
-    role: '주니어보드팀',
-    avatar: image.profile,
-    image: image.tekken,
-    title: '철권7 결승 진출전',
-    caption:
-      '마지막 라운드까지 손에 땀 나는 경기. 다음 경기도 피드에서 바로 확인하세요. 콤보 한 번에 분위기가 뒤집힌 명장면은 하이라이트에서 다시 볼 수 있습니다.',
-    hashtags: ['#철권7', '#하이라이트', '#결승진출전'],
-    time: '12분 전',
-    likes: 186,
-    comments: [
-      {id: '4', user: '김소진', text: '콤보 들어가는 순간 다 같이 소리 질렀어요.', time: '9분 전'},
-      {id: '5', user: '이인철', text: '리플레이 필요합니다.', time: '11분 전'},
-    ],
-  },
-  {
-    id: 'coin-mission',
-    user: 'Coin Crew',
-    role: '서비스개발팀',
-    avatar: image.profile,
-    image: image.poster,
-    title: '오늘의 응원 미션 오픈',
-    caption:
-      '피드에 응원 댓글을 남기고 현장 QR까지 찍으면 보너스 코인이 지급됩니다. QR 인증은 현장 부스 근처에서만 가능하며, 미션 완료 후 코인 내역에서 바로 적립 여부를 확인할 수 있어요.',
-    hashtags: ['#코인미션', '#QR참여', '#응원댓글'],
-    time: '28분 전',
-    likes: 132,
-    comments: [
-      {id: '6', user: '길기환', text: '보너스 코인까지 야무지게 챙깁니다.', time: '18분 전'},
-      {id: '7', user: '김소진', text: '응원 댓글 완료!', time: '22분 전'},
-    ],
-  },
-];
 
 function formatCount(count: number): string {
   if (count >= 1000) {
@@ -269,8 +82,8 @@ export function FeedScreen(): JSX.Element {
   const [composeTagDraft, setComposeTagDraft] = useState('');
   const [composeErrorMessage, setComposeErrorMessage] = useState<string | null>(null);
   const [activePostImageIndexes, setActivePostImageIndexes] = useState<Record<string, number>>({});
-  const [commentsByPost, setCommentsByPost] = useState<Record<string, Comment[]>>(() =>
-    feedPosts.reduce<Record<string, Comment[]>>((commentsMap, post) => {
+  const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>(() =>
+    feedPosts.reduce<Record<string, FeedComment[]>>((commentsMap, post) => {
       commentsMap[post.id] = post.comments;
       return commentsMap;
     }, {}),
@@ -309,7 +122,7 @@ export function FeedScreen(): JSX.Element {
   const commentSubmitAnimatedStyle = {
     backgroundColor: commentSubmitProgress.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#3A3B40', '#F40D21'],
+      outputRange: ['#3A3B40', '#E50914'],
     }),
   };
 
@@ -566,7 +379,7 @@ export function FeedScreen(): JSX.Element {
   );
 
   const renderComment = useCallback(
-    ({item}: {item: Comment}) => (
+    ({item}: {item: FeedComment}) => (
       <View style={styles.commentRow}>
         <Image source={image.profile} style={styles.commentAvatar} />
         <View style={styles.commentBody}>
@@ -598,13 +411,13 @@ export function FeedScreen(): JSX.Element {
             scrollEventThrottle={16}>
             <ScrollView horizontal contentContainerStyle={styles.highlightRow} showsHorizontalScrollIndicator={false}>
               {highlightGroups.map((group, index) => (
-                <Pressable
+                <AnimatedPressable
                   key={group.id}
                   onPress={() => openHighlight(group.id)}
                   style={[styles.highlightItem, index === highlightGroups.length - 1 && styles.highlightItemLast]}>
                   <View style={styles.storyAvatarWrap}>
                     <LinearGradient
-                      colors={['#FF6A61', '#F40D21', '#8E0710']}
+                      colors={['#E50914', '#E50914', '#85000C']}
                       start={{x: 0.2, y: 0}}
                       end={{x: 0.85, y: 1}}
                       style={styles.storyRingGradient}>
@@ -619,7 +432,7 @@ export function FeedScreen(): JSX.Element {
                   <Text numberOfLines={1} style={styles.storyName}>
                     {group.label}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
               ))}
             </ScrollView>
 
@@ -645,9 +458,9 @@ export function FeedScreen(): JSX.Element {
                           <Text style={styles.profileRole}>{post.role}</Text>
                         </View>
                       </View>
-                      <Pressable accessibilityRole="button" style={styles.moreButton}>
+                      <AnimatedPressable accessibilityRole="button" style={styles.moreButton}>
                         <Text style={styles.moreIcon}>...</Text>
-                      </Pressable>
+                      </AnimatedPressable>
                     </View>
 
                     {postImages.length ? (
@@ -712,7 +525,7 @@ export function FeedScreen(): JSX.Element {
 
                     <View style={styles.actionRow}>
                       <View style={styles.leftActions}>
-                        <Pressable
+                        <AnimatedPressable
                           accessibilityLabel="좋아요"
                           accessibilityRole="button"
                           onPress={() => toggleLike(post.id)}
@@ -722,14 +535,14 @@ export function FeedScreen(): JSX.Element {
                             style={styles.actionIconImage}
                             resizeMode="contain"
                           />
-                        </Pressable>
-                        <Pressable
+                        </AnimatedPressable>
+                        <AnimatedPressable
                           accessibilityLabel="댓글 보기"
                           accessibilityRole="button"
                           onPress={() => openComments(post.id)}
                           style={styles.iconButton}>
                           <Image source={icon.commentOutline} style={styles.actionIconImage} resizeMode="contain" />
-                        </Pressable>
+                        </AnimatedPressable>
                       </View>
                     </View>
 
@@ -749,9 +562,9 @@ export function FeedScreen(): JSX.Element {
                         {post.caption}
                       </Text>
                       {isCaptionTruncated && !isCaptionExpanded ? (
-                        <Pressable accessibilityRole="button" onPress={() => expandCaption(post.id)}>
+                        <AnimatedPressable accessibilityRole="button" onPress={() => expandCaption(post.id)}>
                           <Text style={styles.captionMoreText}>더보기</Text>
-                        </Pressable>
+                        </AnimatedPressable>
                       ) : null}
                       <View style={styles.hashtagRow}>
                         {post.hashtags.map(hashtag => (
@@ -760,9 +573,9 @@ export function FeedScreen(): JSX.Element {
                           </Text>
                         ))}
                       </View>
-                      <Pressable onPress={() => openComments(post.id)}>
+                      <AnimatedPressable onPress={() => openComments(post.id)}>
                         <Text style={styles.commentLink}>댓글 {comments.length}개 모두 보기</Text>
-                      </Pressable>
+                      </AnimatedPressable>
                       {comments[0] ? (
                         <Text numberOfLines={1} style={styles.previewComment}>
                           <Text style={styles.captionUser}>{comments[0].user} </Text>
@@ -776,7 +589,7 @@ export function FeedScreen(): JSX.Element {
             </View>
           </Animated.ScrollView>
 
-          <Pressable
+          <AnimatedPressable
             accessibilityLabel="게시글 등록"
             accessibilityRole="button"
             onPress={openCompose}
@@ -785,7 +598,7 @@ export function FeedScreen(): JSX.Element {
               <View style={[styles.composePlusLine, styles.composePlusHorizontal]} />
               <View style={[styles.composePlusLine, styles.composePlusVertical]} />
             </View>
-          </Pressable>
+          </AnimatedPressable>
 
           <BottomSheet
             ref={bottomSheetRef}
@@ -795,7 +608,6 @@ export function FeedScreen(): JSX.Element {
             enablePanDownToClose
             keyboardBehavior="interactive"
             keyboardBlurBehavior="restore"
-            bottomInset={insets.bottom}
             backdropComponent={renderBackdrop}
             handleIndicatorStyle={styles.sheetHandle}
             handleStyle={styles.sheetHandleArea}
@@ -821,7 +633,7 @@ export function FeedScreen(): JSX.Element {
                 value={commentDraft}
                 onChangeText={setCommentDraft}
               />
-              <Pressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 disabled={!isCommentSubmittable}
                 style={styles.commentSubmitPressable}
@@ -829,7 +641,7 @@ export function FeedScreen(): JSX.Element {
                 <Animated.View style={[styles.commentSubmitButton, commentSubmitAnimatedStyle]}>
                   <Text style={styles.commentSubmitIcon}>↑</Text>
                 </Animated.View>
-              </Pressable>
+              </AnimatedPressable>
             </View>
           </BottomSheet>
 
@@ -857,9 +669,13 @@ export function FeedScreen(): JSX.Element {
                       <Text style={styles.highlightViewerTime}>{selectedHighlightItem.time}</Text>
                     </View>
                   </View>
-                  <Pressable accessibilityLabel="하이라이트 닫기" accessibilityRole="button" onPress={closeHighlight}>
-                    <Text style={styles.highlightCloseText}>×</Text>
-                  </Pressable>
+                  <AnimatedPressable
+                    accessibilityLabel="하이라이트 닫기"
+                    accessibilityRole="button"
+                    onPress={closeHighlight}
+                    style={styles.highlightCloseButton}>
+                    <Image source={icon.closeBtn} style={styles.closeIcon} />
+                  </AnimatedPressable>
                 </View>
 
                 <View style={[styles.highlightMediaFrame, {top: highlightContentTop}]}>
@@ -876,13 +692,13 @@ export function FeedScreen(): JSX.Element {
                 </View>
 
                 <View style={styles.highlightTapLayer}>
-                  <Pressable
+                  <AnimatedPressable
                     accessibilityLabel="이전 하이라이트"
                     accessibilityRole="button"
                     onPress={showPreviousHighlight}
                     style={styles.highlightTapZone}
                   />
-                  <Pressable
+                  <AnimatedPressable
                     accessibilityLabel="다음 하이라이트"
                     accessibilityRole="button"
                     onPress={showNextHighlight}
@@ -898,9 +714,13 @@ export function FeedScreen(): JSX.Element {
               <StatusBar barStyle="light-content" backgroundColor="#050505" />
 
               <View style={[styles.composeHeader, {paddingTop: topSafeArea + 12}]}>
-                <Pressable accessibilityRole="button" onPress={closeCompose} style={styles.composeHeaderButton}>
-                  <Text style={styles.composeHeaderButtonText}>×</Text>
-                </Pressable>
+                <AnimatedPressable
+                  accessibilityLabel="게시물 작성 닫기"
+                  accessibilityRole="button"
+                  onPress={closeCompose}
+                  style={styles.composeHeaderButton}>
+                  <Image source={icon.closeBtn} style={styles.closeIcon} />
+                </AnimatedPressable>
                 <Text style={styles.composeTitle}>{composeStep === 'select' ? '새 게시물' : '문구 입력'}</Text>
                 <View style={styles.composeHeaderButton} />
               </View>
@@ -914,7 +734,7 @@ export function FeedScreen(): JSX.Element {
                 contentContainerStyle={[styles.composeContent, {paddingBottom: Math.max(insets.bottom + 24, 40)}]}>
                 {composeStep === 'select' ? (
                   <>
-                    <Pressable
+                    <AnimatedPressable
                       accessibilityRole="button"
                       onPress={openComposeImageLibrary}
                       style={styles.composeInstagramPreview}>
@@ -938,19 +758,19 @@ export function FeedScreen(): JSX.Element {
                           <Text style={styles.composeImageDescription}>피드에 올릴 현장 사진을 먼저 골라주세요.</Text>
                         </View>
                       )}
-                    </Pressable>
+                    </AnimatedPressable>
 
                     <View style={styles.composeAlbumBar}>
                       <View>
                         <Text style={styles.composeAlbumTitle}>최근 항목</Text>
                         <Text style={styles.composeAlbumDescription}>기기 사진앨범에서 최대 6장을 선택합니다.</Text>
                       </View>
-                      <Pressable
+                      <AnimatedPressable
                         accessibilityRole="button"
                         onPress={openComposeImageLibrary}
                         style={styles.composeAlbumButton}>
                         <Text style={styles.composeAlbumButtonText}>사진 선택</Text>
-                      </Pressable>
+                      </AnimatedPressable>
                     </View>
                   </>
                 ) : (
@@ -985,12 +805,12 @@ export function FeedScreen(): JSX.Element {
                       />
                     </View>
 
-                    <Pressable
+                    <AnimatedPressable
                       accessibilityRole="button"
                       onPress={openComposeImageLibrary}
                       style={styles.composeChangeImageRow}>
                       <Text style={styles.composeChangeImageText}>사진 다시 선택</Text>
-                    </Pressable>
+                    </AnimatedPressable>
 
                     <View style={styles.composeProfileRow}>
                       <Image source={myAvatarSource} style={styles.composeAvatar} resizeMode="cover" />
@@ -1004,7 +824,7 @@ export function FeedScreen(): JSX.Element {
                       <Text style={styles.composeLabel}>태그</Text>
                       <View style={styles.composeTagBox}>
                         {composeTags.map(tag => (
-                          <Pressable
+                          <AnimatedPressable
                             key={tag}
                             accessibilityLabel={`${tag} 태그 삭제`}
                             accessibilityRole="button"
@@ -1012,7 +832,7 @@ export function FeedScreen(): JSX.Element {
                             style={styles.composeTagChip}>
                             <Text style={styles.composeTagChipText}>{tag}</Text>
                             <Text style={styles.composeTagChipRemove}>×</Text>
-                          </Pressable>
+                          </AnimatedPressable>
                         ))}
                         <TextInput
                           autoCapitalize="none"
@@ -1036,7 +856,7 @@ export function FeedScreen(): JSX.Element {
               </ScrollView>
 
               <View style={[styles.composeFooter, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
-                <Pressable
+                <AnimatedPressable
                   accessibilityRole="button"
                   disabled={composeStep === 'details' && !isComposeSubmittable}
                   onPress={composeStep === 'select' ? goToComposeDetails : submitCompose}
@@ -1051,7 +871,7 @@ export function FeedScreen(): JSX.Element {
                     ]}>
                     {composeStep === 'select' ? '다음' : '공유하기'}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
               </View>
             </KeyboardAvoidingView>
           </Modal>
@@ -1121,7 +941,7 @@ const styles = StyleSheet.create({
     minWidth: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
     borderWidth: 2,
     borderColor: '#000000',
     alignItems: 'center',
@@ -1166,7 +986,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
     backgroundColor: '#1A1A1A',
     padding: 2,
     marginRight: 10,
@@ -1485,8 +1305,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
-    shadowColor: '#F40D21',
+    backgroundColor: '#E50914',
+    shadowColor: '#E50914',
     shadowOpacity: 0.38,
     shadowRadius: 16,
     shadowOffset: {width: 0, height: 8},
@@ -1535,10 +1355,10 @@ const styles = StyleSheet.create({
   composeHeaderButtonDisabled: {
     opacity: 0.55,
   },
-  composeHeaderButtonText: {
-    color: '#D8DAE0',
-    ...FONTS.font28R,
-    lineHeight: 30,
+  closeIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
   },
   composeTitle: {
     color: '#FFFFFF',
@@ -1546,7 +1366,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   composeSubmitText: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font16B,
     lineHeight: 21,
   },
@@ -1815,7 +1635,7 @@ const styles = StyleSheet.create({
   },
   composeErrorText: {
     marginTop: 16,
-    color: '#FF6A61',
+    color: '#E50914',
     ...FONTS.font13M,
     lineHeight: 18,
   },
@@ -1831,7 +1651,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   composePrimaryButtonDisabled: {
     backgroundColor: '#242428',
@@ -1913,10 +1733,11 @@ const styles = StyleSheet.create({
     ...FONTS.font12R,
     lineHeight: 15,
   },
-  highlightCloseText: {
-    color: '#FFFFFF',
-    ...FONTS.font34R,
-    lineHeight: 38,
+  highlightCloseButton: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   highlightViewerImage: {
     width: '100%',

@@ -3,9 +3,9 @@ import {useIsFocused, useNavigation, type NavigationProp} from '@react-navigatio
 import {
   Animated,
   Easing,
+  Image,
   PermissionsAndroid,
   Platform,
-  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -13,6 +13,8 @@ import {
   View,
 } from 'react-native';
 import {Camera, CameraType} from 'react-native-camera-kit';
+import {AnimatedPressable} from '../components/AnimatedPressable';
+import {icon} from '../assets/icons';
 import type {RootStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 
@@ -166,13 +168,13 @@ export function QrScanScreen(): JSX.Element {
           },
         ]}>
         <Text style={styles.title}>QR 스캔</Text>
-        <Pressable
+        <AnimatedPressable
           accessibilityLabel="QR 스캔 닫기"
           accessibilityRole="button"
           onPress={handleClose}
           style={styles.closeButton}>
-          <Text style={styles.closeText}>×</Text>
-        </Pressable>
+          <Image source={icon.closeBtn} style={styles.closeIcon} />
+        </AnimatedPressable>
       </Animated.View>
 
       <View style={styles.body}>
@@ -219,9 +221,9 @@ export function QrScanScreen(): JSX.Element {
           ) : null}
 
           {scanState.kind !== 'idle' ? (
-            <Pressable accessibilityRole="button" onPress={handleRetry} style={styles.retryButton}>
+            <AnimatedPressable accessibilityRole="button" onPress={handleRetry} style={styles.retryButton}>
               <Text style={styles.retryButtonText}>다시 스캔</Text>
-            </Pressable>
+            </AnimatedPressable>
           ) : null}
         </Animated.View>
       </View>
@@ -253,10 +255,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeText: {
-    color: '#FFFFFF',
-    ...FONTS.font28L,
-    lineHeight: 32,
+  closeIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
   },
   body: {
     flex: 1,
@@ -288,7 +290,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 42,
     height: 42,
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
   },
   cornerTopLeft: {
     top: 0,
@@ -341,7 +343,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 15, 15, 0.88)',
   },
   resultLabel: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font12B,
   },
   resultValue: {
@@ -356,7 +358,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: 999,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
     alignItems: 'center',
   },
   retryButtonText: {

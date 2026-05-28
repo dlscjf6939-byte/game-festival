@@ -88,10 +88,10 @@ function createFontTokens(): Record<FontTokenKey, TextStyle> {
 export const COLORS = {
   background: '#000000',
   black: '#000000',
-  error: '#F40D21',
+  error: '#E50914',
   gray: '#898989',
   lightGray: '#F5F5F6',
-  primary: '#F40D21',
+  primary: '#E50914',
   transparent: 'transparent',
   white: '#FFFFFF',
 } as const;

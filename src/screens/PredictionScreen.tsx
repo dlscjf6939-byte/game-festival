@@ -4,13 +4,13 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
   Animated,
   Image,
-  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {image} from '../assets/images';
@@ -50,44 +50,104 @@ const tabs = [
 ] as const;
 
 type PredictionTabId = (typeof tabs)[number]['id'];
+type PredictionCardItem = (typeof predictionCards)[number];
 
 const participatedPredictions = [
   {
     id: 'tekken7',
     title: '철권7 결승전',
-    selectedTeam: 'TEAM RED',
+    selectedTeamId: 'team-red' as const,
+    selectedTeam: '붕권',
     cheerComment: '레드팀 오늘 합이 너무 좋아요. 마지막까지 밀어붙입시다!',
     redPercent: 54,
     blackPercent: 46,
     status: '결과 대기중',
-    isParticipated: true,
-  },
-  {
-    id: 'starcraft',
-    title: '스타크래프트 라이벌전',
-    selectedTeam: null,
-    cheerComment: null,
-    redPercent: 49,
-    blackPercent: 51,
-    status: '참여 가능',
-    isParticipated: false,
   },
 ];
 
 type ParticipatedPrediction = (typeof participatedPredictions)[number];
 
+function PredictionCard({
+  card,
+  index,
+  onPress,
+}: {
+  card: PredictionCardItem;
+  index: number;
+  onPress: () => void;
+}): JSX.Element {
+  const entranceProgress = useRef(new Animated.Value(0)).current;
+  const translateY = entranceProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [18, 0],
+  });
+
+  useEffect(() => {
+    entranceProgress.setValue(0);
+
+    Animated.timing(entranceProgress, {
+      toValue: 1,
+      delay: index * 58,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+  }, [entranceProgress, index]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: entranceProgress,
+        transform: [{translateY}],
+      }}>
+      <View style={styles.card}>
+        <Image source={card.posterSource} resizeMode="cover" style={styles.cardImage} />
+
+        <View style={styles.cardContent}>
+          <Image source={card.wordmarkSource} resizeMode="contain" style={styles.cardWordmark} />
+          <Text style={styles.cardTitle}>{card.title}</Text>
+          <Text numberOfLines={2} style={styles.cardDescription}>
+            {card.description}
+          </Text>
+
+          <AnimatedPressable onPress={onPress} style={styles.predictButton}>
+            <Text style={styles.predictButtonText}>예측하기</Text>
+          </AnimatedPressable>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
 function ParticipatedPredictionCard({
+  index,
   isActive,
   item,
   onDetailPress,
   onPress,
 }: {
+  index: number;
   isActive: boolean;
   item: ParticipatedPrediction;
   onDetailPress: () => void;
   onPress: () => void;
 }): JSX.Element {
+  const entranceProgress = useRef(new Animated.Value(0)).current;
   const liftProgress = useRef(new Animated.Value(isActive ? 1 : 0)).current;
+  const entranceTranslateY = entranceProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 0],
+  });
+
+  useEffect(() => {
+    entranceProgress.setValue(0);
+
+    Animated.timing(entranceProgress, {
+      toValue: 1,
+      delay: index * 58,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+  }, [entranceProgress, index]);
 
   useEffect(() => {
     Animated.spring(liftProgress, {
@@ -104,51 +164,40 @@ function ParticipatedPredictionCard({
         styles.participatedCardLift,
         isActive && styles.participatedCardLiftActive,
         {
+          opacity: entranceProgress,
           transform: [
             {
               translateY: liftProgress.interpolate({
                 inputRange: [0, 1],
-              outputRange: [0, -4],
+                outputRange: [0, -4],
               }),
             },
             {
               scale: liftProgress.interpolate({
                 inputRange: [0, 1],
-              outputRange: [1, 1.012],
+                outputRange: [1, 1.012],
               }),
             },
+            {translateY: entranceTranslateY},
           ],
         },
       ]}>
-      <Pressable
-        accessibilityRole="button"
-        onPress={onPress}
-        style={[styles.participatedCard, isActive && styles.participatedCardActive]}>
+      <AnimatedPressable onPress={onPress} style={[styles.participatedCard, isActive && styles.participatedCardActive]}>
         <View style={styles.participatedHeader}>
           <View>
             <Text style={styles.participatedTitle}>{item.title}</Text>
-            <Text
-              style={[
-                styles.participatedStatus,
-                item.isParticipated && styles.participatedStatusDone,
-              ]}>
+            <Text style={[styles.participatedStatus, styles.participatedStatusDone]}>
               {item.status}
             </Text>
           </View>
-          {item.isParticipated ? (
-            <View style={styles.selectedTeamBadge}>
-              <Text style={styles.selectedTeamBadgeText}>{item.selectedTeam}</Text>
-            </View>
-          ) : null}
+          <View style={styles.selectedTeamBadge}>
+            <Text style={styles.selectedTeamBadgeText}>{item.selectedTeam}</Text>
+          </View>
         </View>
 
         <View style={styles.predictionSummaryRow}>
-          <Text style={styles.predictionSummaryLabel}>
-            {item.isParticipated ? '내 선택' : '상태'}
-          </Text>
-          <Text style={styles.predictionSummaryValue}>
-            {item.isParticipated ? item.selectedTeam : '아직 참여하지 않음'}
-          </Text>
+          <Text style={styles.predictionSummaryLabel}>내 선택</Text>
+          <Text style={styles.predictionSummaryValue}>{item.selectedTeam}</Text>
         </View>
 
         <View style={styles.participatedGraph}>
@@ -156,8 +205,8 @@ function ParticipatedPredictionCard({
           <View style={[styles.participatedGraphBlack, {flex: item.blackPercent}]} />
         </View>
         <View style={styles.participatedRatioRow}>
-          <Text style={styles.participatedRatioText}>TEAM RED {item.redPercent}%</Text>
-          <Text style={styles.participatedRatioText}>TEAM BLACK {item.blackPercent}%</Text>
+          <Text style={styles.participatedRatioText}>붕권 {item.redPercent}%</Text>
+          <Text style={styles.participatedRatioText}>관택동 {item.blackPercent}%</Text>
         </View>
 
         {isActive ? (
@@ -176,22 +225,15 @@ function ParticipatedPredictionCard({
                 ],
               },
             ]}>
-            <Pressable
+            <AnimatedPressable
               accessibilityRole="button"
               onPress={onDetailPress}
-              style={item.isParticipated ? styles.detailButton : styles.joinPredictionButton}>
-              <Text
-                style={
-                  item.isParticipated
-                    ? styles.detailButtonText
-                    : styles.joinPredictionButtonText
-                }>
-                {item.isParticipated ? '상세보기' : '예측 참여하기'}
-              </Text>
-            </Pressable>
+              style={styles.detailButton}>
+              <Text style={styles.detailButtonText}>상세보기</Text>
+            </AnimatedPressable>
           </Animated.View>
         ) : null}
-      </Pressable>
+      </AnimatedPressable>
     </Animated.View>
   );
 }
@@ -200,8 +242,23 @@ export function PredictionScreen(): JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const scrollY = useRef(new Animated.Value(0)).current;
+  const tabContentProgress = useRef(new Animated.Value(1)).current;
   const [activeTab, setActiveTab] = useState<PredictionTabId>('prediction');
   const [activePredictionId, setActivePredictionId] = useState<string | null>(null);
+  const tabContentTranslateY = tabContentProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [14, 0],
+  });
+
+  useEffect(() => {
+    tabContentProgress.setValue(0);
+
+    Animated.timing(tabContentProgress, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [activeTab, tabContentProgress]);
 
   return (
     <TabSceneTransition>
@@ -225,7 +282,7 @@ export function PredictionScreen(): JSX.Element {
 
           <View style={styles.tabRow}>
             {tabs.map(tab => (
-              <Pressable
+              <AnimatedPressable
                 key={tab.id}
                 accessibilityRole="button"
                 onPress={() => setActiveTab(tab.id)}
@@ -240,53 +297,47 @@ export function PredictionScreen(): JSX.Element {
                   ]}>
                   {tab.label}
                 </Text>
-              </Pressable>
+              </AnimatedPressable>
             ))}
           </View>
 
-          {activeTab === 'prediction' ? (
-            <View style={styles.cardStack}>
-              {predictionCards.map(card => (
-                <View key={card.id} style={styles.card}>
-                  <Image
-                    source={card.posterSource}
-                    resizeMode="cover"
-                    style={styles.cardImage}
+          <Animated.View
+            style={{
+              opacity: tabContentProgress,
+              transform: [{translateY: tabContentTranslateY}],
+            }}>
+            {activeTab === 'prediction' ? (
+              <View style={styles.cardStack}>
+                {predictionCards.map((card, index) => (
+                  <PredictionCard
+                    key={card.id}
+                    card={card}
+                    index={index}
+                    onPress={() => navigation.navigate('PredictionDetail')}
                   />
-
-                  <View style={styles.cardContent}>
-                    <Image
-                      source={card.wordmarkSource}
-                      resizeMode="contain"
-                      style={styles.cardWordmark}
-                    />
-                    <Text style={styles.cardTitle}>{card.title}</Text>
-                    <Text numberOfLines={2} style={styles.cardDescription}>
-                      {card.description}
-                    </Text>
-
-                    <Pressable
-                      onPress={() => navigation.navigate('PredictionDetail')}
-                      style={styles.predictButton}>
-                      <Text style={styles.predictButtonText}>예측하기</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.participatedStack}>
-              {participatedPredictions.map(item => (
-                <ParticipatedPredictionCard
-                  key={item.id}
-                  item={item}
-                  isActive={activePredictionId === item.id}
-                  onPress={() => setActivePredictionId(item.id)}
-                  onDetailPress={() => navigation.navigate('PredictionDetail')}
-                />
-              ))}
-            </View>
-          )}
+                ))}
+              </View>
+            ) : (
+              <View style={styles.participatedStack}>
+                {participatedPredictions.map((item, index) => (
+                  <ParticipatedPredictionCard
+                    key={item.id}
+                    index={index}
+                    item={item}
+                    isActive={activePredictionId === item.id}
+                    onPress={() => setActivePredictionId(item.id)}
+                    onDetailPress={() =>
+                      navigation.navigate('PredictionDetail', {
+                        cheerComment: item.cheerComment,
+                        mode: 'participated',
+                        selectedTeamId: item.selectedTeamId,
+                      })
+                    }
+                  />
+                ))}
+              </View>
+            )}
+          </Animated.View>
         </Animated.ScrollView>
       </SafeAreaView>
     </TabSceneTransition>
@@ -399,7 +450,7 @@ const styles = StyleSheet.create({
   },
   participatedCardLiftActive: {
     zIndex: 3,
-    shadowColor: '#F40D21',
+    shadowColor: '#E50914',
     shadowOpacity: 0.14,
     shadowRadius: 12,
     shadowOffset: {width: 0, height: 6},
@@ -414,7 +465,7 @@ const styles = StyleSheet.create({
   },
   participatedCardActive: {
     borderWidth: 1,
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
     backgroundColor: '#141012',
   },
   participatedHeader: {
@@ -435,7 +486,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   participatedStatusDone: {
-    color: '#FF6A61',
+    color: '#E50914',
   },
   selectedTeamBadge: {
     minHeight: 26,
@@ -443,9 +494,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(244,13,33,0.18)',
+    backgroundColor: 'rgba(229,9,20,0.18)',
     borderWidth: 1,
-    borderColor: 'rgba(244,13,33,0.42)',
+    borderColor: 'rgba(229,9,20,0.42)',
   },
   selectedTeamBadgeText: {
     color: '#FFFFFF',
@@ -477,7 +528,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#242428',
   },
   participatedGraphRed: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   participatedGraphBlack: {
     backgroundColor: '#4B5568',
@@ -492,18 +543,6 @@ const styles = StyleSheet.create({
     ...FONTS.font12M,
     lineHeight: 16,
   },
-  joinPredictionButton: {
-    height: 42,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  joinPredictionButtonText: {
-    color: '#000000',
-    ...FONTS.font14B,
-    lineHeight: 18,
-  },
   cardDetailActionWrap: {
     marginTop: 16,
   },
@@ -512,7 +551,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   detailButtonText: {
     color: '#FFFFFF',

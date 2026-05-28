@@ -4,20 +4,18 @@ import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-nav
 import {
   Animated,
   Image,
-  Pressable,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
-  StyleProp,
   Text,
   TextInput,
   View,
-  ViewStyle,
 } from 'react-native';
 import {BlurView} from '@react-native-community/blur';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {useCoinBattleRooms, type CoinBattleRoom} from '../hooks/useCoinBattleRooms';
@@ -44,10 +42,6 @@ import type {CoinBattleStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 
 type RouteProps = NativeStackScreenProps<CoinBattleStackParamList, 'CoinBattleRoom'>['route'];
-
-type BouncyPressableProps = Omit<React.ComponentProps<typeof Pressable>, 'ref' | 'style'> & {
-  style?: StyleProp<ViewStyle>;
-};
 
 const roomStatusLabels = {
   EXIT: '종료',
@@ -107,37 +101,6 @@ function normalizeRoomDetail(payload: unknown): CoinBattleRoom | undefined {
   }
 
   return room as CoinBattleRoom;
-}
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-function BouncyPressable({children, onPressIn, onPressOut, style, ...props}: BouncyPressableProps): JSX.Element {
-  const pressScale = useRef(new Animated.Value(1)).current;
-
-  const animateScale = (toValue: number) => {
-    Animated.spring(pressScale, {
-      toValue,
-      speed: 34,
-      bounciness: 5,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <AnimatedPressable
-      {...props}
-      onPressIn={event => {
-        animateScale(0.96);
-        onPressIn?.(event);
-      }}
-      onPressOut={event => {
-        animateScale(1);
-        onPressOut?.(event);
-      }}
-      style={[style, {transform: [{scale: pressScale}]}]}>
-      {children}
-    </AnimatedPressable>
-  );
 }
 
 function BattleSlotCard({
@@ -267,7 +230,7 @@ function RpsChoiceHandCard({
   return (
     <Animated.View style={[styles.choiceCardWrap, {transform: [{translateY}, {scale}]}]}>
       <Animated.View pointerEvents="none" style={[styles.choiceGlow, {opacity: glowOpacity}]} />
-      <BouncyPressable
+      <AnimatedPressable
         accessibilityRole="button"
         disabled={disabled}
         onPress={onPress}
@@ -276,7 +239,7 @@ function RpsChoiceHandCard({
           <Image resizeMode="contain" source={choice.image} style={styles.choiceImage} />
         </View>
         <Text style={[styles.choiceLabel, active && styles.choiceLabelActive]}>{choice.label}</Text>
-      </BouncyPressable>
+      </AnimatedPressable>
     </Animated.View>
   );
 }
@@ -337,7 +300,7 @@ function FlippablePictureCard({
   });
 
   return (
-    <Pressable disabled={disabled} onPress={onPress} style={styles.pictureMatchCardShell}>
+    <AnimatedPressable disabled={disabled} onPress={onPress} style={styles.pictureMatchCardShell}>
       <Animated.View
         style={[
           styles.pictureMatchCard,
@@ -367,7 +330,7 @@ function FlippablePictureCard({
           <Text style={styles.pictureMatchFallbackName}>{picture.employeeName ?? '카드'}</Text>
         )}
       </Animated.View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 
@@ -749,13 +712,13 @@ function TypingGamePanel({
       </View>
 
       <View style={styles.typingButtonRow}>
-        <Pressable
+        <AnimatedPressable
           disabled={!editable || inputValue.length === 0}
           onPress={() => setInputValue('')}
           style={[styles.typingSubButton, (!editable || inputValue.length === 0) && styles.typingButtonDisabled]}>
           <Text style={styles.typingSubButtonText}>다시 입력</Text>
-        </Pressable>
-        <Pressable
+        </AnimatedPressable>
+        <AnimatedPressable
           disabled={!isComplete || hasSubmitted || isSubmitPending}
           onPress={handleSubmit}
           style={[
@@ -763,7 +726,7 @@ function TypingGamePanel({
             (!isComplete || hasSubmitted || isSubmitPending) && styles.typingButtonDisabled,
           ]}>
           <Text style={styles.typingPrimaryButtonText}>{isSubmitPending ? '제출 중' : '제출'}</Text>
-        </Pressable>
+        </AnimatedPressable>
       </View>
 
       <TextInput
@@ -1743,17 +1706,17 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 </View>
 
                 <View style={styles.actionRow}>
-                  <BouncyPressable
+                  <AnimatedPressable
                     accessibilityRole="button"
                     onPress={handleReady}
                     style={[styles.readyButton, myReady && styles.readyButtonActive]}>
                     <Text style={[styles.readyButtonText, myReady && styles.readyButtonTextActive]}>
                       {myReady ? '준비 완료' : '준비하기'}
                     </Text>
-                  </BouncyPressable>
-                  <BouncyPressable accessibilityRole="button" onPress={handleLeaveRoom} style={styles.leaveButton}>
+                  </AnimatedPressable>
+                  <AnimatedPressable accessibilityRole="button" onPress={handleLeaveRoom} style={styles.leaveButton}>
                     <Text style={styles.leaveButtonText}>나가기</Text>
-                  </BouncyPressable>
+                  </AnimatedPressable>
                 </View>
               </>
             )}
@@ -1762,9 +1725,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
         {shouldShowGame && isMatchFinished && !isReturningToWaitingRoom ? (
           <View style={styles.finishDock}>
-            <BouncyPressable accessibilityRole="button" onPress={handleReturnToWaitingRoom} style={styles.finishButton}>
+            <AnimatedPressable accessibilityRole="button" onPress={handleReturnToWaitingRoom} style={styles.finishButton}>
               <Text style={styles.finishButtonText}>대기방으로 돌아가기</Text>
-            </BouncyPressable>
+            </AnimatedPressable>
           </View>
         ) : null}
 
@@ -1806,7 +1769,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   />
                 ))}
               </View>
-              <BouncyPressable
+              <AnimatedPressable
                 accessibilityRole="button"
                 disabled={!pendingRpsChoice}
                 onPress={handleConfirmRpsChoice}
@@ -1815,7 +1778,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   style={[styles.choiceConfirmButtonText, !pendingRpsChoice && styles.choiceConfirmButtonTextDisabled]}>
                   {pendingRpsChoice ? '이 카드로 확정' : '카드를 먼저 선택하세요'}
                 </Text>
-              </BouncyPressable>
+              </AnimatedPressable>
             </View>
           </View>
         ) : null}
@@ -1990,7 +1953,7 @@ const styles = StyleSheet.create({
   statusChip: {
     alignSelf: 'flex-start',
     borderRadius: 4,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
     paddingHorizontal: 8,
     paddingVertical: 4,
     marginBottom: 12,
@@ -2149,7 +2112,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   liveCompactVs: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font12B,
     paddingHorizontal: 10,
   },
@@ -2200,8 +2163,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   readyBadgeActive: {
-    backgroundColor: '#F40D21',
-    borderColor: '#F40D21',
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
   },
   readyBadgeText: {
     color: '#FFFFFF',
@@ -2235,7 +2198,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   gameEyebrow: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font11B,
     letterSpacing: 1,
   },
@@ -2246,9 +2209,9 @@ const styles = StyleSheet.create({
   },
   roundBadge: {
     borderRadius: 999,
-    backgroundColor: 'rgba(244,13,33,0.16)',
+    backgroundColor: 'rgba(229,9,20,0.16)',
     borderWidth: 1,
-    borderColor: 'rgba(244,13,33,0.45)',
+    borderColor: 'rgba(229,9,20,0.45)',
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -2274,8 +2237,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(62, 183, 105, 0.55)',
   },
   latestResultBannerLose: {
-    backgroundColor: 'rgba(244, 13, 33, 0.14)',
-    borderColor: 'rgba(244, 13, 33, 0.55)',
+    backgroundColor: 'rgba(229, 9, 20, 0.14)',
+    borderColor: 'rgba(229, 9, 20, 0.55)',
   },
   latestResultBannerDraw: {
     backgroundColor: 'rgba(247, 206, 69, 0.14)',
@@ -2303,12 +2266,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   playerCardLocked: {
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
     backgroundColor: '#201012',
   },
   playerCardPulse: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(244, 13, 33, 0.18)',
+    backgroundColor: 'rgba(229, 9, 20, 0.18)',
   },
   playerRole: {
     color: '#FF8A94',
@@ -2329,7 +2292,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#211113',
     borderWidth: 1,
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
   },
   playerChoiceImage: {
     width: 48,
@@ -2349,10 +2312,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#261114',
     borderWidth: 1,
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
   },
   hiddenChoiceGlyph: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font30B,
   },
   playerChoiceLabel: {
@@ -2361,11 +2324,11 @@ const styles = StyleSheet.create({
     ...FONTS.font12B,
   },
   playerChoiceLabelReady: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font12B,
   },
   vsText: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font15B,
   },
   choiceLockCard: {
@@ -2378,7 +2341,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   choiceLockTitle: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font14B,
   },
   choiceLockDescription: {
@@ -2403,7 +2366,7 @@ const styles = StyleSheet.create({
     bottom: -4,
     height: 18,
     borderRadius: 999,
-    backgroundColor: 'rgba(244, 13, 33, 0.62)',
+    backgroundColor: 'rgba(229, 9, 20, 0.62)',
   },
   choiceButton: {
     minHeight: 126,
@@ -2416,7 +2379,7 @@ const styles = StyleSheet.create({
   },
   choiceButtonActive: {
     backgroundColor: '#201012',
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
   },
   choiceButtonDisabled: {
     opacity: 0.45,
@@ -2441,7 +2404,7 @@ const styles = StyleSheet.create({
     ...FONTS.font12B,
   },
   choiceLabelActive: {
-    color: '#F40D21',
+    color: '#E50914',
   },
   choiceOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2458,7 +2421,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   choiceOverlayEyebrow: {
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font13B,
     letterSpacing: 1.5,
     textAlign: 'center',
@@ -2488,7 +2451,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   choiceConfirmButtonDisabled: {
     backgroundColor: '#323232',
@@ -2548,8 +2511,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(62, 183, 105, 0.55)',
   },
   roundResultChipLose: {
-    backgroundColor: 'rgba(244, 13, 33, 0.14)',
-    borderColor: 'rgba(244, 13, 33, 0.55)',
+    backgroundColor: 'rgba(229, 9, 20, 0.14)',
+    borderColor: 'rgba(229, 9, 20, 0.55)',
   },
   roundResultChipDraw: {
     backgroundColor: 'rgba(247, 206, 69, 0.14)',
@@ -2616,8 +2579,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   pictureMatchTurnPillActive: {
-    borderColor: 'rgba(244, 13, 33, 0.48)',
-    backgroundColor: 'rgba(244, 13, 33, 0.16)',
+    borderColor: 'rgba(229, 9, 20, 0.48)',
+    backgroundColor: 'rgba(229, 9, 20, 0.16)',
   },
   pictureMatchTurnText: {
     color: '#FFFFFF',
@@ -2644,9 +2607,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(244, 13, 33, 0.12)',
+    backgroundColor: 'rgba(229, 9, 20, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(244, 13, 33, 0.4)',
+    borderColor: 'rgba(229, 9, 20, 0.4)',
   },
   pictureMatchScoreLabel: {
     color: '#8B8E96',
@@ -2694,11 +2657,11 @@ const styles = StyleSheet.create({
     borderColor: '#303030',
   },
   pictureMatchCardFaceUp: {
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
     backgroundColor: '#211113',
   },
   pictureMatchCardMatched: {
-    borderColor: 'rgba(244, 13, 33, 0.7)',
+    borderColor: 'rgba(229, 9, 20, 0.7)',
   },
   pictureMatchImage: {
     width: '100%',
@@ -2724,7 +2687,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   pictureMatchMineBadgeText: {
     color: '#FFFFFF',
@@ -2771,7 +2734,7 @@ const styles = StyleSheet.create({
   typingProgressFill: {
     height: '100%',
     borderRadius: 999,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   typingInput: {
     minHeight: 88,
@@ -2787,7 +2750,7 @@ const styles = StyleSheet.create({
     ...FONTS.font15M,
   },
   typingInputError: {
-    borderColor: '#F40D21',
+    borderColor: '#E50914',
     backgroundColor: '#180C0E',
   },
   typingInputComplete: {
@@ -2841,7 +2804,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   typingPrimaryButtonText: {
     color: '#FFFFFF',
@@ -2869,9 +2832,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#101010',
   },
   typingPlayerRowMine: {
-    backgroundColor: 'rgba(244, 13, 33, 0.15)',
+    backgroundColor: 'rgba(229, 9, 20, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(244, 13, 33, 0.35)',
+    borderColor: 'rgba(229, 9, 20, 0.35)',
   },
   typingPlayerName: {
     flex: 1,
@@ -2887,7 +2850,7 @@ const styles = StyleSheet.create({
   },
   typingRankText: {
     width: 20,
-    color: '#F40D21',
+    color: '#E50914',
     ...FONTS.font13B,
   },
   finishDock: {
@@ -2922,7 +2885,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   readyButtonActive: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   readyButtonText: {
     color: '#000000',

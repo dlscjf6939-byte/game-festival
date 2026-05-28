@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   heroEyebrow: {
-    color: '#FF6A61',
+    color: '#E50914',
     ...FONTS.font12B,
     letterSpacing: 1.1,
   },
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     ...FONTS.font14R,
   },
   coinRowPlus: {
-    color: '#FF6A61',
+    color: '#E50914',
     ...FONTS.font14B,
   },
   coinRowMinus: {

@@ -2,7 +2,6 @@ import React, {useRef} from 'react';
 import {
   Animated,
   Image,
-  Pressable,
   StyleSheet,
   type PressableProps,
 } from 'react-native';
@@ -18,6 +17,7 @@ import MainScreen from '../screens/MainScreen';
 import {CoinBattleNavigator} from './CoinBattleNavigator';
 import {PredictionNavigator} from './PredictionNavigator';
 import type {MainStackParamList} from './types';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {FONTS} from '../constants/theme';
 
 const Tab = createBottomTabNavigator<MainStackParamList>();
@@ -164,7 +164,7 @@ function TabButton({
   };
 
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityRole="button"
       accessibilityState={accessibilityState}
       onLongPress={onLongPress}
@@ -189,7 +189,7 @@ function TabButton({
         }}>
         {children}
       </Animated.View>
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

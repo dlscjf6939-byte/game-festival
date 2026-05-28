@@ -4,7 +4,6 @@ import {
   Easing,
   Image,
   Platform,
-  Pressable,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
 import {BlurView} from '@react-native-community/blur';
 import LinearGradient from 'react-native-linear-gradient';
 import {AnimatedField} from '../components/AnimatedField';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
@@ -171,7 +171,7 @@ export function LoginScreen(): JSX.Element {
               />
             </View>
 
-            <Pressable accessibilityRole="button" onPress={handleLogin} style={styles.buttonFrame}>
+            <AnimatedPressable accessibilityRole="button" onPress={handleLogin} style={styles.buttonFrame}>
               <View style={styles.button}>
                 <Animated.View
                   pointerEvents="none"
@@ -195,7 +195,7 @@ export function LoginScreen(): JSX.Element {
                   {isSubmitting ? '로그인 중...' : '로그인'}
                 </Animated.Text>
               </View>
-            </Pressable>
+            </AnimatedPressable>
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
           </View>
         </View>
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   errorText: {
-    color: '#FF6A61',
+    color: '#E50914',
     ...FONTS.font13B,
     lineHeight: 18,
     marginTop: 12,

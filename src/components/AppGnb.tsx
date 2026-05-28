@@ -1,7 +1,8 @@
 import React from 'react';
-import {Image, Pressable, StyleSheet, View} from 'react-native';
+import {Image, StyleSheet, View} from 'react-native';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {image} from '../assets/images';
+import {AnimatedPressable} from './AnimatedPressable';
 import type {
   MainStackParamList,
   RootStackParamList,
@@ -15,7 +16,7 @@ function HeaderAction({
   variant: 'bell' | 'coin';
 }): JSX.Element {
   return (
-    <Pressable
+    <AnimatedPressable
       accessibilityLabel={variant === 'coin' ? 'QR 스캔' : '알림'}
       accessibilityRole="button"
       onPress={onPress}
@@ -24,7 +25,7 @@ function HeaderAction({
         source={variant === 'bell' ? image.noti : image.qrCode}
         style={styles.headerActionIcon}
       />
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

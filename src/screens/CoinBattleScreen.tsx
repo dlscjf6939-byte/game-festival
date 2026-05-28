@@ -10,12 +10,11 @@ import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
-  StyleProp,
   Text,
   TextInput,
   View,
-  ViewStyle,
 } from 'react-native';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {useAuth} from '../auth/AuthProvider';
@@ -44,13 +43,6 @@ type DisplayRoom = {
   title: string;
 };
 
-type BouncyPressableProps = Omit<
-  React.ComponentProps<typeof Pressable>,
-  'ref' | 'style'
-> & {
-  style?: StyleProp<ViewStyle>;
-};
-
 const filters = ['전체', '대기중', '게임중'];
 const quickActions = [
   {id: 'create', label: '방 만들기', icon: '＋'},
@@ -65,7 +57,6 @@ const gameOptions = [
 const roundOptions = [1, 2, 3, 4, 5];
 const MIN_BET_AMOUNT = 1;
 const MAX_BET_AMOUNT = 5;
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const cropOffsets = [169, 270, 371, 472, 573, 674];
 
@@ -139,41 +130,6 @@ function isSameEmployeeId(
   }
 
   return String(left) === String(right);
-}
-
-function BouncyPressable({
-  children,
-  onPressIn,
-  onPressOut,
-  style,
-  ...props
-}: BouncyPressableProps): JSX.Element {
-  const pressScale = useRef(new Animated.Value(1)).current;
-
-  const animateScale = (toValue: number) => {
-    Animated.spring(pressScale, {
-      toValue,
-      speed: 34,
-      bounciness: 5,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <AnimatedPressable
-      {...props}
-      onPressIn={event => {
-        animateScale(0.96);
-        onPressIn?.(event);
-      }}
-      onPressOut={event => {
-        animateScale(1);
-        onPressOut?.(event);
-      }}
-      style={[style, {transform: [{scale: pressScale}]}]}>
-      {children}
-    </AnimatedPressable>
-  );
 }
 
 function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
@@ -430,7 +386,7 @@ export function CoinBattleScreen(): JSX.Element {
             ) : (
               <View style={styles.roomList}>
                 {visibleRooms.map(room => (
-                  <BouncyPressable
+                  <AnimatedPressable
                     key={room.id}
                     onPress={() => handleEnterRoom(room)}
                     style={styles.roomRow}>
@@ -454,7 +410,7 @@ export function CoinBattleScreen(): JSX.Element {
                         </Text>
                       </View>
                     </View>
-                  </BouncyPressable>
+                  </AnimatedPressable>
                 ))}
               </View>
             )}
@@ -483,7 +439,7 @@ export function CoinBattleScreen(): JSX.Element {
                       opacity,
                       transform: [{translateY}, {scale}],
                     }}>
-                    <BouncyPressable
+                    <AnimatedPressable
                       accessibilityLabel={action.label}
                       accessibilityRole="button"
                       onPress={() => {
@@ -493,14 +449,14 @@ export function CoinBattleScreen(): JSX.Element {
                       }}
                       style={styles.quickActionButton}>
                       <Text style={styles.quickActionIcon}>{action.icon}</Text>
-                    </BouncyPressable>
+                    </AnimatedPressable>
                   </Animated.View>
                 );
               })}
             </View>
           ) : null}
 
-          <BouncyPressable
+          <AnimatedPressable
             accessibilityLabel={quickActionOpen ? '목록 닫기' : '목록 열기'}
             accessibilityRole="button"
             onPress={() => setQuickActionOpen(current => !current)}
@@ -512,7 +468,7 @@ export function CoinBattleScreen(): JSX.Element {
               <View style={[styles.fabPlusLine, styles.fabPlusHorizontal]} />
               <View style={[styles.fabPlusLine, styles.fabPlusVertical]} />
             </Animated.View>
-          </BouncyPressable>
+          </AnimatedPressable>
 
           <Modal
             animationType="none"
@@ -547,7 +503,7 @@ export function CoinBattleScreen(): JSX.Element {
                   onChangeText={setRoomName}
                   placeholder="방 제목을 입력하세요"
                   placeholderTextColor="#777777"
-                  selectionColor="#F40D21"
+                  selectionColor="#E50914"
                   style={styles.createInput}
                   value={roomName}
                 />
@@ -558,7 +514,7 @@ export function CoinBattleScreen(): JSX.Element {
                     const active = option.id === realtimeGameId;
 
                     return (
-                      <BouncyPressable
+                      <AnimatedPressable
                         key={option.id}
                         onPress={() => setRealtimeGameId(option.id)}
                         style={[
@@ -572,7 +528,7 @@ export function CoinBattleScreen(): JSX.Element {
                           ]}>
                           {option.label}
                         </Text>
-                      </BouncyPressable>
+                      </AnimatedPressable>
                     );
                   })}
                 </View>
@@ -583,7 +539,7 @@ export function CoinBattleScreen(): JSX.Element {
                     const active = option === totalRoundCount;
 
                     return (
-                      <BouncyPressable
+                      <AnimatedPressable
                         key={option}
                         onPress={() => setTotalRoundCount(option)}
                         style={[
@@ -597,7 +553,7 @@ export function CoinBattleScreen(): JSX.Element {
                           ]}>
                           {option}
                         </Text>
-                      </BouncyPressable>
+                      </AnimatedPressable>
                     );
                   })}
                 </View>
@@ -605,11 +561,11 @@ export function CoinBattleScreen(): JSX.Element {
                 <Text style={styles.createLabel}>베팅 코인</Text>
                 <View style={styles.stepper}>
                   {betAmount > MIN_BET_AMOUNT ? (
-                    <BouncyPressable
+                    <AnimatedPressable
                       onPress={() => updateBetAmount(betAmount - 1)}
                       style={styles.stepperButton}>
                       <Text style={styles.stepperButtonText}>−</Text>
-                    </BouncyPressable>
+                    </AnimatedPressable>
                   ) : (
                     <View style={styles.stepperButton} />
                   )}
@@ -621,27 +577,27 @@ export function CoinBattleScreen(): JSX.Element {
                     {betAmount}
                   </Animated.Text>
                   {betAmount < MAX_BET_AMOUNT ? (
-                    <BouncyPressable
+                    <AnimatedPressable
                       onPress={() => updateBetAmount(betAmount + 1)}
                       style={styles.stepperButton}>
                       <Text style={styles.stepperButtonText}>＋</Text>
-                    </BouncyPressable>
+                    </AnimatedPressable>
                   ) : (
                     <View style={styles.stepperButton} />
                   )}
                 </View>
 
                 <View style={styles.createActions}>
-                  <BouncyPressable
+                  <AnimatedPressable
                     onPress={closeCreateModal}
                     style={styles.cancelButton}>
                     <Text style={styles.cancelButtonText}>취소</Text>
-                  </BouncyPressable>
-                  <BouncyPressable
+                  </AnimatedPressable>
+                  <AnimatedPressable
                     onPress={handleCreateRoom}
                     style={styles.submitButton}>
                     <Text style={styles.submitButtonText}>등록</Text>
-                  </BouncyPressable>
+                  </AnimatedPressable>
                 </View>
               </Animated.View>
             </KeyboardAvoidingView>
@@ -740,7 +696,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statusPlaying: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   statusWaiting: {
     backgroundColor: '#7A844F',
@@ -805,10 +761,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fabClosed: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   fabOpen: {
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
   },
   fabPlusGlyph: {
     width: 20,
@@ -839,7 +795,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -917,8 +873,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   optionChipActive: {
-    backgroundColor: '#F40D21',
-    borderColor: '#F40D21',
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
   },
   optionText: {
     color: '#D9D9D9',
@@ -976,7 +932,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 46,
     borderRadius: 8,
-    backgroundColor: '#F40D21',
+    backgroundColor: '#E50914',
     alignItems: 'center',
     justifyContent: 'center',
   },
