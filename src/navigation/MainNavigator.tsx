@@ -11,6 +11,8 @@ import {
 } from '@react-navigation/bottom-tabs';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {icon} from '../assets/icons';
+import {CoinProvider} from '../coin/CoinProvider';
+import {FeedProvider} from '../feed/FeedProvider';
 import {CoinsScreen} from '../screens/CoinsScreen';
 import {FeedScreen} from '../screens/FeedScreen';
 import MainScreen from '../screens/MainScreen';
@@ -132,6 +134,14 @@ function PredictionTabIcon(props: TabIconProps): JSX.Element {
   return <TabVisual {...props} routeName="Prediction" />;
 }
 
+function FeedTabScreen(): JSX.Element {
+  return (
+    <FeedProvider>
+      <FeedScreen />
+    </FeedProvider>
+  );
+}
+
 function renderTabButton(props: BottomTabBarButtonProps): JSX.Element {
   return <TabButton {...props} />;
 }
@@ -197,52 +207,54 @@ export function MainNavigator(): JSX.Element {
   const insets = useSafeAreaInsets();
 
   return (
-    <Tab.Navigator
-      initialRouteName="Home"
-      sceneContainerStyle={styles.sceneContainer}
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: '#0B0B0B',
-          borderTopColor: '#161616',
-          borderTopWidth: 1,
-          height: 56 + insets.bottom + 10,
-          paddingTop: 10,
-          paddingBottom: Math.max(insets.bottom, 12),
-        },
-        tabBarActiveTintColor: '#FFFFFF',
-        tabBarInactiveTintColor: '#6F7279',
-        tabBarShowLabel: false,
-        tabBarItemStyle: {
-          justifyContent: 'center',
-        },
-        tabBarButton: renderTabButton,
-      }}>
-      <Tab.Screen
-        component={MainScreen}
-        name="Home"
-        options={{tabBarIcon: HomeTabIcon}}
-      />
-      <Tab.Screen
-        component={CoinsScreen}
-        name="Coins"
-        options={{tabBarIcon: CoinsTabIcon}}
-      />
-      <Tab.Screen
-        component={FeedScreen}
-        name="Feed"
-        options={{tabBarIcon: FeedTabIcon}}
-      />
-      <Tab.Screen
-        component={CoinBattleNavigator}
-        name="CoinBattle"
-        options={{tabBarIcon: CoinBattleTabIcon}}
-      />
-      <Tab.Screen
-        component={PredictionNavigator}
-        name="Prediction"
-        options={{tabBarIcon: PredictionTabIcon}}
-      />
-    </Tab.Navigator>
+    <CoinProvider>
+      <Tab.Navigator
+        initialRouteName="Home"
+        sceneContainerStyle={styles.sceneContainer}
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: '#0B0B0B',
+            borderTopColor: '#161616',
+            borderTopWidth: 1,
+            height: 56 + insets.bottom + 10,
+            paddingTop: 10,
+            paddingBottom: Math.max(insets.bottom, 12),
+          },
+          tabBarActiveTintColor: '#FFFFFF',
+          tabBarInactiveTintColor: '#6F7279',
+          tabBarShowLabel: false,
+          tabBarItemStyle: {
+            justifyContent: 'center',
+          },
+          tabBarButton: renderTabButton,
+        }}>
+        <Tab.Screen
+          component={MainScreen}
+          name="Home"
+          options={{tabBarIcon: HomeTabIcon}}
+        />
+        <Tab.Screen
+          component={CoinsScreen}
+          name="Coins"
+          options={{tabBarIcon: CoinsTabIcon}}
+        />
+        <Tab.Screen
+          component={FeedTabScreen}
+          name="Feed"
+          options={{tabBarIcon: FeedTabIcon}}
+        />
+        <Tab.Screen
+          component={CoinBattleNavigator}
+          name="CoinBattle"
+          options={{tabBarIcon: CoinBattleTabIcon}}
+        />
+        <Tab.Screen
+          component={PredictionNavigator}
+          name="Prediction"
+          options={{tabBarIcon: PredictionTabIcon}}
+        />
+      </Tab.Navigator>
+    </CoinProvider>
   );
 }

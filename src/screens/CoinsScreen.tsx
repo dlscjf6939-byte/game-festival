@@ -1,19 +1,22 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   Animated,
+  Image,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
+import {useAuth} from '../auth/AuthProvider';
+import {useCoin} from '../coin/CoinProvider';
 import {MainScaffold} from '../components/MainScaffold';
 import {FONTS} from '../constants/theme';
 import {
   coinHistories,
-  coinRankings,
   type CoinHistory,
   type CoinRanking,
 } from '../dummyData/coinDummyData';
+import {icon} from '../assets/icons';
 
 const coinTabs = [
   {id: 'history', label: '코인내역'},
@@ -21,6 +24,19 @@ const coinTabs = [
 ] as const;
 
 type CoinTabId = (typeof coinTabs)[number]['id'];
+
+function getRankIcon(rank: number) {
+  if (rank === 1) {
+    return icon.rank1;
+  }
+  if (rank === 2) {
+    return icon.rank2;
+  }
+  if (rank === 3) {
+    return icon.rank3;
+  }
+  return null;
+}
 
 function HistoryItem({
   index,
@@ -79,6 +95,7 @@ function RankingItem({
     inputRange: [0, 1],
     outputRange: [18, 0],
   });
+  const rankIcon = getRankIcon(item.rank);
 
   useEffect(() => {
     entranceProgress.setValue(0);
@@ -98,8 +115,12 @@ function RankingItem({
         transform: [{translateY}],
       }}>
       <AnimatedPressable style={[styles.rankingItem, item.isMe && styles.rankingItemMe]}>
-        <View style={[styles.rankBadge, item.rank <= 3 && styles.rankBadgeTop]}>
-          <Text style={[styles.rankText, item.rank <= 3 && styles.rankTextTop]}>{item.rank}</Text>
+        <View style={[styles.rankBadge, rankIcon && styles.rankBadgeIcon]}>
+          {rankIcon ? (
+            <Image source={rankIcon} style={styles.rankIcon} />
+          ) : (
+            <Text style={styles.rankText}>{item.rank}</Text>
+          )}
         </View>
         <View style={styles.rankingUser}>
           <Text style={styles.rankingName}>
@@ -115,6 +136,8 @@ function RankingItem({
 }
 
 export function CoinsScreen(): JSX.Element {
+  const {auth} = useAuth();
+  const {rankingItems, isRankingLoading, rankingError} = useCoin();
   const [activeTab, setActiveTab] = useState<CoinTabId>('history');
   const tabContentProgress = useRef(new Animated.Value(1)).current;
   const tabContentTranslateY = tabContentProgress.interpolate({
@@ -132,6 +155,14 @@ export function CoinsScreen(): JSX.Element {
     }).start();
   }, [activeTab, tabContentProgress]);
 
+  const myProfile = auth?.profile;
+  const coinBalanceValue =
+    typeof myProfile?.coinBalance === 'number'
+      ? myProfile.coinBalance
+      : typeof myProfile?.coinBalance === 'string'
+      ? Number(myProfile.coinBalance)
+      : 0;
+  const coinBalance = Number.isFinite(coinBalanceValue) ? coinBalanceValue : 0;
   return (
     <MainScaffold>
       <View style={styles.header}>
@@ -163,13 +194,12 @@ export function CoinsScreen(): JSX.Element {
           <>
             <View style={styles.balanceCard}>
               <Text style={styles.label}>나의 보유 코인</Text>
-              <Text style={styles.value}>24개</Text>
-              <Text style={styles.balanceMeta}>현재 랭킹 3위 · 이번 주 +4개</Text>
+              <Text style={styles.value}>{coinBalance}개</Text>
             </View>
 
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>최근 변동 내역</Text>
+                <Text style={styles.sectionTitle}>최근 내역</Text>
                 <Text style={styles.sectionMeta}>총 {coinHistories.length}건</Text>
               </View>
 
@@ -182,10 +212,14 @@ export function CoinsScreen(): JSX.Element {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>코인 랭킹</Text>
-              <Text style={styles.sectionMeta}>총 {coinRankings.length}명</Text>
+              <Text style={styles.sectionMeta}>
+                {isRankingLoading ? '불러오는 중...' : `상위 30명까지 표시됩니다.`}
+              </Text>
             </View>
 
-            {coinRankings.map((item, index) => (
+            {rankingError ? <Text style={styles.errorText}>{rankingError}</Text> : null}
+
+            {rankingItems.map((item, index) => (
               <RankingItem key={item.id} index={index} item={item} />
             ))}
           </View>
@@ -327,15 +361,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#272727',
     marginRight: 12,
   },
-  rankBadgeTop: {
-    backgroundColor: '#FFFFFF',
+  rankBadgeIcon: {
+    backgroundColor: 'transparent',
+  },
+  rankIcon: {
+    width: 34,
+    height: 34,
+    resizeMode: 'contain',
   },
   rankText: {
     color: '#A9ABB2',
     ...FONTS.font14B,
-  },
-  rankTextTop: {
-    color: '#000000',
   },
   rankingUser: {
     flex: 1,
@@ -353,5 +389,10 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font16B,
     marginLeft: 14,
+  },
+  errorText: {
+    color: '#E66B70',
+    ...FONTS.font12R,
+    marginBottom: 8,
   },
 });

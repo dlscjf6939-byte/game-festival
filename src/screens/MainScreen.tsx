@@ -1,6 +1,26 @@
-import React, {useRef} from 'react';
-import {Animated, Dimensions, Image, SafeAreaView, StatusBar, StyleSheet, Text, View} from 'react-native';
+import React, {useRef, useState} from 'react';
+import {useFocusEffect} from '@react-navigation/native';
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Image,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import LottieView from 'lottie-react-native';
+import {useAttendance} from '../attendance/AttendanceProvider';
 import {image} from '../assets/images';
+import {useAuth} from '../auth/AuthProvider';
+import {useCoin} from '../coin/CoinProvider';
+import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {FONTS} from '../constants/theme';
@@ -12,34 +32,230 @@ const STORY_CARD_HEIGHT = 474;
 const STORY_CARD_GAP = 18;
 const STORY_ITEM_WIDTH = STORY_CARD_WIDTH + STORY_CARD_GAP;
 const STORY_SNAP_INTERVAL = STORY_ITEM_WIDTH;
+const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
+const checkLottie = require('../assets/lotties/Check.json');
 
 const storyCards = [
   {
     id: 'left',
-    title: 'TAKKEN7',
-    subtitle: '철권7',
+    posterImage: image.poster1,
+    title: 'CRAZY ARCADE',
+    subtitle: '크레이지 아케이드',
     accent: '#0e5ac5',
     tag: 'LIVE BRACKET',
   },
   {
     id: 'center',
-    title: 'TAKKEN7',
-    subtitle: '철권7',
+    posterImage: image.poster2,
+    title: 'TEKKEN',
+    subtitle: '철권',
     accent: '#E11319',
     tag: 'MAIN EVENT',
   },
   {
     id: 'right',
-    title: 'TAKKEN7',
-    subtitle: '철권7',
+    posterImage: image.poster3,
+    title: 'STARCRAFT',
+    subtitle: '스타크래프트',
     accent: '#F7CE45',
     tag: 'RISING PICK',
   },
 ];
 
+const bracketRoundsByStory = {
+  left: [
+    {
+      id: 'round-8',
+      label: '8강',
+      matches: [
+        {id: 'm1', left: 'TEAM RED', right: 'TEAM COBALT', leftScore: 2, rightScore: 1},
+        {id: 'm2', left: 'TEAM NOVA', right: 'TEAM PULSE', leftScore: 0, rightScore: 2},
+      ],
+    },
+    {
+      id: 'round-4',
+      label: '4강',
+      matches: [{id: 'm3', left: 'TEAM RED', right: 'TEAM PULSE', leftScore: 2, rightScore: 0}],
+    },
+    {
+      id: 'round-final',
+      label: '결승',
+      matches: [{id: 'm4', left: 'TEAM RED', right: 'TEAM ONYX', leftScore: 3, rightScore: 2}],
+    },
+  ],
+  center: [
+    {
+      id: 'round-8',
+      label: '8강',
+      matches: [
+        {id: 'm1', left: 'DRAGON X', right: 'RAVEN UNIT', leftScore: 2, rightScore: 0},
+        {id: 'm2', left: 'KNOCKOUT', right: 'SUDDEN', leftScore: 1, rightScore: 2},
+      ],
+    },
+    {
+      id: 'round-4',
+      label: '4강',
+      matches: [{id: 'm3', left: 'DRAGON X', right: 'SUDDEN', leftScore: 2, rightScore: 1}],
+    },
+    {
+      id: 'round-final',
+      label: '결승',
+      matches: [{id: 'm4', left: 'DRAGON X', right: 'VOID CORE', leftScore: 3, rightScore: 1}],
+    },
+  ],
+  right: [
+    {
+      id: 'round-8',
+      label: '8강',
+      matches: [
+        {id: 'm1', left: 'RISING WAVE', right: 'FROST LINE', leftScore: 2, rightScore: 1},
+        {id: 'm2', left: 'BLACK MAMBA', right: 'PENTA', leftScore: 2, rightScore: 0},
+      ],
+    },
+    {
+      id: 'round-4',
+      label: '4강',
+      matches: [{id: 'm3', left: 'RISING WAVE', right: 'BLACK MAMBA', leftScore: 2, rightScore: 1}],
+    },
+    {
+      id: 'round-final',
+      label: '결승',
+      matches: [{id: 'm4', left: 'RISING WAVE', right: 'TEMPEST', leftScore: 3, rightScore: 2}],
+    },
+  ],
+} as const;
+
+function parseDateKey(dateKey: string): Date | null {
+  const [yearText, monthText, dayText] = dateKey.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day);
+}
+
+function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function MainScreen(): JSX.Element {
+  const {auth} = useAuth();
+  const {rankingItems, isRankingLoading} = useCoin();
+  const {attendance, checkInNotice, dismissCheckInNotice, isChecking, refreshAttendance} = useAttendance();
   const scrollX = useRef(new Animated.Value(STORY_SNAP_INTERVAL)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
+  const bracketFlipValues = useRef(
+    storyCards.reduce(
+      (acc, card) => {
+        acc[card.id] = new Animated.Value(0);
+        return acc;
+      },
+      {} as Record<(typeof storyCards)[number]['id'], Animated.Value>,
+    ),
+  ).current;
+  const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
+  const profile = auth?.profile;
+  const coinBalanceRaw =
+    typeof profile?.coinBalance === 'number'
+      ? profile.coinBalance
+      : typeof profile?.coinBalance === 'string'
+      ? Number(profile.coinBalance)
+      : 0;
+  const coinBalance = Number.isFinite(coinBalanceRaw) ? coinBalanceRaw : 0;
+  const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
+  const name = auth?.name ?? '이인철';
+  const greetingPrefix = department || '서비스개발팀';
+  const myRankingItem = rankingItems.find(item => item.isMe);
+  const rankingText = isRankingLoading ? '집계 중' : myRankingItem ? `${myRankingItem.rank}위` : '미집계';
+  const checkedDateSet = new Set(attendance?.checkedDates ?? []);
+  const weekStartDate = attendance?.weekStartDate ? parseDateKey(attendance.weekStartDate) : null;
+  const attendanceBoard = WEEKDAY_LABELS.map((label, index) => {
+    const targetDate = weekStartDate ? new Date(weekStartDate) : null;
+
+    if (targetDate) {
+      targetDate.setDate(targetDate.getDate() + index);
+    }
+
+    const dateKey = targetDate ? toDateKey(targetDate) : null;
+
+    return {
+      isChecked: Boolean(dateKey && checkedDateSet.has(dateKey)),
+      label,
+    };
+  });
+  const attendanceCountText = attendance ? `${attendance.checkedThisWeekCount}/7` : '-/7';
+  const nextVisitCount = checkInNotice ? checkInNotice.totalCheckedCount + 1 : 0;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void refreshAttendance();
+    }, [refreshAttendance]),
+  );
+
+  const animateFlip = React.useCallback(
+    (cardId: (typeof storyCards)[number]['id'], toValue: 0 | 1, onComplete?: () => void) => {
+      Animated.timing(bracketFlipValues[cardId], {
+        toValue,
+        duration: 420,
+        easing: Easing.bezier(0.2, 0.75, 0.2, 1),
+        useNativeDriver: true,
+      }).start(({finished}) => {
+        if (!finished || !onComplete) {
+          return;
+        }
+        onComplete();
+      });
+    },
+    [bracketFlipValues],
+  );
+
+  const handleStoryCardPress = React.useCallback(
+    (cardId: (typeof storyCards)[number]['id']) => {
+      if (flippedCardId === cardId) {
+        animateFlip(cardId, 0, () => setFlippedCardId(null));
+        return;
+      }
+
+      if (flippedCardId) {
+        const prevCardId = flippedCardId;
+        animateFlip(prevCardId, 0, () => {
+          setFlippedCardId(cardId);
+          animateFlip(cardId, 1);
+        });
+        return;
+      }
+
+      setFlippedCardId(cardId);
+      animateFlip(cardId, 1);
+    },
+    [animateFlip, flippedCardId],
+  );
+
+  const handleStoryListMomentumEnd = React.useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!flippedCardId) {
+        return;
+      }
+
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const nextIndex = Math.round(offsetX / STORY_SNAP_INTERVAL);
+      const nextCard = storyCards[nextIndex];
+
+      if (!nextCard || nextCard.id === flippedCardId) {
+        return;
+      }
+
+      animateFlip(flippedCardId, 0, () => setFlippedCardId(null));
+    },
+    [animateFlip, flippedCardId],
+  );
 
   const renderStoryCard = React.useCallback(
     ({item, index}: {item: (typeof storyCards)[number]; index: number}): JSX.Element => {
@@ -72,63 +288,106 @@ function MainScreen(): JSX.Element {
         outputRange: ['5deg', '0deg', '-5deg'],
         extrapolate: 'clamp',
       });
-
-      const badgeOpacity = scrollX.interpolate({
-        inputRange,
-        outputRange: [0.55, 1, 0.55],
-        extrapolate: 'clamp',
+      const flipValue = bracketFlipValues[item.id];
+      const frontRotateY = flipValue.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '180deg'],
       });
+      const backRotateY = flipValue.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['180deg', '360deg'],
+      });
+      const frontOpacity = flipValue.interpolate({
+        inputRange: [0, 0.49, 0.5, 1],
+        outputRange: [1, 1, 0, 0],
+      });
+      const backOpacity = flipValue.interpolate({
+        inputRange: [0, 0.49, 0.5, 1],
+        outputRange: [0, 0, 1, 1],
+      });
+      const cardRounds = bracketRoundsByStory[item.id];
 
       return (
         <View style={styles.storyItem}>
-          <Animated.View
-            style={[
-              styles.storyCard,
-              {borderColor: `${item.accent}55`},
-              {
-                opacity,
-                transform: [{translateY}, {scale}, {rotate}],
-              },
-            ]}>
-            {/* <View
+          <AnimatedPressable
+            accessibilityRole="button"
+            disabled={flippedCardId === item.id}
+            onPress={() => handleStoryCardPress(item.id)}
+            style={styles.storyPressable}>
+            <Animated.View
               style={[
-                styles.storyGlow,
+                styles.storyCard,
+                {borderColor: `${item.accent}55`},
                 {
-                  backgroundColor: item.glow,
+                  opacity,
+                  transform: [{translateY}, {scale}, {rotate}],
                 },
-              ]}
-            /> */}
-            {/* <View
-              style={[
-                styles.storyAccentOrb,
-                {
-                  backgroundColor: item.accent,
-                },
-              ]}
-            /> */}
-            <Image source={image.poster} resizeMode="contain" style={styles.storyPosterImage} />
-            <View style={styles.storyNoise} />
-            <View style={styles.storyGradient}>
+              ]}>
               <Animated.View
+                pointerEvents={flippedCardId === item.id ? 'none' : 'auto'}
                 style={[
-                  styles.storyBadge,
+                  styles.storyFace,
                   {
-                    opacity: badgeOpacity,
-                    borderColor: `${item.accent}66`,
-                    backgroundColor: `${item.accent}22`,
+                    opacity: frontOpacity,
+                    transform: [{perspective: 1200}, {rotateY: frontRotateY}],
                   },
                 ]}>
-                <Text style={[styles.storyBadgeText, {color: item.accent}]}>{item.tag}</Text>
+                <Image source={item.posterImage} resizeMode="cover" style={styles.storyPosterImage} />
+                <View style={styles.storyNoise} />
               </Animated.View>
-              <Text style={styles.storyEyebrow}>{item.subtitle}</Text>
-              <Text style={styles.storyTitle}>{item.title}</Text>
-              <Text style={styles.storyMeta}>SCROLL TO NEXT MATCHUP</Text>
-            </View>
-          </Animated.View>
+
+              <Animated.View
+                pointerEvents={flippedCardId === item.id ? 'auto' : 'none'}
+                style={[
+                  styles.storyFace,
+                  styles.storyBackFace,
+                  {
+                    opacity: backOpacity,
+                    transform: [{perspective: 1200}, {rotateY: backRotateY}],
+                  },
+                ]}>
+                <View style={styles.storyBackHeader}>
+                  <View>
+                    <Text style={styles.storyBackEyebrow}>{item.tag}</Text>
+                    <Text style={styles.storyBackTitle}>{item.subtitle} 대진표</Text>
+                  </View>
+                  <AnimatedPressable onPress={() => handleStoryCardPress(item.id)} style={styles.storyBackCloseButton}>
+                    <Text style={styles.storyBackCloseButtonText}>닫기</Text>
+                  </AnimatedPressable>
+                </View>
+
+                <ScrollView
+                  bounces={false}
+                  contentContainerStyle={styles.storyBackRoundsContent}
+                  nestedScrollEnabled
+                  style={styles.storyBackScroll}
+                  showsVerticalScrollIndicator={false}>
+                  {cardRounds.map(round => (
+                    <View key={round.id} style={styles.storyBackRound}>
+                      <Text style={styles.storyBackRoundLabel}>{round.label}</Text>
+                      {round.matches.map(match => (
+                        <View key={match.id} style={styles.storyBackMatch}>
+                          <View style={styles.storyBackTeamRow}>
+                            <Text style={styles.storyBackTeamName}>{match.left}</Text>
+                            <Text style={styles.storyBackTeamScore}>{match.leftScore}</Text>
+                          </View>
+                          <View style={styles.storyBackLine} />
+                          <View style={styles.storyBackTeamRow}>
+                            <Text style={styles.storyBackTeamName}>{match.right}</Text>
+                            <Text style={styles.storyBackTeamScore}>{match.rightScore}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
+              </Animated.View>
+            </Animated.View>
+          </AnimatedPressable>
         </View>
       );
     },
-    [scrollX],
+    [bracketFlipValues, flippedCardId, handleStoryCardPress, scrollX],
   );
 
   return (
@@ -205,6 +464,7 @@ function MainScreen(): JSX.Element {
                 initialScrollIndex={1}
                 keyExtractor={item => item.id}
                 onScroll={Animated.event([{nativeEvent: {contentOffset: {x: scrollX}}}], {useNativeDriver: true})}
+                onMomentumScrollEnd={handleStoryListMomentumEnd}
                 renderItem={renderStoryCard}
                 scrollEventThrottle={16}
                 showsHorizontalScrollIndicator={false}
@@ -250,13 +510,13 @@ function MainScreen(): JSX.Element {
                     marginBottom: 16,
                   }}>
                   <Image source={image.profile} style={{width: 40, height: 40, marginRight: 12}} />
-                  <Text style={styles.greeting}>서비스개발팀 이인철님</Text>
+                  <Text style={styles.greeting}>{`${greetingPrefix} ${name}님`}</Text>
                 </View>
                 <View style={styles.coinCard}>
                   <View style={styles.coinHeader}>
                     <Text style={styles.coinHeaderTitle}>나의 보유코인</Text>
                     <View style={styles.coinValueWrap}>
-                      <Text style={styles.coinValue}>24개</Text>
+                      <Text style={styles.coinValue}>{coinBalance}개</Text>
                       <View style={styles.coinChevron} />
                     </View>
                   </View>
@@ -265,17 +525,48 @@ function MainScreen(): JSX.Element {
 
                   <View style={styles.coinRows}>
                     <View style={styles.coinRow}>
-                      <Text style={styles.coinRowLabel}>승부예측 참여 완료</Text>
-                      <Text style={styles.coinRowValue}>-2개</Text>
+                      <Text style={styles.coinRowLabel}>현재 랭킹</Text>
+                      <Text style={styles.coinRowValue}>{rankingText}</Text>
                     </View>
                     <View style={styles.coinRow}>
-                      <Text style={styles.coinRowLabel}>주니어보드 설문 참여 완료</Text>
-                      <Text style={styles.coinRowValue}>+2개</Text>
+                      <Text style={styles.coinRowLabel}>사업본부</Text>
+                      <Text style={styles.coinRowValue}>
+                        {typeof profile?.division === 'string' && profile.division.trim()
+                          ? profile.division.trim()
+                          : '-'}
+                      </Text>
                     </View>
                     <View style={styles.coinRow}>
-                      <Text style={styles.coinRowLabel}>섹타나인 임직원 기본 지급</Text>
-                      <Text style={styles.coinRowValue}>+2개</Text>
+                      <Text style={styles.coinRowLabel}>소속</Text>
+                      <Text style={styles.coinRowValue}>{department || '-'}</Text>
                     </View>
+                  </View>
+                </View>
+
+                <View style={styles.attendanceCard}>
+                  <View style={styles.attendanceHeader}>
+                    <Text style={styles.attendanceTitle}>출석체크 현황판</Text>
+                    <Text style={styles.attendanceMeta}>
+                      {isChecking ? '확인 중...' : `이번 주 ${attendanceCountText}`}
+                    </Text>
+                  </View>
+                  <View style={styles.attendanceGrid}>
+                    {attendanceBoard.map(day => (
+                      <View key={day.label} style={styles.attendanceCell}>
+                        <View style={[styles.attendanceDot, day.isChecked && styles.attendanceDotChecked]}>
+                          {day.isChecked ? (
+                            <LottieView autoPlay loop source={checkLottie} style={styles.attendanceDotLottie} />
+                          ) : (
+                            <Text style={[styles.attendanceDotText, day.isChecked && styles.attendanceDotTextChecked]}>
+                              ✕
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={[styles.attendanceDayLabel, day.isChecked && styles.attendanceDayLabelChecked]}>
+                          {day.label}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
               </View>
@@ -283,6 +574,53 @@ function MainScreen(): JSX.Element {
           </View>
         </View>
       </SafeAreaView>
+
+      <Modal animationType="fade" onRequestClose={dismissCheckInNotice} transparent visible={Boolean(checkInNotice)}>
+        <View style={styles.attendanceModalOverlay}>
+          <View style={styles.attendanceModalCard}>
+            <Text style={styles.attendanceModalCountText}>
+              {checkInNotice ? `${checkInNotice.totalCheckedCount}일차` : '출석'}
+            </Text>
+            <Text style={styles.attendanceModalSuccessText}>출석 완료!</Text>
+
+            <View style={styles.attendanceModalWeekWrap}>
+              {attendanceBoard.map(day => (
+                <View key={`modal-${day.label}`} style={styles.attendanceModalDayItem}>
+                  <Text style={styles.attendanceModalDayLabel}>{day.label}</Text>
+                  <View style={[styles.attendanceModalDayDot, day.isChecked && styles.attendanceModalDayDotChecked]}>
+                    {day.isChecked ? (
+                      <LottieView autoPlay loop source={checkLottie} style={styles.attendanceModalDayDotLottie} />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.attendanceModalDayDotText,
+                          day.isChecked && styles.attendanceModalDayDotTextChecked,
+                        ]}>
+                        ✕
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.attendanceModalHintCard}>
+              <Text style={styles.attendanceModalHintText}>
+                <Text style={styles.attendanceModalHintAccent}>하루만 더 오면 {nextVisitCount}일</Text> 연속 출석이에요
+                {'\n'}
+                {checkInNotice && checkInNotice.rewardCoins > 0
+                  ? `오늘 보상 코인 +${checkInNotice.rewardCoins} 지급!`
+                  : '내일도 방문해서 기록을 이어가세요.'}
+              </Text>
+            </View>
+
+            <AnimatedPressable onPress={dismissCheckInNotice} style={styles.attendanceModalConfirmButton}>
+              <Text style={styles.attendanceModalConfirmText}>확인했어요</Text>
+            </AnimatedPressable>
+          </View>
+        </View>
+      </Modal>
+
     </TabSceneTransition>
   );
 }
@@ -373,6 +711,10 @@ const styles = StyleSheet.create({
     width: STORY_ITEM_WIDTH,
     alignItems: 'center',
   },
+  storyPressable: {
+    width: STORY_CARD_WIDTH,
+    height: STORY_CARD_HEIGHT,
+  },
   storyCard: {
     width: STORY_CARD_WIDTH,
     height: STORY_CARD_HEIGHT,
@@ -380,6 +722,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#101010',
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  storyFace: {
+    ...StyleSheet.absoluteFillObject,
+    backfaceVisibility: 'hidden',
+  },
+  storyBackFace: {
+    backgroundColor: 'rgba(10,12,16,0.97)',
+    padding: 14,
   },
   storyPosterImage: {
     ...StyleSheet.absoluteFillObject,
@@ -407,6 +757,84 @@ const styles = StyleSheet.create({
   storyNoise: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  storyBackHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  storyBackEyebrow: {
+    color: '#CDD2DA',
+    ...FONTS.font10B,
+  },
+  storyBackTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font18B,
+    marginTop: 3,
+  },
+  storyBackHint: {
+    color: '#8F96A3',
+    ...FONTS.font10B,
+    marginTop: 3,
+  },
+  storyBackCloseButton: {
+    height: 28,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storyBackCloseButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font12B,
+  },
+  storyBackScroll: {
+    flex: 1,
+  },
+  storyBackRoundsContent: {
+    gap: 8,
+    paddingBottom: 10,
+  },
+  storyBackRound: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.11)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    padding: 8,
+  },
+  storyBackRoundLabel: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    marginBottom: 4,
+  },
+  storyBackMatch: {
+    borderRadius: 8,
+    backgroundColor: 'rgba(5,7,10,0.74)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginTop: 6,
+  },
+  storyBackTeamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  storyBackTeamName: {
+    color: '#E8EAF0',
+    ...FONTS.font12B,
+  },
+  storyBackTeamScore: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+  },
+  storyBackLine: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginVertical: 5,
   },
   storyGradient: {
     flex: 1,
@@ -459,6 +887,7 @@ const styles = StyleSheet.create({
     width: 335,
     alignSelf: 'center',
     marginTop: 32,
+    gap: 14,
   },
   greeting: {
     color: '#FFFFFF',
@@ -517,6 +946,181 @@ const styles = StyleSheet.create({
   coinRowValue: {
     color: '#FFFFFF',
     ...FONTS.font14M,
+  },
+  attendanceCard: {
+    borderRadius: 20,
+    backgroundColor: '#161616',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  attendanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  attendanceTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font16B,
+  },
+  attendanceMeta: {
+    color: '#A9ABB2',
+    ...FONTS.font12M,
+  },
+  attendanceGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  attendanceCell: {
+    alignItems: 'center',
+    width: 38,
+  },
+  attendanceDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2B2B2B',
+    borderWidth: 1,
+    borderColor: '#3A3A3A',
+  },
+  attendanceDotChecked: {
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
+  },
+  attendanceDotText: {
+    color: '#E6E8EE',
+    ...FONTS.font14B,
+  },
+  attendanceDotTextChecked: {
+    color: '#FFFFFF',
+  },
+  attendanceDotLottie: {
+    width: 44,
+    height: 44,
+    transform: [{scale: 1.5}],
+  },
+  attendanceDayLabel: {
+    marginTop: 6,
+    color: '#8A8D95',
+    ...FONTS.font11M,
+  },
+  attendanceDayLabelChecked: {
+    color: '#FFFFFF',
+  },
+  attendanceModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+  },
+  attendanceModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 24,
+    backgroundColor: '#1C1D24',
+    borderWidth: 1,
+    borderColor: '#2C2D36',
+    paddingHorizontal: 22,
+    paddingTop: 34,
+    paddingBottom: 20,
+    alignItems: 'center',
+  },
+  attendanceModalCountText: {
+    color: '#FFFFFF',
+    ...FONTS.font40B,
+    lineHeight: 52,
+  },
+  attendanceModalSuccessText: {
+    marginTop: 8,
+    color: '#E9EAF0',
+    ...FONTS.font24M,
+    lineHeight: 32,
+  },
+  attendanceModalWeekWrap: {
+    width: '100%',
+    marginTop: 22,
+    borderRadius: 16,
+    backgroundColor: '#121319',
+    borderWidth: 1,
+    borderColor: '#25262E',
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  attendanceModalDayItem: {
+    alignItems: 'center',
+    width: 38,
+  },
+  attendanceModalDayLabel: {
+    color: '#8F939E',
+    ...FONTS.font13B,
+    marginBottom: 8,
+  },
+  attendanceModalDayDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#40424D',
+    backgroundColor: '#2E303A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attendanceModalDayDotChecked: {
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
+  },
+  attendanceModalDayDotText: {
+    color: '#D8DCE7',
+    ...FONTS.font16B,
+    lineHeight: 18,
+  },
+  attendanceModalDayDotTextChecked: {
+    color: '#FFFFFF',
+  },
+  attendanceModalDayDotLottie: {
+    width: 48,
+    height: 48,
+    transform: [{scale: 1.52}],
+  },
+  attendanceModalHintCard: {
+    width: '100%',
+    marginTop: 18,
+    borderRadius: 16,
+    backgroundColor: '#252731',
+    borderWidth: 1,
+    borderColor: '#343746',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  attendanceModalHintText: {
+    color: '#E1E3EA',
+    ...FONTS.font18M,
+    lineHeight: 26,
+  },
+  attendanceModalHintAccent: {
+    color: '#E50914',
+    ...FONTS.font18B,
+  },
+  attendanceModalConfirmButton: {
+    marginTop: 20,
+    width: '100%',
+    height: 54,
+    borderRadius: 16,
+    backgroundColor: '#E50914',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attendanceModalConfirmText: {
+    color: '#FFFFFF',
+    ...FONTS.font16B,
+    lineHeight: 21,
   },
 });
 

@@ -76,9 +76,10 @@ PODS:
     - hermes-engine/Pre-built (= 0.72.17)
   - hermes-engine/Pre-built (0.72.17)
   - libevent (2.1.12)
-  - lottie-ios (4.4.1)
-  - lottie-react-native (6.7.2):
-    - lottie-ios (= 4.4.1)
+  - lottie-ios (4.6.0)
+  - lottie-react-native (7.3.8):
+    - lottie-ios (= 4.6.0)
+    - RCT-Folly (= 2021.07.22.00)
     - React-Core
   - OpenSSL-Universal (1.1.1100)
   - RCT-Folly (2021.07.22.00):
@@ -732,10 +733,10 @@ SPEC CHECKSUMS:
   glog: 04b94705f318337d7ead9e6d17c019bd9b1f6b1b
   hermes-engine: 982096772bd947125ee3b4f72ace6cb9a33f1d02
   libevent: 4049cae6c81cdb3654a443be001fb9bdceff7913
-  lottie-ios: e047b1d2e6239b787cc5e9755b988869cf190494
-  lottie-react-native: b9b043670db02c7ae76d3c3a9cc43e44bf711537
+  lottie-ios: 8f959969761e9c45d70353667d00af0e5b9cadb3
+  lottie-react-native: 5449c4e4a027efac5ce21e71d0f89dfa9dfa95e2
   OpenSSL-Universal: ebc357f1e6bc71fa463ccb2fe676756aff50e88c
-  RCT-Folly: 424b8c9a7a0b9ab2886ffe9c3b041ef628fd4fb1
+  RCT-Folly: 8dc08ca5a393b48b1c523ab6220dfdcc0fe000ad
   RCTRequired: 01c639ec840ee03928b2d65f5cd5297d737b3834
   RCTTypeSafety: 9623592521a1576363baf3d6ab8d164cfe9062bf
   React: 3c0beeda318c3c515a6bb2c1f197b55bd731aa43
@@ -779,6 +780,6 @@ SPEC CHECKSUMS:
   Yoga: ef534101bb891fb09bae657417f34d399c1efe38
   YogaKit: f782866e155069a2cca2517aafea43200b01fd5a
 
-PODFILE CHECKSUM: 1a1d1ae9598caf0e343832c9d29ecdf2aedd4645
+PODFILE CHECKSUM: cd305054d84494f38e254fccf3791f3caedacba7
 
 COCOAPODS: 1.14.3

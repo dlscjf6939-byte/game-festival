@@ -270,16 +270,17 @@ export function PredictionDetailScreen(): JSX.Element {
   const cheerComments = submittedComment ? [submittedComment, ...initialCheerComments] : initialCheerComments;
   const matchupSplitLineStyle = useMemo(() => {
     const {height, width} = matchupStageSize;
+    const lineBleed = 96;
 
     if (!width || !height) {
       return {
-        marginLeft: -1,
+        marginLeft: -(width + lineBleed) / 2,
         transform: [{rotate: '-35deg'}],
-        width: 2,
+        width: width + lineBleed,
       };
     }
 
-    const diagonalLength = Math.sqrt(width * width + height * height);
+    const diagonalLength = Math.sqrt(width * width + height * height) + lineBleed;
     const diagonalAngle = Math.atan2(height, width) * (180 / Math.PI);
 
     return {
@@ -606,95 +607,95 @@ export function PredictionDetailScreen(): JSX.Element {
                         prev.width === width && prev.height === height ? prev : {height, width},
                       );
                     }}
-                    style={styles.matchupStage}>
-                    <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
-                      <LinearGradient
-                        pointerEvents="none"
-                        colors={[
-                          'rgba(229,9,20,0)',
-                          'rgba(229,9,20,0.95)',
-                          'rgba(229,9,20,0.95)',
-                          'rgba(229,9,20,0)',
-                        ]}
-                        end={{x: 1, y: 0.5}}
-                        locations={[0, 0.1, 0.9, 1]}
-                        start={{x: 0, y: 0.5}}
-                        style={[styles.matchupSplitLine, matchupSplitLineStyle]}
-                      />
-
-                      <View pointerEvents="none" style={styles.vsBadgeCenter}>
-                        {isLottieNativeAvailable ? (
-                          <LottieView autoPlay loop source={compareVsLottie} style={styles.vsLottie} />
-                        ) : (
-                          <View style={styles.vsFallbackBadge}>
-                            <Text style={styles.vsFallbackText}>VS</Text>
-                          </View>
-                        )}
+                    style={styles.matchupStageWrapper}>
+                    <Animated.View pointerEvents="none" style={[styles.matchupGlobalLineLayer, matchupIdleStyle]}>
+                      <View pointerEvents="none" style={[styles.matchupSplitLineCoreWrap, matchupSplitLineStyle]}>
+                        <LinearGradient
+                          pointerEvents="none"
+                          colors={['rgba(229,9,20,0)', 'rgba(229,9,20,1)', 'rgba(229,9,20,0)']}
+                          end={{x: 1, y: 0.5}}
+                          start={{x: 0, y: 0.5}}
+                          style={styles.matchupSplitLineGlobal}
+                        />
                       </View>
                     </Animated.View>
 
-                    <Animated.View
-                      style={[styles.wallLogoPressable, styles.wallLogoLeft, leftLogoIntroStyle, matchupIdleStyle]}>
-                      <AnimatedPressable
-                        accessibilityRole="button"
-                        disabled={Boolean(expandedTeam)}
-                        onPress={() => handleTeamLogoPress(teams[0].id)}
-                        style={styles.wallLogoTouchArea}>
-                        <Animated.View
-                          style={[
-                          styles.wallLogoShell,
-                          styles.wallLogoShellLeft,
-                          selectedTeam === teams[0].id && styles.wallLogoShellActive,
-                        ]}>
-                          <Image source={teams[0].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
-                        </Animated.View>
-                      </AnimatedPressable>
-                    </Animated.View>
-
-                    <Animated.View
-                      style={[styles.wallLogoPressable, styles.wallLogoRight, rightLogoIntroStyle, matchupIdleStyle]}>
-                      <AnimatedPressable
-                        accessibilityRole="button"
-                        disabled={Boolean(expandedTeam)}
-                        onPress={() => handleTeamLogoPress(teams[1].id)}
-                        style={styles.wallLogoTouchArea}>
-                        <Animated.View
-                          style={[
-                          styles.wallLogoShell,
-                          styles.wallLogoShellRight,
-                          selectedTeam === teams[1].id && styles.wallLogoShellActive,
-                        ]}>
-                          <Image source={teams[1].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
-                        </Animated.View>
-                      </AnimatedPressable>
-                    </Animated.View>
-
-                    {expandedTeamInfo ? (
-                      <Animated.View style={[styles.expandedTeamPanel, teamDetailStyle]}>
-                        <AnimatedPressable
-                          accessibilityLabel="팀 상세 닫기"
-                          accessibilityRole="button"
-                          onPress={handleCloseTeamDetail}
-                          style={styles.expandedCloseButton}>
-                          <Image source={icon.closeBtn} style={styles.expandedCloseIcon} />
-                        </AnimatedPressable>
-                        <View style={styles.expandedLogoRing}>
-                          <Image
-                            source={expandedTeamInfo.imageSource}
-                            resizeMode="contain"
-                            style={styles.expandedTeamLogo}
-                          />
-                        </View>
-                        <View style={styles.expandedTextBlock}>
-                          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.expandedTeamName}>
-                            {expandedTeamInfo.name}
-                          </Text>
-                          <Text numberOfLines={2} style={styles.expandedTeamMembers}>
-                            {expandedTeamInfo.members.join(' / ')}
-                          </Text>
+                    <View style={styles.matchupStage}>
+                      <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
+                        <View pointerEvents="none" style={styles.vsBadgeCenter}>
+                          {isLottieNativeAvailable ? (
+                              <LottieView autoPlay loop={false} speed={0.8} source={compareVsLottie} style={styles.vsLottie} />
+                          ) : (
+                            <View style={styles.vsFallbackBadge}>
+                              <Text style={styles.vsFallbackText}>VS</Text>
+                            </View>
+                          )}
                         </View>
                       </Animated.View>
-                    ) : null}
+
+                      <Animated.View
+                        style={[styles.wallLogoPressable, styles.wallLogoLeft, leftLogoIntroStyle, matchupIdleStyle]}>
+                        <AnimatedPressable
+                          accessibilityRole="button"
+                          disabled={Boolean(expandedTeam)}
+                          onPress={() => handleTeamLogoPress(teams[0].id)}
+                          style={styles.wallLogoTouchArea}>
+                          <Animated.View
+                            style={[
+                            styles.wallLogoShell,
+                            styles.wallLogoShellLeft,
+                            selectedTeam === teams[0].id && styles.wallLogoShellActive,
+                          ]}>
+                            <Image source={teams[0].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                          </Animated.View>
+                        </AnimatedPressable>
+                      </Animated.View>
+
+                      <Animated.View
+                        style={[styles.wallLogoPressable, styles.wallLogoRight, rightLogoIntroStyle, matchupIdleStyle]}>
+                        <AnimatedPressable
+                          accessibilityRole="button"
+                          disabled={Boolean(expandedTeam)}
+                          onPress={() => handleTeamLogoPress(teams[1].id)}
+                          style={styles.wallLogoTouchArea}>
+                          <Animated.View
+                            style={[
+                            styles.wallLogoShell,
+                            styles.wallLogoShellRight,
+                            selectedTeam === teams[1].id && styles.wallLogoShellActive,
+                          ]}>
+                            <Image source={teams[1].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                          </Animated.View>
+                        </AnimatedPressable>
+                      </Animated.View>
+
+                      {expandedTeamInfo ? (
+                        <Animated.View style={[styles.expandedTeamPanel, teamDetailStyle]}>
+                          <AnimatedPressable
+                            accessibilityLabel="팀 상세 닫기"
+                            accessibilityRole="button"
+                            onPress={handleCloseTeamDetail}
+                            style={styles.expandedCloseButton}>
+                            <Image source={icon.closeBtn} style={styles.expandedCloseIcon} />
+                          </AnimatedPressable>
+                          <View style={styles.expandedLogoRing}>
+                            <Image
+                              source={expandedTeamInfo.imageSource}
+                              resizeMode="contain"
+                              style={styles.expandedTeamLogo}
+                            />
+                          </View>
+                          <View style={styles.expandedTextBlock}>
+                            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.expandedTeamName}>
+                              {expandedTeamInfo.name}
+                            </Text>
+                            <Text numberOfLines={2} style={styles.expandedTeamMembers}>
+                              {expandedTeamInfo.members.join(' / ')}
+                            </Text>
+                          </View>
+                        </Animated.View>
+                      ) : null}
+                    </View>
                   </View>
                 </ScrollView>
 
@@ -713,7 +714,7 @@ export function PredictionDetailScreen(): JSX.Element {
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.voteInputStep}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.voteInputContent}>
-                  <View style={[styles.selectedTeamHero, {backgroundColor: selectedTeamInfo.tone}]}>
+                  <View style={styles.selectedTeamHero}>
                     <Image
                       source={selectedTeamInfo.imageSource}
                       style={styles.selectedTeamImage}
@@ -873,27 +874,41 @@ const styles = StyleSheet.create({
     ...FONTS.font16M,
     lineHeight: 21,
   },
-  matchupStage: {
+  matchupStageWrapper: {
     marginHorizontal: 20,
     marginTop: 8,
     height: 360,
     position: 'relative',
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: '#0B0B0D',
   },
-  matchupIdleLayer: {
+  matchupGlobalLineLayer: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
+    zIndex: 0,
+    overflow: 'visible',
   },
-  matchupSplitLine: {
+  matchupSplitLineCoreWrap: {
     position: 'absolute',
     top: '50%',
     left: '50%',
     marginTop: -3,
     height: 6,
     borderRadius: 999,
-    zIndex: 3,
+  },
+  matchupSplitLineGlobal: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+  },
+  matchupStage: {
+    height: '100%',
+    position: 'relative',
+    zIndex: 2,
+    borderRadius: 24,
+    overflow: 'hidden',
+    // backgroundColor: '#0B0B0D',
+  },
+  matchupIdleLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 2,
   },
   teamInfoBlock: {
     position: 'absolute',

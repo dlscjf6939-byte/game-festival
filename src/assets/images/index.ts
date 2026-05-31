@@ -9,7 +9,9 @@ type ImageMap = {
   // coinBattle: ImageSourcePropType;
   homeBanner: ImageSourcePropType;
   logo: ImageSourcePropType;
-  poster: ImageSourcePropType;
+  poster1: ImageSourcePropType;
+  poster2: ImageSourcePropType;
+  poster3: ImageSourcePropType;
   profile: ImageSourcePropType;
   qrCode: ImageSourcePropType;
   starcraft: ImageSourcePropType;
@@ -26,13 +28,15 @@ type ImageMap = {
 export const image: ImageMap = {
   crazyarcade: require('./crazyarcade.png'),
   crazyarcadeLetter: require('./crazyarcade_letter.png'),
-  gameFestival1: require('./게임대회1.jpg'),
-  gameFestival2: require('./게임대회2.jpg'),
-  gameFestival3: require('./게임대회3.jpg'),
+  gameFestival1: require('./게임대회1.jpg'),
+  gameFestival2: require('./게임대회2.jpg'),
+  gameFestival3: require('./게임대회3.jpg'),
   // coinBattle: require('./코인대전.png'),
   homeBanner: require('./home-banner.png'),
   logo: require('./logo.png'),
-  poster: require('./poster.png'),
+  poster1: require('./poster1.png'),
+  poster2: require('./poster2.png'),
+  poster3: require('./poster3.png'),
   profile: require('./profile.png'),
   qrCode: require('./qrCode.png'),
   starcraft: require('./starcraft.png'),

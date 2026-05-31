@@ -43,12 +43,11 @@ const rankingTeams = ['서비스개발팀', '주니어보드', '운영팀', '디
 
 export const coinHistories: CoinHistory[] = Array.from({length: 64}, (_, index) => {
   const template = historyTemplates[index % historyTemplates.length];
-  const round = Math.floor(index / historyTemplates.length) + 1;
 
   return {
     id: `coin-history-${index + 1}`,
     title: template.title,
-    description: `${template.description} · ${round}회차`,
+    description: template.description,
     amount: template.amount,
   };
 });

@@ -6,6 +6,6 @@ type LogoMap = {
 };
 
 export const logo: LogoMap = {
-  boongkwon: require('./붕권-removebg-preview.png'),
-  gwantaekdong: require('./관택동-removebg-preview.png'),
+  boongkwon: require('./붕권-removebg-preview.png'),
+  gwantaekdong: require('./관택동-removebg-preview.png'),
 };

@@ -25,11 +25,12 @@ import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
+import {useFeed} from '../feed/FeedProvider';
 import {
-  feedPosts,
   highlightGroups,
   type FeedComment,
   type FeedPost,
+  feedPosts,
 } from '../dummyData/feedDummyData';
 
 type ComposeStep = 'select' | 'details';
@@ -61,12 +62,12 @@ function getProfileText(profile: Record<string, unknown> | undefined, keys: stri
 export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const {auth} = useAuth();
+  const {posts, setPosts} = useFeed();
   const {width: screenWidth} = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
   const commentSubmitProgress = useRef(new Animated.Value(0)).current;
   const snapPoints = useMemo(() => ['66%'], []);
-  const [posts, setPosts] = useState<FeedPost[]>(feedPosts);
   const [commentDraft, setCommentDraft] = useState('');
   const [selectedPostId, setSelectedPostId] = useState(feedPosts[0].id);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
