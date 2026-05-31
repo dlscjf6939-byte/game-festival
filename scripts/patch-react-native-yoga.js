@@ -106,3 +106,22 @@ patchFile(
   source => source.replace('def camerax_version = "1.4.2"', 'def camerax_version = "1.3.4"'),
   'react-native-camera-kit android/build.gradle',
 );
+
+const reactNativeGradlePluginBuild = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  '@react-native',
+  'gradle-plugin',
+  'build.gradle.kts',
+);
+
+patchFile(
+  reactNativeGradlePluginBuild,
+  source =>
+    source.replace(
+      '  kotlin("jvm") version "1.7.22"',
+      '  kotlin("jvm") version "1.9.20"',
+    ),
+  'React Native Gradle plugin build.gradle.kts',
+);
