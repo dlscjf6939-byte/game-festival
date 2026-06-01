@@ -16,7 +16,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import {launchImageLibrary} from 'react-native-image-picker';
+import {launchImageLibrary, type Asset as PickerAsset} from 'react-native-image-picker';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
@@ -29,11 +29,15 @@ import {useFeed} from '../feed/FeedProvider';
 import {
   highlightGroups,
   type FeedComment,
-  type FeedPost,
   feedPosts,
 } from '../dummyData/feedDummyData';
 
 type ComposeStep = 'select' | 'details';
+type ComposeImageAsset = {
+  fileName: string | undefined;
+  type: string | undefined;
+  uri: string;
+};
 
 function formatCount(count: number): string {
   if (count >= 1000) {
@@ -62,7 +66,7 @@ function getProfileText(profile: Record<string, unknown> | undefined, keys: stri
 export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const {auth} = useAuth();
-  const {posts, setPosts} = useFeed();
+  const {createPost, posts, togglePostLike} = useFeed();
   const {width: screenWidth} = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -72,16 +76,17 @@ export function FeedScreen(): JSX.Element {
   const [selectedPostId, setSelectedPostId] = useState(feedPosts[0].id);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [selectedHighlightIndex, setSelectedHighlightIndex] = useState(0);
-  const [likedPostIds, setLikedPostIds] = useState<string[]>(['main-event']);
   const [expandedCaptionPostIds, setExpandedCaptionPostIds] = useState<string[]>([]);
   const [truncatedCaptionPostIds, setTruncatedCaptionPostIds] = useState<string[]>([]);
   const [isComposeVisible, setIsComposeVisible] = useState(false);
   const [composeStep, setComposeStep] = useState<ComposeStep>('select');
   const [composeImageUris, setComposeImageUris] = useState<string[]>([]);
+  const [composeImageAssets, setComposeImageAssets] = useState<ComposeImageAsset[]>([]);
   const [composeCaption, setComposeCaption] = useState('');
   const [composeTags, setComposeTags] = useState<string[]>([]);
   const [composeTagDraft, setComposeTagDraft] = useState('');
   const [composeErrorMessage, setComposeErrorMessage] = useState<string | null>(null);
+  const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
   const [activePostImageIndexes, setActivePostImageIndexes] = useState<Record<string, number>>({});
   const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>(() =>
     feedPosts.reduce<Record<string, FeedComment[]>>((commentsMap, post) => {
@@ -89,6 +94,25 @@ export function FeedScreen(): JSX.Element {
       return commentsMap;
     }, {}),
   );
+
+  useEffect(() => {
+    setCommentsByPost(prevCommentsByPost =>
+      posts.reduce<Record<string, FeedComment[]>>((nextCommentsByPost, post) => {
+        nextCommentsByPost[post.id] = prevCommentsByPost[post.id] ?? post.comments ?? [];
+        return nextCommentsByPost;
+      }, {}),
+    );
+  }, [posts]);
+
+  useEffect(() => {
+    if (!posts.length) {
+      return;
+    }
+
+    if (!posts.some(post => post.id === selectedPostId)) {
+      setSelectedPostId(posts[0].id);
+    }
+  }, [posts, selectedPostId]);
 
   const selectedPost = posts.find(post => post.id === selectedPostId) ?? posts[0] ?? feedPosts[0];
   const selectedComments = commentsByPost[selectedPost.id] ?? [];
@@ -119,7 +143,7 @@ export function FeedScreen(): JSX.Element {
       'deptNm',
       'dept',
     ]) ?? '서비스개발팀';
-  const isComposeSubmittable = Boolean(composeCaption.trim());
+  const isComposeSubmittable = Boolean(composeCaption.trim()) && !isSubmittingCompose;
   const commentSubmitAnimatedStyle = {
     backgroundColor: commentSubmitProgress.interpolate({
       inputRange: [0, 1],
@@ -171,11 +195,12 @@ export function FeedScreen(): JSX.Element {
     });
   }, [closeHighlight, selectedHighlightGroup]);
 
-  const toggleLike = useCallback((postId: string) => {
-    setLikedPostIds(prevPostIds =>
-      prevPostIds.includes(postId) ? prevPostIds.filter(id => id !== postId) : [...prevPostIds, postId],
-    );
-  }, []);
+  const toggleLike = useCallback(
+    (postId: string) => {
+      void togglePostLike(postId);
+    },
+    [togglePostLike],
+  );
 
   const expandCaption = useCallback((postId: string) => {
     setExpandedCaptionPostIds(prevPostIds => (prevPostIds.includes(postId) ? prevPostIds : [...prevPostIds, postId]));
@@ -227,6 +252,8 @@ export function FeedScreen(): JSX.Element {
 
   const closeCompose = useCallback(() => {
     setIsComposeVisible(false);
+    setIsSubmittingCompose(false);
+    setComposeImageAssets([]);
     setComposeImageUris([]);
     setComposeCaption('');
     setComposeTags([]);
@@ -253,14 +280,23 @@ export function FeedScreen(): JSX.Element {
       return;
     }
 
-    const selectedUris = result.assets?.map(asset => asset.uri).filter((uri): uri is string => Boolean(uri)) ?? [];
+    const selectedAssets =
+      result.assets
+        ?.filter((asset): asset is PickerAsset & {uri: string} => typeof asset.uri === 'string' && asset.uri.length > 0)
+        .slice(0, 6)
+        .map(asset => ({
+          fileName: asset.fileName,
+          type: asset.type,
+          uri: asset.uri,
+        })) ?? [];
 
-    if (!selectedUris.length) {
+    if (!selectedAssets.length) {
       setComposeErrorMessage('선택한 사진을 확인할 수 없습니다.');
       return;
     }
 
-    setComposeImageUris(selectedUris.slice(0, 6));
+    setComposeImageAssets(selectedAssets);
+    setComposeImageUris(selectedAssets.map(asset => asset.uri));
     setComposeStep('details');
   }, []);
 
@@ -326,7 +362,7 @@ export function FeedScreen(): JSX.Element {
     setComposeTagDraft('');
   }, [addComposeTags, composeTagDraft]);
 
-  const submitCompose = useCallback(() => {
+  const submitCompose = useCallback(async () => {
     const caption = composeCaption.trim();
     const draftTag = composeTagDraft.trim();
 
@@ -335,41 +371,48 @@ export function FeedScreen(): JSX.Element {
       return;
     }
 
-    const newPost: FeedPost = {
-      id: `local-post-${Date.now()}`,
-      user: myName,
-      role: myTeamName,
-      avatar: myAvatarSource,
-      images: composeImageUris.map(uri => ({uri})),
-      title: '현장 피드',
-      caption,
-      hashtags: (draftTag
-        ? [...composeTags, `#${draftTag.replace(/^#+/, '')}`].filter(
-            (tag, index, tags) => tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index,
-          )
-        : composeTags
-      ).slice(0, 6),
-      time: '방금 전',
-      likes: 0,
-      comments: [],
-    };
+    const normalizedTags = (draftTag ? [...composeTags, `#${draftTag.replace(/^#+/, '')}`] : composeTags)
+      .map(tag => tag.replace(/^#+/, '').trim())
+      .filter((tag, index, tags) => Boolean(tag) && tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index)
+      .slice(0, 6);
 
-    setPosts(prevPosts => [newPost, ...prevPosts]);
-    setCommentsByPost(prevComments => ({
-      ...prevComments,
-      [newPost.id]: [],
-    }));
-    setSelectedPostId(newPost.id);
-    closeCompose();
+    const normalizedTitle = caption.split('\n')[0].trim().slice(0, 40) || '현장 피드';
+
+    setComposeErrorMessage(null);
+    setIsSubmittingCompose(true);
+    console.log('[FeedScreen] submitCompose start', {
+      captionLength: caption.length,
+      imageCount: composeImageAssets.length,
+      tags: normalizedTags,
+      title: normalizedTitle,
+    });
+
+    try {
+      await createPost({
+        content: caption,
+        hashTags: normalizedTags,
+        images: composeImageAssets,
+        title: normalizedTitle,
+      });
+      console.log('[FeedScreen] submitCompose success');
+      closeCompose();
+    } catch (error) {
+      console.log('[FeedScreen] submitCompose failed', error);
+      if (error instanceof Error && error.message) {
+        setComposeErrorMessage(error.message);
+      } else {
+        setComposeErrorMessage('게시글 등록에 실패했습니다.');
+      }
+      setIsSubmittingCompose(false);
+    }
   }, [
     closeCompose,
     composeCaption,
+    composeImageAssets,
     composeImageUris,
     composeTagDraft,
     composeTags,
-    myAvatarSource,
-    myName,
-    myTeamName,
+    createPost,
   ]);
 
   const renderBackdrop = useCallback(
@@ -439,11 +482,12 @@ export function FeedScreen(): JSX.Element {
 
             <View style={styles.postStack}>
               {posts.map(post => {
-                const isLiked = likedPostIds.includes(post.id);
+                const isLiked = Boolean(post.isLiked);
                 const isCaptionExpanded = expandedCaptionPostIds.includes(post.id);
                 const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
                 const comments = commentsByPost[post.id] ?? [];
-                const likeCount = post.likes + (isLiked ? 1 : 0);
+                const likeCount = post.likes;
+                const commentCount = typeof post.commentCount === 'number' ? post.commentCount : comments.length;
                 const postImages = post.images ?? (post.image ? [post.image] : []);
                 const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
 
@@ -575,7 +619,7 @@ export function FeedScreen(): JSX.Element {
                         ))}
                       </View>
                       <AnimatedPressable onPress={() => openComments(post.id)}>
-                        <Text style={styles.commentLink}>댓글 {comments.length}개 모두 보기</Text>
+                        <Text style={styles.commentLink}>댓글 {commentCount}개 모두 보기</Text>
                       </AnimatedPressable>
                       {comments[0] ? (
                         <Text numberOfLines={1} style={styles.previewComment}>
@@ -860,7 +904,7 @@ export function FeedScreen(): JSX.Element {
                 <AnimatedPressable
                   accessibilityRole="button"
                   disabled={composeStep === 'details' && !isComposeSubmittable}
-                  onPress={composeStep === 'select' ? goToComposeDetails : submitCompose}
+                  onPress={composeStep === 'select' ? goToComposeDetails : () => void submitCompose()}
                   style={[
                     styles.composePrimaryButton,
                     composeStep === 'details' && !isComposeSubmittable && styles.composePrimaryButtonDisabled,
@@ -870,7 +914,7 @@ export function FeedScreen(): JSX.Element {
                       styles.composePrimaryButtonText,
                       composeStep === 'details' && !isComposeSubmittable && styles.composePrimaryButtonTextDisabled,
                     ]}>
-                    {composeStep === 'select' ? '다음' : '공유하기'}
+                    {composeStep === 'select' ? '다음' : isSubmittingCompose ? '공유 중...' : '공유하기'}
                   </Text>
                 </AnimatedPressable>
               </View>
@@ -1102,9 +1146,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingHorizontal: 18,
     paddingVertical: 18,
-    backgroundColor: '#111114',
-    borderWidth: 1,
-    borderColor: '#242428',
   },
   textOnlyPostTitle: {
     color: '#FFFFFF',

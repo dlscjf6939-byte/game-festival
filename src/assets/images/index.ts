@@ -28,9 +28,9 @@ type ImageMap = {
 export const image: ImageMap = {
   crazyarcade: require('./crazyarcade.png'),
   crazyarcadeLetter: require('./crazyarcade_letter.png'),
-  gameFestival1: require('./게임대회1.jpg'),
-  gameFestival2: require('./게임대회2.jpg'),
-  gameFestival3: require('./게임대회3.jpg'),
+  gameFestival1: require('./gameFestival1.jpg'),
+  gameFestival2: require('./gameFestival2.jpg'),
+  gameFestival3: require('./gameFestival3.jpg'),
   // coinBattle: require('./코인대전.png'),
   homeBanner: require('./home-banner.png'),
   logo: require('./logo.png'),
