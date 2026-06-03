@@ -1,28 +1,58 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
 import {Platform} from 'react-native';
+import ImageResizer from '@bam.tech/react-native-image-resizer';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
-import {feedPosts, type FeedPost} from '../dummyData/feedDummyData';
+import {
+  type FeedPost,
+  type FeedComment,
+  type HighlightGroup,
+  type HighlightItem,
+} from '../dummyData/feedDummyData';
+import {withMinimumLoadingTime} from '../utils/loading';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const FEED_BOARD_ID = 21;
 const FEED_POST_PAGE = 1;
 const FEED_POST_SIZE = 5;
+const MAX_FEED_IMAGE_COUNT = 5;
+const MAX_FEED_IMAGE_FILE_SIZE = 10 * 1024 * 1024;
+const FEED_IMAGE_RESIZE_STEPS = [
+  {maxSize: 2400, quality: 82},
+  {maxSize: 2000, quality: 76},
+  {maxSize: 1600, quality: 70},
+  {maxSize: 1280, quality: 64},
+  {maxSize: 1024, quality: 58},
+] as const;
+
+type FeedUploadImage = {
+  fileName?: string;
+  fileSize?: number;
+  type?: string;
+  uri: string;
+};
 
 type FeedContextValue = {
+  createComment: (postId: string, content: string) => Promise<string | null>;
   createPost: (payload: {
     content: string;
     hashTags: string[];
-    images: Array<{fileName?: string; type?: string; uri: string}>;
+    images: FeedUploadImage[];
     title: string;
   }) => Promise<void>;
   isLoading: boolean;
   lastError: string | null;
   lastResponseBody: unknown;
+  highlightGroups: HighlightGroup[];
   posts: FeedPost[];
+  fetchComments: (postId: string) => Promise<FeedComment[]>;
+  refreshHighlights: () => Promise<void>;
+  refreshHighlightPosts: (highlightId: string) => Promise<void>;
   refreshPosts: () => Promise<void>;
   setPosts: React.Dispatch<React.SetStateAction<FeedPost[]>>;
   togglePostLike: (postId: string) => Promise<void>;
+  updateComment: (postId: string, commentId: string, content: string) => Promise<void>;
+  deleteComment: (postId: string, commentId: string) => Promise<void>;
 };
 
 const FeedContext = createContext<FeedContextValue | undefined>(undefined);
@@ -51,6 +81,66 @@ type FeedPostItemApi = {
     department?: string;
     employeeName?: string;
   };
+};
+
+type FeedHighlightApiResponse = {
+  code?: string;
+  data?: FeedHighlightItemApi[];
+  message?: string;
+  success?: boolean;
+};
+
+type FeedHighlightItemApi = {
+  imageUrl?: string;
+  postCount?: number;
+  tagId?: number;
+  tagName?: string;
+};
+
+type FeedHighlightPostApiResponse = {
+  code?: string;
+  data?: FeedHighlightPostItemApi[];
+  message?: string;
+  success?: boolean;
+};
+
+type FeedHighlightPostItemApi = {
+  content?: string;
+  imageUrl?: string;
+  postId?: number;
+  title?: string;
+};
+
+type CommentMutationResponse = {
+  data?: unknown;
+  message?: string;
+  success?: boolean;
+};
+
+type FeedCommentApiResponse = {
+  code?: string;
+  data?: FeedCommentItemApi[] | {comments?: FeedCommentItemApi[]; content?: FeedCommentItemApi[]};
+  message?: string;
+  success?: boolean;
+};
+
+type FeedCommentItemApi = {
+  commentId?: number | string;
+  commentContent?: string;
+  content?: string;
+  createdAt?: string;
+  employeeId?: number | string;
+  employeeName?: string;
+  id?: number | string;
+  isMine?: boolean;
+  mine?: boolean;
+  writer?: {
+    employeeId?: number | string;
+    department?: string;
+    employeeName?: string;
+    name?: string;
+  };
+  writerName?: string;
 };
 
 function toFeedPost(post: FeedPostItemApi): FeedPost | null {
@@ -83,12 +173,108 @@ function toFeedPost(post: FeedPostItemApi): FeedPost | null {
   };
 }
 
+function toHighlightGroup(item: FeedHighlightItemApi): HighlightGroup | null {
+  if (typeof item.tagId !== 'number') {
+    return null;
+  }
+
+  const imageUrl = item.imageUrl?.trim();
+
+  return {
+    cover: imageUrl ? {uri: imageUrl} : image.profile,
+    id: String(item.tagId),
+    items: [],
+    label: item.tagName?.trim() || '태그',
+    postCount: typeof item.postCount === 'number' ? item.postCount : 0,
+  };
+}
+
+function toHighlightItem(post: FeedHighlightPostItemApi, fallbackImage: HighlightGroup['cover']): HighlightItem | null {
+  if (typeof post.postId !== 'number') {
+    return null;
+  }
+
+  const imageUrl = post.imageUrl?.trim();
+
+  return {
+    description: (post.content ?? '').trim(),
+    id: String(post.postId),
+    image: imageUrl ? {uri: imageUrl} : fallbackImage,
+    time: '방금 전',
+    title: (post.title ?? '제목 없음').trim() || '제목 없음',
+  };
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }
 
   return '피드 조회 중 오류가 발생했습니다.';
+}
+
+function getCommentIdFromResponse(value: unknown): string | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const directId = record.commentId ?? record.id;
+
+  if (typeof directId === 'number' || typeof directId === 'string') {
+    return String(directId);
+  }
+
+  return getCommentIdFromResponse(record.data);
+}
+
+function getCommentsFromResponseData(data: FeedCommentApiResponse['data']): FeedCommentItemApi[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  return data?.comments ?? data?.content ?? [];
+}
+
+function toFeedComment(
+  comment: FeedCommentItemApi,
+  fallbackIndex: number,
+  myName?: string,
+  myEmployeeId?: number | string,
+): FeedComment | null {
+  const commentId = comment.commentId ?? comment.id;
+  const text = (comment.commentContent ?? comment.content)?.trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const writerEmployeeId = comment.writer?.employeeId ?? comment.employeeId;
+  const user =
+    comment.writer?.employeeName?.trim() ||
+    comment.writer?.name?.trim() ||
+    comment.employeeName?.trim() ||
+    comment.writerName?.trim() ||
+    '이름 없음';
+
+  return {
+    commentId: typeof commentId === 'number' || typeof commentId === 'string' ? String(commentId) : undefined,
+    id:
+      typeof commentId === 'number' || typeof commentId === 'string'
+        ? String(commentId)
+        : `comment-${Date.now()}-${fallbackIndex}`,
+    isMine:
+      comment.isMine ??
+      comment.mine ??
+      (myEmployeeId !== undefined && writerEmployeeId !== undefined
+        ? String(myEmployeeId) === String(writerEmployeeId)
+        : myName
+        ? user === myName
+        : false),
+    text,
+    time: '방금 전',
+    user,
+  };
 }
 
 function getImageFileInfo(uri: string, index: number, fileName?: string, mimeType?: string): {name: string; type: string} {
@@ -127,12 +313,151 @@ function normalizeUploadUri(uri: string): string {
   return uri;
 }
 
+async function resizeImageToUploadLimit(asset: FeedUploadImage): Promise<FeedUploadImage> {
+  if (typeof asset.fileSize !== 'number' || asset.fileSize <= MAX_FEED_IMAGE_FILE_SIZE) {
+    return asset;
+  }
+
+  let latestAsset = asset;
+
+  for (const step of FEED_IMAGE_RESIZE_STEPS) {
+    const resizedImage = await ImageResizer.createResizedImage(
+      latestAsset.uri,
+      step.maxSize,
+      step.maxSize,
+      'JPEG',
+      step.quality,
+      0,
+      null,
+      false,
+      {mode: 'contain', onlyScaleDown: true},
+    );
+
+    latestAsset = {
+      fileName: resizedImage.name || asset.fileName,
+      fileSize: resizedImage.size,
+      type: 'image/jpeg',
+      uri: resizedImage.uri,
+    };
+
+    if (resizedImage.size <= MAX_FEED_IMAGE_FILE_SIZE) {
+      return latestAsset;
+    }
+  }
+
+  return latestAsset;
+}
+
+async function prepareFeedImagesForUpload(images: FeedUploadImage[]): Promise<FeedUploadImage[]> {
+  const resizedImages = await Promise.all(images.map(resizeImageToUploadLimit));
+  const oversizedImage = resizedImages.find(
+    asset => typeof asset.fileSize === 'number' && asset.fileSize > MAX_FEED_IMAGE_FILE_SIZE,
+  );
+
+  if (oversizedImage) {
+    throw new Error('사진 용량을 10MB 이하로 줄이지 못했습니다. 더 작은 사진을 선택해주세요.');
+  }
+
+  return resizedImages;
+}
+
 export function FeedProvider({children}: {children: React.ReactNode}): JSX.Element {
   const {auth} = useAuth();
-  const [posts, setPosts] = useState<FeedPost[]>(feedPosts);
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [highlightGroups, setHighlightGroups] = useState<HighlightGroup[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastResponseBody, setLastResponseBody] = useState<unknown>(null);
+
+  const refreshHighlights = useCallback(async () => {
+    if (!auth?.accessToken) {
+      return;
+    }
+
+    try {
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/tags/highlights`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: FeedHighlightApiResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as FeedHighlightApiResponse;
+      } catch {
+        throw new Error('하이라이트 응답을 해석하지 못했습니다.');
+      }
+
+      if (!response.ok || responseBody.success === false) {
+        throw new Error(responseBody.message || '하이라이트 조회에 실패했습니다.');
+      }
+
+      const mappedGroups = (responseBody.data ?? [])
+        .map(toHighlightGroup)
+        .filter((group): group is HighlightGroup => Boolean(group));
+
+      setHighlightGroups(mappedGroups);
+    } catch (error) {
+      console.log('[FeedProvider] highlights request failed', error);
+    }
+  }, [auth?.accessToken]);
+
+  const refreshHighlightPosts = useCallback(
+    async (highlightId: string) => {
+      if (!auth?.accessToken) {
+        return;
+      }
+
+      const targetGroup = highlightGroups.find(group => group.id === highlightId);
+      const fallbackImage = targetGroup?.cover ?? image.profile;
+
+      try {
+        const response = await withMinimumLoadingTime(
+          fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/tags/${highlightId}/posts`, {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${auth.accessToken}`,
+            },
+          }),
+        );
+        const responseText = await response.text();
+        let responseBody: FeedHighlightPostApiResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as FeedHighlightPostApiResponse;
+        } catch {
+          throw new Error('하이라이트 게시글 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || '하이라이트 게시글 조회에 실패했습니다.');
+        }
+
+        const items = (responseBody.data ?? [])
+          .map(post => toHighlightItem(post, fallbackImage))
+          .filter((item): item is HighlightItem => Boolean(item));
+
+        setHighlightGroups(prevGroups =>
+          prevGroups.map(group =>
+            group.id === highlightId
+              ? {
+                  ...group,
+                  items,
+                  postCount: group.postCount ?? items.length,
+                }
+              : group,
+          ),
+        );
+      } catch (error) {
+        console.log('[FeedProvider] highlight posts request failed', {error, highlightId});
+      }
+    },
+    [auth?.accessToken, highlightGroups],
+  );
 
   const refreshPosts = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -147,12 +472,14 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
     }).toString();
 
     try {
-      const response = await fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts?${queryString}`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`,
-        },
-      });
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts?${queryString}`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
       const responseText = await response.text();
       let responseBody: FeedPostApiResponse | null = null;
 
@@ -169,11 +496,11 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       }
 
       const mappedPosts = (responseBody.data?.content ?? []).map(toFeedPost).filter((post): post is FeedPost => Boolean(post));
-      setPosts(mappedPosts.length ? mappedPosts : feedPosts);
+      setPosts(mappedPosts);
     } catch (error) {
       const message = getErrorMessage(error);
       setLastError(message);
-      setPosts(feedPosts);
+      setPosts([]);
       console.log('[FeedProvider] posts request failed', {error, queryString});
     } finally {
       setIsLoading(false);
@@ -207,13 +534,15 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       );
 
       try {
-        const response = await fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/likes/toggle`, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${auth.accessToken}`,
-          },
-        });
+        const response = await withMinimumLoadingTime(
+          fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/likes/toggle`, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${auth.accessToken}`,
+            },
+          }),
+        );
 
         const responseText = await response.text();
         let responseBody: {message?: string; success?: boolean} | null = null;
@@ -237,19 +566,184 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
     [auth?.accessToken],
   );
 
+  const createComment = useCallback(
+    async (postId: string, content: string) => {
+      if (!auth?.accessToken) {
+        throw new Error('로그인 정보가 필요합니다.');
+      }
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/comments`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({content}),
+        }),
+      );
+
+      const responseText = await response.text();
+      let responseBody: CommentMutationResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as CommentMutationResponse;
+      } catch {
+        responseBody = null;
+      }
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '댓글 등록에 실패했습니다.');
+      }
+
+      setPosts(prevPosts =>
+        prevPosts.map(post =>
+          post.id === postId
+            ? {
+                ...post,
+                commentCount: (post.commentCount ?? post.comments.length) + 1,
+              }
+            : post,
+        ),
+      );
+
+      return getCommentIdFromResponse(responseBody);
+    },
+    [auth?.accessToken],
+  );
+
+  const fetchComments = useCallback(
+    async (postId: string) => {
+      if (!auth?.accessToken) {
+        return [];
+      }
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: FeedCommentApiResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as FeedCommentApiResponse;
+      } catch {
+        throw new Error('댓글 응답을 해석하지 못했습니다.');
+      }
+
+      if (!response.ok || responseBody.success === false) {
+        throw new Error(responseBody.message || responseText || '댓글 조회에 실패했습니다.');
+      }
+
+      return getCommentsFromResponseData(responseBody.data)
+        .map((comment, index) => toFeedComment(comment, index, auth.name, auth.employeeId))
+        .filter((comment): comment is FeedComment => Boolean(comment));
+    },
+    [auth?.accessToken, auth?.employeeId, auth?.name],
+  );
+
+  const updateComment = useCallback(
+    async (postId: string, commentId: string, content: string) => {
+      if (!auth?.accessToken) {
+        throw new Error('로그인 정보가 필요합니다.');
+      }
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/comments/${commentId}`, {
+          method: 'PUT',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({content}),
+        }),
+      );
+
+      const responseText = await response.text();
+      let responseBody: CommentMutationResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as CommentMutationResponse;
+      } catch {
+        responseBody = null;
+      }
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '댓글 수정에 실패했습니다.');
+      }
+    },
+    [auth?.accessToken],
+  );
+
+  const deleteComment = useCallback(
+    async (postId: string, commentId: string) => {
+      if (!auth?.accessToken) {
+        throw new Error('로그인 정보가 필요합니다.');
+      }
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/comments/${commentId}`, {
+          method: 'DELETE',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+
+      const responseText = await response.text();
+      let responseBody: CommentMutationResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as CommentMutationResponse;
+      } catch {
+        responseBody = null;
+      }
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '댓글 삭제에 실패했습니다.');
+      }
+
+      setPosts(prevPosts =>
+        prevPosts.map(post =>
+          post.id === postId
+            ? {
+                ...post,
+                commentCount: Math.max(0, (post.commentCount ?? post.comments.length) - 1),
+              }
+            : post,
+        ),
+      );
+    },
+    [auth?.accessToken],
+  );
+
   const createPost = useCallback(
     async (payload: {
       content: string;
       hashTags: string[];
-      images: Array<{fileName?: string; type?: string; uri: string}>;
+      images: FeedUploadImage[];
       title: string;
     }) => {
       if (!auth?.accessToken) {
         throw new Error('로그인 정보가 필요합니다.');
       }
 
-      const imageDebugInfo = payload.images.map((asset, index) => ({
+      if (payload.images.length > MAX_FEED_IMAGE_COUNT) {
+        throw new Error(`사진은 최대 ${MAX_FEED_IMAGE_COUNT}장까지 업로드할 수 있습니다.`);
+      }
+
+      const uploadImages = await prepareFeedImagesForUpload(payload.images);
+
+      const imageDebugInfo = uploadImages.map((asset, index) => ({
         fileName: asset.fileName,
+        fileSize: asset.fileSize,
         index,
         type: asset.type,
         uri: asset.uri,
@@ -272,7 +766,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         formData.append('hashTags', tag);
       });
 
-      payload.images.forEach((asset, index) => {
+      uploadImages.forEach((asset, index) => {
         const {name, type} = getImageFileInfo(asset.uri, index, asset.fileName, asset.type);
         const normalizedUri = normalizeUploadUri(asset.uri);
         formData.append('images[]', {
@@ -285,14 +779,16 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       const formDataParts = ((formData as any)?._parts ?? []).map((part: any) => part?.[0]);
       console.log('[FeedProvider] createPost formData parts', formDataParts);
 
-      const response = await fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/post`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`,
-        },
-        body: formData,
-      });
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/post`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+          body: formData,
+        }),
+      );
 
       const responseText = await response.text();
       let responseBody: {message?: string; success?: boolean} | null = null;
@@ -324,21 +820,44 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
   );
 
   useEffect(() => {
-    void refreshPosts();
-  }, [refreshPosts]);
+    refreshPosts();
+    refreshHighlights();
+  }, [refreshHighlights, refreshPosts]);
 
   const value = useMemo(
     () => ({
+      createComment,
+      createPost,
+      deleteComment,
+      fetchComments,
+      highlightGroups,
       isLoading,
       lastError,
       lastResponseBody,
       posts,
+      refreshHighlights,
+      refreshHighlightPosts,
       refreshPosts,
       setPosts,
       togglePostLike,
-      createPost,
+      updateComment,
     }),
-    [createPost, isLoading, lastError, lastResponseBody, posts, refreshPosts, togglePostLike],
+    [
+      createComment,
+      createPost,
+      deleteComment,
+      fetchComments,
+      highlightGroups,
+      isLoading,
+      lastError,
+      lastResponseBody,
+      posts,
+      refreshHighlights,
+      refreshHighlightPosts,
+      refreshPosts,
+      togglePostLike,
+      updateComment,
+    ],
   );
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;

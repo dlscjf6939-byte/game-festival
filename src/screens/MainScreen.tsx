@@ -170,11 +170,16 @@ function MainScreen(): JSX.Element {
       : 0;
   const coinBalance = Number.isFinite(coinBalanceRaw) ? coinBalanceRaw : 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
+  const profileImageUri = typeof profile?.profileImageUri === 'string' && profile.profileImageUri.trim()
+    ? profile.profileImageUri.trim()
+    : null;
+  const profileImageSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const name = auth?.name ?? '이인철';
   const greetingPrefix = department || '서비스개발팀';
   const myRankingItem = rankingItems.find(item => item.isMe);
   const rankingText = isRankingLoading ? '집계 중' : myRankingItem ? `${myRankingItem.rank}위` : '미집계';
   const checkedDateSet = new Set(attendance?.checkedDates ?? []);
+  const todayKey = toDateKey(new Date());
   const weekStartDate = attendance?.weekStartDate ? parseDateKey(attendance.weekStartDate) : null;
   const attendanceBoard = WEEKDAY_LABELS.map((label, index) => {
     const targetDate = weekStartDate ? new Date(weekStartDate) : null;
@@ -184,14 +189,18 @@ function MainScreen(): JSX.Element {
     }
 
     const dateKey = targetDate ? toDateKey(targetDate) : null;
+    const isChecked = Boolean(dateKey && checkedDateSet.has(dateKey));
+    const isUpcoming = Boolean(dateKey && dateKey > todayKey);
 
     return {
-      isChecked: Boolean(dateKey && checkedDateSet.has(dateKey)),
+      isChecked,
+      isMissed: Boolean(dateKey && !isChecked && !isUpcoming),
+      isUpcoming,
       label,
     };
   });
   const attendanceCountText = attendance ? `${attendance.checkedThisWeekCount}/7` : '-/7';
-  const nextVisitCount = checkInNotice ? checkInNotice.totalCheckedCount + 1 : 0;
+  const modalWeeklyCount = attendance?.checkedThisWeekCount ?? checkInNotice?.checkedThisWeekCount ?? 0;
 
   useFocusEffect(
     React.useCallback(() => {
@@ -305,7 +314,7 @@ function MainScreen(): JSX.Element {
         inputRange: [0, 0.49, 0.5, 1],
         outputRange: [0, 0, 1, 1],
       });
-      const cardRounds = bracketRoundsByStory[item.id];
+      const cardRounds = bracketRoundsByStory[item.id as keyof typeof bracketRoundsByStory];
 
       return (
         <View style={styles.storyItem}>
@@ -509,7 +518,7 @@ function MainScreen(): JSX.Element {
                     alignItems: 'center',
                     marginBottom: 16,
                   }}>
-                  <Image source={image.profile} style={{width: 40, height: 40, marginRight: 12}} />
+                  <Image source={profileImageSource} style={styles.profileImage} />
                   <Text style={styles.greeting}>{`${greetingPrefix} ${name}님`}</Text>
                 </View>
                 <View style={styles.coinCard}>
@@ -555,12 +564,12 @@ function MainScreen(): JSX.Element {
                       <View key={day.label} style={styles.attendanceCell}>
                         <View style={[styles.attendanceDot, day.isChecked && styles.attendanceDotChecked]}>
                           {day.isChecked ? (
-                            <LottieView autoPlay loop source={checkLottie} style={styles.attendanceDotLottie} />
-                          ) : (
+                            <LottieView autoPlay loop={false} source={checkLottie} style={styles.attendanceDotLottie} />
+                          ) : day.isMissed ? (
                             <Text style={[styles.attendanceDotText, day.isChecked && styles.attendanceDotTextChecked]}>
                               ✕
                             </Text>
-                          )}
+                          ) : null}
                         </View>
                         <Text style={[styles.attendanceDayLabel, day.isChecked && styles.attendanceDayLabelChecked]}>
                           {day.label}
@@ -579,9 +588,9 @@ function MainScreen(): JSX.Element {
         <View style={styles.attendanceModalOverlay}>
           <View style={styles.attendanceModalCard}>
             <Text style={styles.attendanceModalCountText}>
-              {checkInNotice ? `${checkInNotice.totalCheckedCount}일차` : '출석'}
+              {modalWeeklyCount > 0 ? `이번 주 ${modalWeeklyCount}일 출석` : '출석체크'}
             </Text>
-            <Text style={styles.attendanceModalSuccessText}>출석 완료!</Text>
+            <Text style={styles.attendanceModalSuccessText}>오늘 출석체크 완료!</Text>
 
             <View style={styles.attendanceModalWeekWrap}>
               {attendanceBoard.map(day => (
@@ -589,8 +598,8 @@ function MainScreen(): JSX.Element {
                   <Text style={styles.attendanceModalDayLabel}>{day.label}</Text>
                   <View style={[styles.attendanceModalDayDot, day.isChecked && styles.attendanceModalDayDotChecked]}>
                     {day.isChecked ? (
-                      <LottieView autoPlay loop source={checkLottie} style={styles.attendanceModalDayDotLottie} />
-                    ) : (
+                      <LottieView autoPlay loop={false} source={checkLottie} style={styles.attendanceModalDayDotLottie} />
+                    ) : day.isMissed ? (
                       <Text
                         style={[
                           styles.attendanceModalDayDotText,
@@ -598,7 +607,7 @@ function MainScreen(): JSX.Element {
                         ]}>
                         ✕
                       </Text>
-                    )}
+                    ) : null}
                   </View>
                 </View>
               ))}
@@ -606,11 +615,11 @@ function MainScreen(): JSX.Element {
 
             <View style={styles.attendanceModalHintCard}>
               <Text style={styles.attendanceModalHintText}>
-                <Text style={styles.attendanceModalHintAccent}>하루만 더 오면 {nextVisitCount}일</Text> 연속 출석이에요
+                <Text style={styles.attendanceModalHintAccent}>이번 주 {modalWeeklyCount}/7 출석 완료</Text>
                 {'\n'}
                 {checkInNotice && checkInNotice.rewardCoins > 0
                   ? `오늘 보상 코인 +${checkInNotice.rewardCoins} 지급!`
-                  : '내일도 방문해서 기록을 이어가세요.'}
+                  : '남은 날도 잊지 말고 체크해요.'}
               </Text>
             </View>
 
@@ -892,6 +901,12 @@ const styles = StyleSheet.create({
   greeting: {
     color: '#FFFFFF',
     ...FONTS.font22M,
+  },
+  profileImage: {
+    width: 40,
+    height: 40,
+    marginRight: 12,
+    borderRadius: 20,
   },
   coinCard: {
     borderRadius: 20,

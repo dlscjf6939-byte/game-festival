@@ -22,6 +22,7 @@ import {
 import LottieView from 'lottie-react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {AnimatedPressable} from '../components/AnimatedPressable';
+import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {useAuth} from '../auth/AuthProvider';
@@ -30,6 +31,10 @@ import {icon} from '../assets/icons';
 import {logo} from '../assets/logo';
 import type {PredictionStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
+import {withMinimumLoadingTime} from '../utils/loading';
+
+const API_BASE = 'http://121.254.240.93:8090';
+const PREDICTION_FESTIVAL_ID = 3;
 
 const teams = [
   {
@@ -53,6 +58,70 @@ const isLottieNativeAvailable = Boolean(UIManager.getViewManagerConfig?.('Lottie
 
 type TeamId = (typeof teams)[number]['id'];
 type PredictionStep = 'select' | 'comment' | 'result';
+
+type PredictionTeam = {
+  id: TeamId;
+  imageSource: ImageSourcePropType;
+  members: string[];
+  name: string;
+  participantId?: number;
+  tone: string;
+};
+
+type GameDetailMatch = {
+  matchId: number;
+  matchName: string;
+  matchStatus: string;
+  participantCount: number;
+  roundName: string;
+  scheduledAt: string;
+};
+
+type GameDetail = {
+  gameId: number;
+  gameTitle: string;
+  gameType?: string;
+  matchType?: string;
+  matches: GameDetailMatch[];
+};
+
+type GameDetailApiResponse = {
+  code?: string;
+  data?: {
+    gameId?: number;
+    gameTitle?: string;
+    gameType?: string;
+    matchType?: string;
+    matches?: Array<{
+      matchId?: number;
+      matchName?: string;
+      matchStatus?: string;
+      participantCount?: number;
+      roundName?: string;
+      scheduledAt?: string;
+    }>;
+  };
+  message?: string;
+  success?: boolean;
+};
+
+type MatchDetailApiResponse = {
+  data?: {
+    matchName?: string;
+    participants?: Array<{
+      participantId?: number;
+      name?: string;
+      participantType?: string;
+      participantMembers?: Array<{
+        nickname?: string;
+      }>;
+    }>;
+    pickedParticipantId?: number | null;
+    roundName?: string;
+  };
+  message?: string;
+  success?: boolean;
+};
 
 type CheerComment = {
   id: string;
@@ -100,138 +169,78 @@ function getTeamName(teamId: TeamId): string {
   return teams.find(team => team.id === teamId)?.name ?? '붕권';
 }
 
-function ChoiceCard({
-  isSelected,
-  onPress,
-  team,
-}: {
-  isSelected: boolean;
-  onPress: () => void;
-  team: (typeof teams)[number];
-}): JSX.Element {
-  const selectAnim = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
-  const pressAnim = useRef(new Animated.Value(0)).current;
+function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
+  if (!data || typeof data.gameId !== 'number' || !data.gameTitle?.trim()) {
+    return null;
+  }
 
-  useEffect(() => {
-    Animated.spring(selectAnim, {
-      toValue: isSelected ? 1 : 0,
-      speed: 16,
-      bounciness: 7,
-      useNativeDriver: true,
-    }).start();
-  }, [isSelected, selectAnim]);
+  const matches = (data.matches ?? [])
+    .filter((match): match is Required<Pick<GameDetailMatch, 'matchId'>> & Partial<GameDetailMatch> => (
+      typeof match.matchId === 'number'
+    ))
+    .map(match => ({
+      matchId: match.matchId,
+      matchName: match.matchName?.trim() || '경기',
+      matchStatus: match.matchStatus?.trim() || 'UNKNOWN',
+      participantCount: typeof match.participantCount === 'number' ? match.participantCount : 0,
+      roundName: match.roundName?.trim() || '라운드',
+      scheduledAt: match.scheduledAt?.trim() || '',
+    }));
 
-  const handlePressIn = () => {
-    Animated.spring(pressAnim, {
-      toValue: 1,
-      speed: 26,
-      bounciness: 4,
-      useNativeDriver: true,
-    }).start();
+  return {
+    gameId: data.gameId,
+    gameTitle: data.gameTitle.trim(),
+    gameType: data.gameType,
+    matchType: data.matchType,
+    matches,
   };
+}
 
-  const handlePressOut = () => {
-    Animated.spring(pressAnim, {
-      toValue: 0,
-      speed: 18,
-      bounciness: 8,
-      useNativeDriver: true,
-    }).start();
+function toPredictionTeam(
+  participant: NonNullable<NonNullable<MatchDetailApiResponse['data']>['participants']>[number],
+): PredictionTeam | null {
+  if (typeof participant.participantId !== 'number') {
+    return null;
+  }
+
+  const isRed = participant.participantType === 'TEAM_RED';
+  const fallbackTeam = isRed ? teams[0] : teams[1];
+
+  return {
+    id: fallbackTeam.id,
+    imageSource: fallbackTeam.imageSource,
+    members: (participant.participantMembers ?? [])
+      .map(member => member.nickname?.trim())
+      .filter((nickname): nickname is string => Boolean(nickname)),
+    name: participant.name?.trim() || fallbackTeam.name,
+    participantId: participant.participantId,
+    tone: fallbackTeam.tone,
   };
-
-  return (
-    <Animated.View
-      style={[
-        styles.choiceCardShell,
-        {
-          transform: [
-            {
-              scale: pressAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 0.986],
-              }),
-            },
-            {
-              scale: selectAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 1.01],
-              }),
-            },
-          ],
-        },
-      ]}>
-      <AnimatedPressable
-        accessibilityRole="button"
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={styles.choicePressable}>
-        <Animated.View style={[styles.choiceCard, isSelected && styles.choiceCardSelected]}>
-          <View style={styles.teamLogoBox}>
-            <Animated.Image
-              source={team.imageSource}
-              style={[
-                styles.teamCardImage,
-                {
-                  transform: [
-                    {
-                      scale: selectAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.92, 1.12],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-              resizeMode="contain"
-            />
-          </View>
-          <View style={styles.teamCardTextBlock}>
-            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.teamCardName}>
-              {team.name}
-            </Text>
-            <Text numberOfLines={2} style={styles.teamCardMembers}>
-              {team.members.join(' / ')}
-            </Text>
-          </View>
-
-          <Animated.View
-            style={[
-              styles.selectChip,
-              isSelected && styles.selectChipSelected,
-              {
-                transform: [
-                  {
-                    scale: selectAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 1.08],
-                    }),
-                  },
-                ],
-              },
-            ]}>
-            <Text style={styles.selectChipText}>{isSelected ? '선택됨' : '선택'}</Text>
-          </Animated.View>
-        </Animated.View>
-      </AnimatedPressable>
-    </Animated.View>
-  );
 }
 
 export function PredictionDetailScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const route = useRoute<RouteProp<PredictionStackParamList, 'PredictionDetail'>>();
   const {auth} = useAuth();
+  const routeGameId = route.params?.gameId;
+  const routeGameTitle = route.params?.gameTitle;
+  const routeMatchId = route.params?.matchId;
   const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
   const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const myName = auth?.name ?? '이인철';
   const initialSelectedTeam = route.params?.selectedTeamId ?? 'team-red';
   const isParticipatedDetail = route.params?.mode === 'participated';
-  const [step, setStep] = useState<PredictionStep>(isParticipatedDetail ? 'result' : 'select');
+  const [step, setStep] = useState<PredictionStep>(
+    isParticipatedDetail ? 'result' : route.params?.startStep === 'comment' ? 'comment' : 'select',
+  );
   const [selectedTeam, setSelectedTeam] = useState<TeamId>(initialSelectedTeam);
   const [expandedTeam, setExpandedTeam] = useState<TeamId | null>(isParticipatedDetail ? initialSelectedTeam : null);
   const [matchupStageSize, setMatchupStageSize] = useState({height: 0, width: 0});
   const [cheerDraft, setCheerDraft] = useState('');
+  const [gameDetail, setGameDetail] = useState<GameDetail | null>(null);
+  const [predictionTeams, setPredictionTeams] = useState<PredictionTeam[]>([]);
+  const [isGameDetailLoading, setIsGameDetailLoading] = useState(false);
+  const [isMatchDetailLoading, setIsMatchDetailLoading] = useState(false);
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [submittedComment, setSubmittedComment] = useState<CheerComment | null>(() => {
@@ -253,8 +262,11 @@ export function PredictionDetailScreen(): JSX.Element {
   const stageIntroProgress = useRef(new Animated.Value(0)).current;
   const teamDetailProgress = useRef(new Animated.Value(isParticipatedDetail ? 1 : 0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
-  const selectedTeamInfo = teams.find(team => team.id === selectedTeam) ?? teams[0];
-  const expandedTeamInfo = expandedTeam ? teams.find(team => team.id === expandedTeam) ?? teams[0] : null;
+  const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? predictionTeams[0] ?? teams[0];
+  const expandedTeamInfo = expandedTeam ? predictionTeams.find(team => team.id === expandedTeam) ?? predictionTeams[0] ?? teams[0] : null;
+  const leftTeamInfo = predictionTeams[0] ?? teams[0];
+  const rightTeamInfo = predictionTeams[1] ?? teams[1];
+  const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '철권7 결승전';
 
   const voteCounts = {
     ...initialVoteCounts,
@@ -387,6 +399,132 @@ export function PredictionDetailScreen(): JSX.Element {
     }, [playStageIntro]),
   );
 
+  useEffect(() => {
+    const accessToken = auth?.accessToken;
+
+    if (!accessToken || typeof routeGameId !== 'number') {
+      return;
+    }
+
+    let isMounted = true;
+
+    async function fetchGameDetail(): Promise<void> {
+      setIsGameDetailLoading(true);
+
+      try {
+        const response = await withMinimumLoadingTime(
+          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${routeGameId}`, {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }),
+        );
+        const responseText = await response.text();
+        let responseBody: GameDetailApiResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as GameDetailApiResponse;
+        } catch {
+          throw new Error('게임 상세 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || '게임 상세 조회에 실패했습니다.');
+        }
+
+        const nextGameDetail = toGameDetail(responseBody.data);
+
+        if (isMounted && nextGameDetail) {
+          setGameDetail(nextGameDetail);
+        }
+      } catch (error) {
+        console.log('[PredictionDetailScreen] game detail request failed', {error, routeGameId});
+      } finally {
+        if (isMounted) {
+          setIsGameDetailLoading(false);
+        }
+      }
+    }
+
+    fetchGameDetail();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [auth?.accessToken, routeGameId]);
+
+  useEffect(() => {
+    const accessToken = auth?.accessToken;
+
+    if (!accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
+      return;
+    }
+
+    let isMounted = true;
+
+    async function fetchMatchDetail(): Promise<void> {
+      setIsMatchDetailLoading(true);
+
+      if (!isParticipatedDetail) {
+        setExpandedTeam(null);
+        setPredictionTeams([]);
+      }
+
+      try {
+        const response = await withMinimumLoadingTime(
+          fetch(
+            `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${routeGameId}/matches/${routeMatchId}`,
+            {
+              headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+              },
+            },
+          ),
+        );
+        const responseText = await response.text();
+        let responseBody: MatchDetailApiResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as MatchDetailApiResponse;
+        } catch {
+          throw new Error('경기 상세 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || '경기 상세 조회에 실패했습니다.');
+        }
+
+        const nextTeams = (responseBody.data?.participants ?? [])
+          .map(toPredictionTeam)
+          .filter((team): team is PredictionTeam => Boolean(team));
+
+        if (isMounted && nextTeams.length) {
+          setPredictionTeams(nextTeams);
+
+          const pickedTeam = nextTeams.find(team => team.participantId === responseBody?.data?.pickedParticipantId);
+
+          if (pickedTeam) {
+            setSelectedTeam(pickedTeam.id);
+          }
+        }
+      } catch (error) {
+        console.log('[PredictionDetailScreen] match detail request failed', {error, routeGameId, routeMatchId});
+      } finally {
+        if (isMounted) {
+          setIsMatchDetailLoading(false);
+        }
+      }
+    }
+
+    fetchMatchDetail();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [auth?.accessToken, isParticipatedDetail, routeGameId, routeMatchId]);
+
   const transitionToStep = useCallback(
     (nextStep: PredictionStep) => {
       Animated.timing(stepTransition, {
@@ -434,6 +572,11 @@ export function PredictionDetailScreen(): JSX.Element {
 
   const handleBackPress = () => {
     if (step === 'comment') {
+      if (route.params?.startStep === 'comment') {
+        navigation.goBack();
+        return;
+      }
+
       transitionToStep('select');
       return;
     }
@@ -596,107 +739,119 @@ export function PredictionDetailScreen(): JSX.Element {
                 style={styles.voteInputStep}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.voteInputContent}>
                   <View style={styles.heroBlock}>
-                    <Text style={styles.heroTitle}>철권7 결승전</Text>
-                    <Text style={styles.heroSubtitle}>승리할 팀을 선택해주세요.</Text>
+                    <Text style={styles.heroTitle}>{displayGameTitle}</Text>
+                    <Text style={styles.heroSubtitle}>
+                      {isGameDetailLoading || isMatchDetailLoading
+                        ? '경기 정보를 불러오는 중...'
+                        : '승리할 팀을 선택해주세요.'}
+                    </Text>
                   </View>
 
-                  <View
-                    onLayout={({nativeEvent}) => {
-                      const {height, width} = nativeEvent.layout;
-                      setMatchupStageSize(prev =>
-                        prev.width === width && prev.height === height ? prev : {height, width},
-                      );
-                    }}
-                    style={styles.matchupStageWrapper}>
-                    <Animated.View pointerEvents="none" style={[styles.matchupGlobalLineLayer, matchupIdleStyle]}>
-                      <View pointerEvents="none" style={[styles.matchupSplitLineCoreWrap, matchupSplitLineStyle]}>
-                        <LinearGradient
-                          pointerEvents="none"
-                          colors={['rgba(229,9,20,0)', 'rgba(229,9,20,1)', 'rgba(229,9,20,0)']}
-                          end={{x: 1, y: 0.5}}
-                          start={{x: 0, y: 0.5}}
-                          style={styles.matchupSplitLineGlobal}
-                        />
-                      </View>
-                    </Animated.View>
-
-                    <View style={styles.matchupStage}>
-                      <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
-                        <View pointerEvents="none" style={styles.vsBadgeCenter}>
-                          {isLottieNativeAvailable ? (
-                              <LottieView autoPlay loop={false} speed={0.8} source={compareVsLottie} style={styles.vsLottie} />
-                          ) : (
-                            <View style={styles.vsFallbackBadge}>
-                              <Text style={styles.vsFallbackText}>VS</Text>
-                            </View>
-                          )}
+                  {isMatchDetailLoading && !predictionTeams.length ? (
+                    <AppLoading label="참가팀을 불러오는 중..." />
+                  ) : predictionTeams.length ? (
+                    <View
+                      onLayout={({nativeEvent}) => {
+                        const {height, width} = nativeEvent.layout;
+                        setMatchupStageSize(prev =>
+                          prev.width === width && prev.height === height ? prev : {height, width},
+                        );
+                      }}
+                      style={styles.matchupStageWrapper}>
+                      <Animated.View pointerEvents="none" style={[styles.matchupGlobalLineLayer, matchupIdleStyle]}>
+                        <View pointerEvents="none" style={[styles.matchupSplitLineCoreWrap, matchupSplitLineStyle]}>
+                          <LinearGradient
+                            pointerEvents="none"
+                            colors={['rgba(229,9,20,0)', 'rgba(229,9,20,1)', 'rgba(229,9,20,0)']}
+                            end={{x: 1, y: 0.5}}
+                            start={{x: 0, y: 0.5}}
+                            style={styles.matchupSplitLineGlobal}
+                          />
                         </View>
                       </Animated.View>
 
-                      <Animated.View
-                        style={[styles.wallLogoPressable, styles.wallLogoLeft, leftLogoIntroStyle, matchupIdleStyle]}>
-                        <AnimatedPressable
-                          accessibilityRole="button"
-                          disabled={Boolean(expandedTeam)}
-                          onPress={() => handleTeamLogoPress(teams[0].id)}
-                          style={styles.wallLogoTouchArea}>
-                          <Animated.View
-                            style={[
-                            styles.wallLogoShell,
-                            styles.wallLogoShellLeft,
-                            selectedTeam === teams[0].id && styles.wallLogoShellActive,
-                          ]}>
-                            <Image source={teams[0].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
-                          </Animated.View>
-                        </AnimatedPressable>
-                      </Animated.View>
-
-                      <Animated.View
-                        style={[styles.wallLogoPressable, styles.wallLogoRight, rightLogoIntroStyle, matchupIdleStyle]}>
-                        <AnimatedPressable
-                          accessibilityRole="button"
-                          disabled={Boolean(expandedTeam)}
-                          onPress={() => handleTeamLogoPress(teams[1].id)}
-                          style={styles.wallLogoTouchArea}>
-                          <Animated.View
-                            style={[
-                            styles.wallLogoShell,
-                            styles.wallLogoShellRight,
-                            selectedTeam === teams[1].id && styles.wallLogoShellActive,
-                          ]}>
-                            <Image source={teams[1].imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
-                          </Animated.View>
-                        </AnimatedPressable>
-                      </Animated.View>
-
-                      {expandedTeamInfo ? (
-                        <Animated.View style={[styles.expandedTeamPanel, teamDetailStyle]}>
-                          <AnimatedPressable
-                            accessibilityLabel="팀 상세 닫기"
-                            accessibilityRole="button"
-                            onPress={handleCloseTeamDetail}
-                            style={styles.expandedCloseButton}>
-                            <Image source={icon.closeBtn} style={styles.expandedCloseIcon} />
-                          </AnimatedPressable>
-                          <View style={styles.expandedLogoRing}>
-                            <Image
-                              source={expandedTeamInfo.imageSource}
-                              resizeMode="contain"
-                              style={styles.expandedTeamLogo}
-                            />
-                          </View>
-                          <View style={styles.expandedTextBlock}>
-                            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.expandedTeamName}>
-                              {expandedTeamInfo.name}
-                            </Text>
-                            <Text numberOfLines={2} style={styles.expandedTeamMembers}>
-                              {expandedTeamInfo.members.join(' / ')}
-                            </Text>
+                      <View style={styles.matchupStage}>
+                        <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
+                          <View pointerEvents="none" style={styles.vsBadgeCenter}>
+                            {isLottieNativeAvailable ? (
+                                <LottieView autoPlay loop={false} speed={0.8} source={compareVsLottie} style={styles.vsLottie} />
+                            ) : (
+                              <View style={styles.vsFallbackBadge}>
+                                <Text style={styles.vsFallbackText}>VS</Text>
+                              </View>
+                            )}
                           </View>
                         </Animated.View>
-                      ) : null}
+
+                        <Animated.View
+                          style={[styles.wallLogoPressable, styles.wallLogoLeft, leftLogoIntroStyle, matchupIdleStyle]}>
+                          <AnimatedPressable
+                            accessibilityRole="button"
+                            disabled={Boolean(expandedTeam)}
+                            onPress={() => handleTeamLogoPress(leftTeamInfo.id)}
+                            style={styles.wallLogoTouchArea}>
+                            <Animated.View
+                              style={[
+                              styles.wallLogoShell,
+                              styles.wallLogoShellLeft,
+                              selectedTeam === leftTeamInfo.id && styles.wallLogoShellActive,
+                            ]}>
+                              <Image source={leftTeamInfo.imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                            </Animated.View>
+                          </AnimatedPressable>
+                        </Animated.View>
+
+                        {predictionTeams.length > 1 ? (
+                          <Animated.View
+                            style={[styles.wallLogoPressable, styles.wallLogoRight, rightLogoIntroStyle, matchupIdleStyle]}>
+                          <AnimatedPressable
+                            accessibilityRole="button"
+                            disabled={Boolean(expandedTeam)}
+                            onPress={() => handleTeamLogoPress(rightTeamInfo.id)}
+                            style={styles.wallLogoTouchArea}>
+                            <Animated.View
+                              style={[
+                              styles.wallLogoShell,
+                              styles.wallLogoShellRight,
+                              selectedTeam === rightTeamInfo.id && styles.wallLogoShellActive,
+                            ]}>
+                              <Image source={rightTeamInfo.imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                            </Animated.View>
+                          </AnimatedPressable>
+                          </Animated.View>
+                        ) : null}
+
+                        {expandedTeamInfo ? (
+                          <Animated.View style={[styles.expandedTeamPanel, teamDetailStyle]}>
+                            <AnimatedPressable
+                              accessibilityLabel="팀 상세 닫기"
+                              accessibilityRole="button"
+                              onPress={handleCloseTeamDetail}
+                              style={styles.expandedCloseButton}>
+                              <Image source={icon.closeBtn} style={styles.expandedCloseIcon} />
+                            </AnimatedPressable>
+                            <View style={styles.expandedLogoRing}>
+                              <Image
+                                source={expandedTeamInfo.imageSource}
+                                resizeMode="contain"
+                                style={styles.expandedTeamLogo}
+                              />
+                            </View>
+                            <View style={styles.expandedTextBlock}>
+                              <Text numberOfLines={1} adjustsFontSizeToFit style={styles.expandedTeamName}>
+                                {expandedTeamInfo.name}
+                              </Text>
+                              <Text numberOfLines={2} style={styles.expandedTeamMembers}>
+                                {expandedTeamInfo.members.join(' / ')}
+                              </Text>
+                            </View>
+                          </Animated.View>
+                        ) : null}
+                      </View>
                     </View>
-                  </View>
+                  ) : (
+                    <Text style={styles.emptyText}>참가팀 정보가 없습니다.</Text>
+                  )}
                 </ScrollView>
 
                 <View style={styles.bottomActionWrap}>
@@ -873,6 +1028,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     ...FONTS.font16M,
     lineHeight: 21,
+  },
+  emptyText: {
+    paddingHorizontal: 20,
+    paddingVertical: 48,
+    color: '#8A8D95',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 19,
   },
   matchupStageWrapper: {
     marginHorizontal: 20,

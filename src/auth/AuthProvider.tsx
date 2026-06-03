@@ -6,6 +6,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import {withMinimumLoadingTime} from '../utils/loading';
 
 export type AuthState = {
   accessToken: string;
@@ -59,12 +60,42 @@ function logProfileEvent(message: string, payload?: unknown): void {
   console.log(`${LOG_PREFIX} ${message}`, payload);
 }
 
+function toProfileImageUri(profileImageUrl: string): string {
+  if (/^(https?:|file:|data:)/i.test(profileImageUrl)) {
+    return profileImageUrl;
+  }
+
+  if (profileImageUrl.startsWith('/')) {
+    return `${API_BASE}${profileImageUrl}`;
+  }
+
+  return profileImageUrl;
+}
+
+function normalizeProfile(profile: Record<string, unknown>): Record<string, unknown> {
+  const profileImageUrl =
+    typeof profile.profileImageUrl === 'string' && profile.profileImageUrl.trim()
+      ? profile.profileImageUrl.trim()
+      : null;
+
+  if (!profileImageUrl) {
+    return profile;
+  }
+
+  return {
+    ...profile,
+    profileImageUri: toProfileImageUri(profileImageUrl),
+  };
+}
+
 async function fetchProfile(accessToken: string): Promise<ProfileResponse> {
-  const response = await fetch(`${API_BASE}/api/employee/profile`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  const response = await withMinimumLoadingTime(
+    fetch(`${API_BASE}/api/employee/profile`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }),
+  );
   const json = (await response.json()) as ProfileResponse;
 
   if (!response.ok || json.success === false) {
@@ -107,7 +138,7 @@ export function AuthProvider({
                 ...restoredAuth,
                 profile: {
                   ...(restoredAuth.profile ?? {}),
-                  ...profileResponse.data,
+                  ...normalizeProfile(profileResponse.data),
                 },
               };
 
@@ -174,7 +205,7 @@ export function AuthProvider({
               ...nextAuth,
               profile: {
                 ...(nextAuth.profile ?? {}),
-                ...profileResponse.data,
+                ...normalizeProfile(profileResponse.data),
               },
             };
 

@@ -14,10 +14,13 @@ export type HighlightGroup = {
   label: string;
   cover: ImageSourcePropType;
   items: HighlightItem[];
+  postCount?: number;
 };
 
 export type FeedComment = {
+  commentId?: string;
   id: string;
+  isMine?: boolean;
   user: string;
   text: string;
   time: string;

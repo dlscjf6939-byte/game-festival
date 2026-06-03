@@ -11,13 +11,28 @@ import {
   View,
 } from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
+import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {image} from '../assets/images';
+import {useAuth} from '../auth/AuthProvider';
 import type {PredictionStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
+import {withMinimumLoadingTime} from '../utils/loading';
 
-const predictionCards = [
+const API_BASE = 'http://121.254.240.93:8090';
+const PREDICTION_FESTIVAL_ID = 3;
+
+type PredictionCardItem = {
+  description: string;
+  gameId?: number;
+  id: string;
+  posterSource: typeof image.tekken;
+  title: string;
+  wordmarkSource: typeof image.tekkenLetter;
+};
+
+const fallbackPredictionCards: PredictionCardItem[] = [
   {
     id: 'tekken7',
     title: '철권7',
@@ -44,35 +59,79 @@ const predictionCards = [
   },
 ];
 
+type GameApiItem = {
+  gameId?: number;
+  gameTitle?: string;
+  matchType?: string;
+};
+
+type GamesApiResponse = {
+  code?: string;
+  data?: GameApiItem[];
+  message?: string;
+  success?: boolean;
+};
+
 const tabs = [
   {id: 'prediction', label: '승부예측'},
   {id: 'participated', label: '참여예측'},
 ] as const;
 
 type PredictionTabId = (typeof tabs)[number]['id'];
-type PredictionCardItem = (typeof predictionCards)[number];
 
-const participatedPredictions = [
-  {
-    id: 'tekken7',
-    title: '철권7 결승전',
-    selectedTeamId: 'team-red' as const,
-    selectedTeam: '붕권',
-    cheerComment: '레드팀 오늘 합이 너무 좋아요. 마지막까지 밀어붙입시다!',
-    redPercent: 54,
-    blackPercent: 46,
-    status: '결과 대기중',
-  },
-];
+function getFallbackCardByTitle(gameTitle: string): PredictionCardItem {
+  if (gameTitle.includes('철권')) {
+    return fallbackPredictionCards[0];
+  }
 
-type ParticipatedPrediction = (typeof participatedPredictions)[number];
+  if (gameTitle.includes('스타')) {
+    return fallbackPredictionCards[1];
+  }
+
+  if (gameTitle.includes('크레이지') || gameTitle.includes('아케이드')) {
+    return fallbackPredictionCards[2];
+  }
+
+  return fallbackPredictionCards[0];
+}
+
+function toPredictionCard(game: GameApiItem): PredictionCardItem | null {
+  if (typeof game.gameId !== 'number' || !game.gameTitle?.trim()) {
+    return null;
+  }
+
+  const gameTitle = game.gameTitle.trim();
+  const fallbackCard = getFallbackCardByTitle(gameTitle);
+
+  return {
+    ...fallbackCard,
+    gameId: game.gameId,
+    id: String(game.gameId),
+    title: gameTitle,
+  };
+}
+
+const participatedPredictions: ParticipatedPrediction[] = [];
+
+type ParticipatedPrediction = {
+  cheerComment: string;
+  id: string;
+  redPercent: number;
+  blackPercent: number;
+  selectedTeamId: 'team-red' | 'team-black';
+  selectedTeam: string;
+  status: string;
+  title: string;
+};
 
 function PredictionCard({
   card,
+  disabled,
   index,
   onPress,
 }: {
   card: PredictionCardItem;
+  disabled?: boolean;
   index: number;
   onPress: () => void;
 }): JSX.Element {
@@ -109,8 +168,14 @@ function PredictionCard({
             {card.description}
           </Text>
 
-          <AnimatedPressable onPress={onPress} style={styles.predictButton}>
-            <Text style={styles.predictButtonText}>예측하기</Text>
+          <AnimatedPressable
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={onPress}
+            style={[styles.predictButton, disabled && styles.predictButtonDisabled]}>
+            <Text style={[styles.predictButtonText, disabled && styles.predictButtonTextDisabled]}>
+              {disabled ? '준비 중' : '예측하기'}
+            </Text>
           </AnimatedPressable>
         </View>
       </View>
@@ -241,10 +306,14 @@ function ParticipatedPredictionCard({
 export function PredictionScreen(): JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
+  const {auth} = useAuth();
   const scrollY = useRef(new Animated.Value(0)).current;
   const tabContentProgress = useRef(new Animated.Value(1)).current;
   const [activeTab, setActiveTab] = useState<PredictionTabId>('prediction');
   const [activePredictionId, setActivePredictionId] = useState<string | null>(null);
+  const [predictionCards, setPredictionCards] = useState<PredictionCardItem[]>([]);
+  const [isGamesLoading, setIsGamesLoading] = useState(true);
+  const [gamesErrorMessage, setGamesErrorMessage] = useState<string | null>(null);
   const tabContentTranslateY = tabContentProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [14, 0],
@@ -259,6 +328,80 @@ export function PredictionScreen(): JSX.Element {
       useNativeDriver: true,
     }).start();
   }, [activeTab, tabContentProgress]);
+
+  useEffect(() => {
+    const accessToken = auth?.accessToken;
+
+    if (!accessToken) {
+      setIsGamesLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    async function fetchGames(): Promise<void> {
+      setIsGamesLoading(true);
+      setGamesErrorMessage(null);
+
+      try {
+        const response = await withMinimumLoadingTime(
+          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games`, {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }),
+        );
+        const responseText = await response.text();
+        let responseBody: GamesApiResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as GamesApiResponse;
+        } catch {
+          throw new Error('게임 목록 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || '게임 목록 조회에 실패했습니다.');
+        }
+
+        const nextCards = (responseBody.data ?? [])
+          .map(toPredictionCard)
+          .filter((card): card is PredictionCardItem => Boolean(card));
+
+        if (isMounted) {
+          setPredictionCards(nextCards);
+        }
+      } catch (error) {
+        console.log('[PredictionScreen] games request failed', error);
+        if (isMounted) {
+          setPredictionCards([]);
+          setGamesErrorMessage(error instanceof Error ? error.message : '게임 목록 조회에 실패했습니다.');
+        }
+      } finally {
+        if (isMounted) {
+          setIsGamesLoading(false);
+        }
+      }
+    }
+
+    fetchGames();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [auth?.accessToken]);
+
+  const handlePredictionPress = (card: PredictionCardItem) => {
+    if (typeof card.gameId !== 'number') {
+      return;
+    }
+
+    navigation.navigate('PredictionSelect', {
+      gameId: card.gameId,
+      gameTitle: card.title,
+    });
+  };
 
   return (
     <TabSceneTransition>
@@ -308,33 +451,50 @@ export function PredictionScreen(): JSX.Element {
             }}>
             {activeTab === 'prediction' ? (
               <View style={styles.cardStack}>
-                {predictionCards.map((card, index) => (
-                  <PredictionCard
-                    key={card.id}
-                    card={card}
-                    index={index}
-                    onPress={() => navigation.navigate('PredictionDetail')}
-                  />
-                ))}
+                {isGamesLoading ? (
+                  <AppLoading label="게임 목록을 불러오는 중..." />
+                ) : predictionCards.length ? (
+                  predictionCards.map((card, index) => (
+                    <PredictionCard
+                      key={card.id}
+                      card={card}
+                      disabled={typeof card.gameId !== 'number'}
+                      index={index}
+                      onPress={() => handlePredictionPress(card)}
+                    />
+                  ))
+                ) : (
+                  <View style={styles.emptyCenterState}>
+                    <Text style={styles.emptyText}>
+                      {gamesErrorMessage ?? '예측 가능한 게임이 없습니다.'}
+                    </Text>
+                  </View>
+                )}
               </View>
             ) : (
               <View style={styles.participatedStack}>
-                {participatedPredictions.map((item, index) => (
-                  <ParticipatedPredictionCard
-                    key={item.id}
-                    index={index}
-                    item={item}
-                    isActive={activePredictionId === item.id}
-                    onPress={() => setActivePredictionId(item.id)}
-                    onDetailPress={() =>
-                      navigation.navigate('PredictionDetail', {
-                        cheerComment: item.cheerComment,
-                        mode: 'participated',
-                        selectedTeamId: item.selectedTeamId,
-                      })
-                    }
-                  />
-                ))}
+                {participatedPredictions.length ? (
+                  participatedPredictions.map((item, index) => (
+                    <ParticipatedPredictionCard
+                      key={item.id}
+                      index={index}
+                      item={item}
+                      isActive={activePredictionId === item.id}
+                      onPress={() => setActivePredictionId(item.id)}
+                      onDetailPress={() =>
+                        navigation.navigate('PredictionDetail', {
+                          cheerComment: item.cheerComment,
+                          mode: 'participated',
+                          selectedTeamId: item.selectedTeamId,
+                        })
+                      }
+                    />
+                  ))
+                ) : (
+                  <View style={styles.emptyCenterState}>
+                    <Text style={styles.emptyText}>참여한 예측이 없습니다.</Text>
+                  </View>
+                )}
               </View>
             )}
           </Animated.View>
@@ -393,6 +553,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 20,
   },
+  emptyText: {
+    color: '#8A8D95',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 19,
+  },
+  emptyCenterState: {
+    minHeight: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   card: {
     borderWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.3)',
@@ -435,11 +606,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  predictButtonDisabled: {
+    backgroundColor: '#3A3B40',
+  },
   predictButtonText: {
     color: '#000000',
     ...FONTS.font14M,
     lineHeight: 24,
     letterSpacing: 0.5,
+  },
+  predictButtonTextDisabled: {
+    color: '#9A9DA6',
   },
   participatedStack: {
     paddingHorizontal: 20,

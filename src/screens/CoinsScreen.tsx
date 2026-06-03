@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
+import {AppLoading} from '../components/AppLoading';
 import {useAuth} from '../auth/AuthProvider';
 import {useCoin} from '../coin/CoinProvider';
 import {MainScaffold} from '../components/MainScaffold';
@@ -115,7 +116,7 @@ function RankingItem({
         transform: [{translateY}],
       }}>
       <AnimatedPressable style={[styles.rankingItem, item.isMe && styles.rankingItemMe]}>
-        <View style={[styles.rankBadge, rankIcon && styles.rankBadgeIcon]}>
+        <View style={[styles.rankBadge, rankIcon ? styles.rankBadgeIcon : null]}>
           {rankIcon ? (
             <Image source={rankIcon} style={styles.rankIcon} />
           ) : (
@@ -213,15 +214,23 @@ export function CoinsScreen(): JSX.Element {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>코인 랭킹</Text>
               <Text style={styles.sectionMeta}>
-                {isRankingLoading ? '불러오는 중...' : `상위 30명까지 표시됩니다.`}
+                {isRankingLoading ? '불러오는 중...' : '상위 30명까지 표시됩니다.'}
               </Text>
             </View>
 
-            {rankingError ? <Text style={styles.errorText}>{rankingError}</Text> : null}
+            {isRankingLoading ? (
+              <AppLoading label="코인 랭킹을 불러오는 중..." />
+            ) : (
+              <>
+                {rankingError ? <Text style={styles.errorText}>{rankingError}</Text> : null}
 
-            {rankingItems.map((item, index) => (
-              <RankingItem key={item.id} index={index} item={item} />
-            ))}
+                {rankingItems.length ? (
+                  rankingItems.map((item, index) => <RankingItem key={item.id} index={index} item={item} />)
+                ) : (
+                  <Text style={styles.emptyText}>표시할 랭킹이 없습니다.</Text>
+                )}
+              </>
+            )}
           </View>
         )}
       </Animated.View>
@@ -394,5 +403,12 @@ const styles = StyleSheet.create({
     color: '#E66B70',
     ...FONTS.font12R,
     marginBottom: 8,
+  },
+  emptyText: {
+    paddingVertical: 32,
+    color: '#8A8D95',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 19,
   },
 });

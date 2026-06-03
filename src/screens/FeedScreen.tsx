@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -19,6 +20,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import {launchImageLibrary, type Asset as PickerAsset} from 'react-native-image-picker';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {AnimatedPressable} from '../components/AnimatedPressable';
+import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {icon} from '../assets/icons';
@@ -26,18 +28,17 @@ import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
 import {useFeed} from '../feed/FeedProvider';
-import {
-  highlightGroups,
-  type FeedComment,
-  feedPosts,
-} from '../dummyData/feedDummyData';
+import {type FeedComment} from '../dummyData/feedDummyData';
 
 type ComposeStep = 'select' | 'details';
 type ComposeImageAsset = {
   fileName: string | undefined;
+  fileSize: number | undefined;
   type: string | undefined;
   uri: string;
 };
+
+const MAX_COMPOSE_IMAGE_COUNT = 5;
 
 function formatCount(count: number): string {
   if (count >= 1000) {
@@ -47,33 +48,41 @@ function formatCount(count: number): string {
   return String(count);
 }
 
-function getProfileText(profile: Record<string, unknown> | undefined, keys: string[]): string | null {
-  if (!profile) {
-    return null;
+function getEditableCommentId(comment: FeedComment): string | null {
+  if (comment.commentId) {
+    return comment.commentId;
   }
 
-  for (const key of keys) {
-    const value = profile[key];
-
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return null;
+  return /^\d+$/.test(comment.id) ? comment.id : null;
 }
 
 export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const {auth} = useAuth();
-  const {createPost, posts, togglePostLike} = useFeed();
+  const {
+    createComment,
+    createPost,
+    deleteComment,
+    fetchComments,
+    highlightGroups,
+    isLoading,
+    posts,
+    refreshHighlights,
+    refreshHighlightPosts,
+    refreshPosts,
+    togglePostLike,
+    updateComment,
+  } = useFeed();
   const {width: screenWidth} = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
   const commentSubmitProgress = useRef(new Animated.Value(0)).current;
   const snapPoints = useMemo(() => ['66%'], []);
   const [commentDraft, setCommentDraft] = useState('');
-  const [selectedPostId, setSelectedPostId] = useState(feedPosts[0].id);
+  const [commentActionError, setCommentActionError] = useState<string | null>(null);
+  const [editingCommentDraft, setEditingCommentDraft] = useState('');
+  const [selectedCommentForAction, setSelectedCommentForAction] = useState<FeedComment | null>(null);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [selectedHighlightIndex, setSelectedHighlightIndex] = useState(0);
   const [expandedCaptionPostIds, setExpandedCaptionPostIds] = useState<string[]>([]);
@@ -82,18 +91,19 @@ export function FeedScreen(): JSX.Element {
   const [composeStep, setComposeStep] = useState<ComposeStep>('select');
   const [composeImageUris, setComposeImageUris] = useState<string[]>([]);
   const [composeImageAssets, setComposeImageAssets] = useState<ComposeImageAsset[]>([]);
+  const [composeTitle, setComposeTitle] = useState('');
   const [composeCaption, setComposeCaption] = useState('');
   const [composeTags, setComposeTags] = useState<string[]>([]);
   const [composeTagDraft, setComposeTagDraft] = useState('');
   const [composeErrorMessage, setComposeErrorMessage] = useState<string | null>(null);
   const [isSubmittingCompose, setIsSubmittingCompose] = useState(false);
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isEditingComment, setIsEditingComment] = useState(false);
+  const [isMutatingComment, setIsMutatingComment] = useState(false);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [activePostImageIndexes, setActivePostImageIndexes] = useState<Record<string, number>>({});
-  const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>(() =>
-    feedPosts.reduce<Record<string, FeedComment[]>>((commentsMap, post) => {
-      commentsMap[post.id] = post.comments;
-      return commentsMap;
-    }, {}),
-  );
+  const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>({});
 
   useEffect(() => {
     setCommentsByPost(prevCommentsByPost =>
@@ -114,8 +124,7 @@ export function FeedScreen(): JSX.Element {
     }
   }, [posts, selectedPostId]);
 
-  const selectedPost = posts.find(post => post.id === selectedPostId) ?? posts[0] ?? feedPosts[0];
-  const selectedComments = commentsByPost[selectedPost.id] ?? [];
+  const selectedComments = selectedPostId ? commentsByPost[selectedPostId] ?? [] : [];
   const selectedHighlightGroup = highlightGroups.find(group => group.id === selectedHighlightId);
   const selectedHighlightItem = selectedHighlightGroup?.items[selectedHighlightIndex];
   const isHighlightVisible = Boolean(selectedHighlightGroup && selectedHighlightItem);
@@ -124,26 +133,14 @@ export function FeedScreen(): JSX.Element {
   const highlightProgressTop = topSafeArea + 8;
   const highlightHeaderTop = topSafeArea + 22;
   const highlightTextBottom = Math.max(insets.bottom + 32, 42);
-  const isCommentSubmittable = commentDraft.trim().length > 0;
+  const isCommentSubmittable = commentDraft.trim().length > 0 && !isSubmittingComment;
   const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
   const myAvatarSource = useMemo<ImageSourcePropType>(
     () => (profileImageUri ? {uri: profileImageUri} : image.profile),
     [profileImageUri],
   );
   const myName = auth?.name ?? '이인철';
-  const myTeamName =
-    getProfileText(auth?.profile, [
-      'teamName',
-      'teamNm',
-      'team',
-      'departmentName',
-      'departmentNm',
-      'department',
-      'deptName',
-      'deptNm',
-      'dept',
-    ]) ?? '서비스개발팀';
-  const isComposeSubmittable = Boolean(composeCaption.trim()) && !isSubmittingCompose;
+  const isComposeSubmittable = Boolean(composeTitle.trim()) && Boolean(composeCaption.trim()) && !isSubmittingCompose;
   const commentSubmitAnimatedStyle = {
     backgroundColor: commentSubmitProgress.interpolate({
       inputRange: [0, 1],
@@ -162,12 +159,27 @@ export function FeedScreen(): JSX.Element {
   const openComments = useCallback((postId: string) => {
     setSelectedPostId(postId);
     bottomSheetRef.current?.snapToIndex(0);
-  }, []);
+    setIsLoadingComments(true);
+    fetchComments(postId)
+      .then(comments => {
+        setCommentsByPost(prevComments => ({
+          ...prevComments,
+          [postId]: comments,
+        }));
+      })
+      .catch(error => {
+        console.log('[FeedScreen] fetchComments failed', {error, postId});
+      })
+      .finally(() => {
+        setIsLoadingComments(false);
+      });
+  }, [fetchComments]);
 
   const openHighlight = useCallback((highlightId: string) => {
     setSelectedHighlightId(highlightId);
     setSelectedHighlightIndex(0);
-  }, []);
+    refreshHighlightPosts(highlightId);
+  }, [refreshHighlightPosts]);
 
   const closeHighlight = useCallback(() => {
     setSelectedHighlightId(null);
@@ -223,26 +235,137 @@ export function FeedScreen(): JSX.Element {
     });
   }, []);
 
-  const handleCommentSubmit = useCallback(() => {
+  const handleCommentSubmit = useCallback(async () => {
     const trimmedComment = commentDraft.trim();
-    if (!trimmedComment) {
+    if (!trimmedComment || isSubmittingComment || !selectedPostId) {
       return;
     }
 
-    setCommentsByPost(prevComments => ({
-      ...prevComments,
-      [selectedPost.id]: [
-        ...(prevComments[selectedPost.id] ?? []),
-        {
-          id: `${selectedPost.id}-${Date.now()}`,
-          user: '이인철',
-          text: trimmedComment,
-          time: '방금 전',
-        },
-      ],
-    }));
-    setCommentDraft('');
-  }, [commentDraft, selectedPost.id]);
+    setIsSubmittingComment(true);
+
+    try {
+      const createdCommentId = await createComment(selectedPostId, trimmedComment);
+      setCommentsByPost(prevComments => ({
+        ...prevComments,
+        [selectedPostId]: [
+          ...(prevComments[selectedPostId] ?? []),
+          {
+            commentId: createdCommentId ?? undefined,
+            id: `${selectedPostId}-${Date.now()}`,
+            user: myName,
+            text: trimmedComment,
+            time: '방금 전',
+          },
+        ],
+      }));
+      setCommentDraft('');
+    } catch (error) {
+      console.log('[FeedScreen] createComment failed', error);
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  }, [commentDraft, createComment, isSubmittingComment, myName, selectedPostId]);
+
+  const openCommentActions = useCallback(
+    (comment: FeedComment) => {
+      if (!comment.isMine && comment.user !== myName) {
+        return;
+      }
+
+      setCommentActionError(null);
+      setSelectedCommentForAction(comment);
+    },
+    [myName],
+  );
+
+  const closeCommentActions = useCallback(() => {
+    setCommentActionError(null);
+    setSelectedCommentForAction(null);
+  }, []);
+
+  const openCommentEditor = useCallback(() => {
+    if (!selectedCommentForAction) {
+      return;
+    }
+
+    setEditingCommentDraft(selectedCommentForAction.text);
+    setCommentActionError(null);
+    setIsEditingComment(true);
+  }, [selectedCommentForAction]);
+
+  const closeCommentEditor = useCallback(() => {
+    setIsEditingComment(false);
+    setEditingCommentDraft('');
+    setCommentActionError(null);
+  }, []);
+
+  const handleCommentUpdate = useCallback(async () => {
+    const comment = selectedCommentForAction;
+    const commentId = comment ? getEditableCommentId(comment) : null;
+    const nextText = editingCommentDraft.trim();
+
+    if (!comment || !commentId || !nextText || isMutatingComment || !selectedPostId) {
+      if (!commentId) {
+        setCommentActionError('서버 댓글 ID가 없어 수정할 수 없습니다.');
+      }
+      return;
+    }
+
+    setIsMutatingComment(true);
+    setCommentActionError(null);
+
+    try {
+      await updateComment(selectedPostId, commentId, nextText);
+      setCommentsByPost(prevComments => ({
+        ...prevComments,
+        [selectedPostId]: (prevComments[selectedPostId] ?? []).map(item =>
+          item.id === comment.id ? {...item, text: nextText} : item,
+        ),
+      }));
+      closeCommentEditor();
+      closeCommentActions();
+    } catch (error) {
+      setCommentActionError(error instanceof Error && error.message ? error.message : '댓글 수정에 실패했습니다.');
+    } finally {
+      setIsMutatingComment(false);
+    }
+  }, [
+    closeCommentActions,
+    closeCommentEditor,
+    editingCommentDraft,
+    isMutatingComment,
+    selectedCommentForAction,
+    selectedPostId,
+    updateComment,
+  ]);
+
+  const handleCommentDelete = useCallback(async () => {
+    const comment = selectedCommentForAction;
+    const commentId = comment ? getEditableCommentId(comment) : null;
+
+    if (!comment || !commentId || isMutatingComment || !selectedPostId) {
+      if (!commentId) {
+        setCommentActionError('서버 댓글 ID가 없어 삭제할 수 없습니다.');
+      }
+      return;
+    }
+
+    setIsMutatingComment(true);
+    setCommentActionError(null);
+
+    try {
+      await deleteComment(selectedPostId, commentId);
+      setCommentsByPost(prevComments => ({
+        ...prevComments,
+        [selectedPostId]: (prevComments[selectedPostId] ?? []).filter(item => item.id !== comment.id),
+      }));
+      closeCommentActions();
+    } catch (error) {
+      setCommentActionError(error instanceof Error && error.message ? error.message : '댓글 삭제에 실패했습니다.');
+    } finally {
+      setIsMutatingComment(false);
+    }
+  }, [closeCommentActions, deleteComment, isMutatingComment, selectedCommentForAction, selectedPostId]);
 
   const openCompose = useCallback(() => {
     setComposeErrorMessage(null);
@@ -255,6 +378,7 @@ export function FeedScreen(): JSX.Element {
     setIsSubmittingCompose(false);
     setComposeImageAssets([]);
     setComposeImageUris([]);
+    setComposeTitle('');
     setComposeCaption('');
     setComposeTags([]);
     setComposeTagDraft('');
@@ -267,8 +391,10 @@ export function FeedScreen(): JSX.Element {
 
     const result = await launchImageLibrary({
       mediaType: 'photo',
-      quality: 0.8,
-      selectionLimit: 6,
+      maxHeight: 3000,
+      maxWidth: 3000,
+      quality: 0.9,
+      selectionLimit: MAX_COMPOSE_IMAGE_COUNT,
     });
 
     if (result.didCancel) {
@@ -283,9 +409,9 @@ export function FeedScreen(): JSX.Element {
     const selectedAssets =
       result.assets
         ?.filter((asset): asset is PickerAsset & {uri: string} => typeof asset.uri === 'string' && asset.uri.length > 0)
-        .slice(0, 6)
         .map(asset => ({
           fileName: asset.fileName,
+          fileSize: asset.fileSize,
           type: asset.type,
           uri: asset.uri,
         })) ?? [];
@@ -363,8 +489,14 @@ export function FeedScreen(): JSX.Element {
   }, [addComposeTags, composeTagDraft]);
 
   const submitCompose = useCallback(async () => {
+    const title = composeTitle.trim();
     const caption = composeCaption.trim();
     const draftTag = composeTagDraft.trim();
+
+    if (!title) {
+      setComposeErrorMessage('제목을 입력해주세요.');
+      return;
+    }
 
     if (!caption) {
       setComposeErrorMessage('내용을 입력해주세요.');
@@ -376,15 +508,13 @@ export function FeedScreen(): JSX.Element {
       .filter((tag, index, tags) => Boolean(tag) && tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index)
       .slice(0, 6);
 
-    const normalizedTitle = caption.split('\n')[0].trim().slice(0, 40) || '현장 피드';
-
     setComposeErrorMessage(null);
     setIsSubmittingCompose(true);
     console.log('[FeedScreen] submitCompose start', {
       captionLength: caption.length,
       imageCount: composeImageAssets.length,
       tags: normalizedTags,
-      title: normalizedTitle,
+      title,
     });
 
     try {
@@ -392,7 +522,7 @@ export function FeedScreen(): JSX.Element {
         content: caption,
         hashTags: normalizedTags,
         images: composeImageAssets,
-        title: normalizedTitle,
+        title,
       });
       console.log('[FeedScreen] submitCompose success');
       closeCompose();
@@ -409,9 +539,9 @@ export function FeedScreen(): JSX.Element {
     closeCompose,
     composeCaption,
     composeImageAssets,
-    composeImageUris,
     composeTagDraft,
     composeTags,
+    composeTitle,
     createPost,
   ]);
 
@@ -424,7 +554,10 @@ export function FeedScreen(): JSX.Element {
 
   const renderComment = useCallback(
     ({item}: {item: FeedComment}) => (
-      <View style={styles.commentRow}>
+      <AnimatedPressable
+        accessibilityRole={item.isMine || item.user === myName ? 'button' : undefined}
+        onPress={() => openCommentActions(item)}
+        style={styles.commentRow}>
         <Image source={image.profile} style={styles.commentAvatar} />
         <View style={styles.commentBody}>
           <Text style={styles.commentLine}>
@@ -432,10 +565,24 @@ export function FeedScreen(): JSX.Element {
           </Text>
           <Text style={styles.commentMeta}>{item.time || '방금 전'}</Text>
         </View>
-      </View>
+      </AnimatedPressable>
     ),
-    [],
+    [myName, openCommentActions],
   );
+
+  const handleFeedRefresh = useCallback(async () => {
+    if (isRefreshingFeed) {
+      return;
+    }
+
+    setIsRefreshingFeed(true);
+
+    try {
+      await Promise.all([refreshPosts(), refreshHighlights()]);
+    } finally {
+      setIsRefreshingFeed(false);
+    }
+  }, [isRefreshingFeed, refreshHighlights, refreshPosts]);
 
   return (
     <TabSceneTransition>
@@ -446,42 +593,56 @@ export function FeedScreen(): JSX.Element {
           <AppGnb scrollY={scrollY} />
 
           <Animated.ScrollView
-            bounces={false}
+            bounces
             contentContainerStyle={styles.feedFrame}
+            refreshControl={
+              <RefreshControl
+                progressBackgroundColor="#151519"
+                refreshing={isRefreshingFeed}
+                tintColor="#FFFFFF"
+                onRefresh={handleFeedRefresh}
+              />
+            }
             showsVerticalScrollIndicator={false}
             onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {
               useNativeDriver: true,
             })}
             scrollEventThrottle={16}>
-            <ScrollView horizontal contentContainerStyle={styles.highlightRow} showsHorizontalScrollIndicator={false}>
-              {highlightGroups.map((group, index) => (
-                <AnimatedPressable
-                  key={group.id}
-                  onPress={() => openHighlight(group.id)}
-                  style={[styles.highlightItem, index === highlightGroups.length - 1 && styles.highlightItemLast]}>
-                  <View style={styles.storyAvatarWrap}>
-                    <LinearGradient
-                      colors={['#E50914', '#E50914', '#85000C']}
-                      start={{x: 0.2, y: 0}}
-                      end={{x: 0.85, y: 1}}
-                      style={styles.storyRingGradient}>
-                      <View style={styles.storyRing}>
-                        <Image source={group.cover} style={styles.storyImage} resizeMode="cover" />
+            {highlightGroups.length ? (
+              <ScrollView horizontal contentContainerStyle={styles.highlightRow} showsHorizontalScrollIndicator={false}>
+                {highlightGroups.map((group, index) => (
+                  <AnimatedPressable
+                    key={group.id}
+                    onPress={() => openHighlight(group.id)}
+                    style={[styles.highlightItem, index === highlightGroups.length - 1 && styles.highlightItemLast]}>
+                    <View style={styles.storyAvatarWrap}>
+                      <LinearGradient
+                        colors={['#E50914', '#E50914', '#85000C']}
+                        start={{x: 0.2, y: 0}}
+                        end={{x: 0.85, y: 1}}
+                        style={styles.storyRingGradient}>
+                        <View style={styles.storyRing}>
+                          <Image source={group.cover} style={styles.storyImage} resizeMode="cover" />
+                        </View>
+                      </LinearGradient>
+                      <View style={styles.highlightCountBadge}>
+                        <Text style={styles.highlightCountText}>{group.postCount ?? group.items.length}</Text>
                       </View>
-                    </LinearGradient>
-                    <View style={styles.highlightCountBadge}>
-                      <Text style={styles.highlightCountText}>{group.items.length}</Text>
                     </View>
-                  </View>
-                  <Text numberOfLines={1} style={styles.storyName}>
-                    {group.label}
-                  </Text>
-                </AnimatedPressable>
-              ))}
-            </ScrollView>
+                    <Text numberOfLines={1} style={styles.storyName}>
+                      {group.label}
+                    </Text>
+                  </AnimatedPressable>
+                ))}
+              </ScrollView>
+            ) : null}
 
             <View style={styles.postStack}>
-              {posts.map(post => {
+              {isLoading && !posts.length ? (
+                <AppLoading label="피드를 불러오는 중..." />
+              ) : !posts.length ? (
+                <Text style={styles.emptyFeedText}>표시할 게시글이 없습니다.</Text>
+              ) : posts.map(post => {
                 const isLiked = Boolean(post.isLiked);
                 const isCaptionExpanded = expandedCaptionPostIds.includes(post.id);
                 const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
@@ -524,12 +685,15 @@ export function FeedScreen(): JSX.Element {
                             setActivePostImageIndex(post.id, nextIndex);
                           }}>
                           {postImages.map((postImage, index) => (
-                            <Image
-                              key={`${post.id}-image-${index}`}
-                              source={postImage}
-                              style={[styles.postImage, {width: screenWidth}]}
-                              resizeMode="cover"
-                            />
+                            <View key={`${post.id}-image-${index}`} style={[styles.postImageSlide, {width: screenWidth}]}>
+                              <Image
+                                blurRadius={14}
+                                source={postImage}
+                                style={styles.postImageBackdrop}
+                                resizeMode="cover"
+                              />
+                              <Image source={postImage} style={styles.postImage} resizeMode="contain" />
+                            </View>
                           ))}
                         </ScrollView>
                         <LinearGradient
@@ -663,6 +827,13 @@ export function FeedScreen(): JSX.Element {
 
             <BottomSheetFlatList
               data={selectedComments}
+              ListEmptyComponent={
+                isLoadingComments ? (
+                  <AppLoading label="댓글을 불러오는 중..." />
+                ) : (
+                  <Text style={styles.commentEmptyText}>아직 댓글이 없습니다.</Text>
+                )
+              }
               keyExtractor={item => item.id}
               renderItem={renderComment}
               showsVerticalScrollIndicator={false}
@@ -670,7 +841,7 @@ export function FeedScreen(): JSX.Element {
             />
 
             <View style={[styles.commentInputWrap, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
-              <Image source={image.profile} style={styles.inputAvatar} />
+              <Image source={myAvatarSource} style={styles.inputAvatar} />
               <BottomSheetTextInput
                 placeholder="댓글 달기"
                 placeholderTextColor="#8A8D95"
@@ -689,6 +860,84 @@ export function FeedScreen(): JSX.Element {
               </AnimatedPressable>
             </View>
           </BottomSheet>
+
+          <Modal
+            animationType="fade"
+            onRequestClose={closeCommentActions}
+            transparent
+            visible={Boolean(selectedCommentForAction) && !isEditingComment}>
+            <View style={styles.commentActionOverlay}>
+              <View style={styles.commentActionSheet}>
+                <Text style={styles.commentActionTitle}>댓글 관리</Text>
+                <Text numberOfLines={2} style={styles.commentActionPreview}>
+                  {selectedCommentForAction?.text}
+                </Text>
+                {commentActionError ? <Text style={styles.commentActionError}>{commentActionError}</Text> : null}
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  disabled={isMutatingComment}
+                  onPress={openCommentEditor}
+                  style={styles.commentActionButton}>
+                  <Text style={styles.commentActionButtonText}>수정하기</Text>
+                </AnimatedPressable>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  disabled={isMutatingComment}
+                  onPress={handleCommentDelete}
+                  style={[styles.commentActionButton, styles.commentDeleteButton]}>
+                  <Text style={[styles.commentActionButtonText, styles.commentDeleteButtonText]}>
+                    {isMutatingComment ? '삭제 중...' : '삭제하기'}
+                  </Text>
+                </AnimatedPressable>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  disabled={isMutatingComment}
+                  onPress={closeCommentActions}
+                  style={styles.commentCancelButton}>
+                  <Text style={styles.commentCancelButtonText}>취소</Text>
+                </AnimatedPressable>
+              </View>
+            </View>
+          </Modal>
+
+          <Modal animationType="fade" onRequestClose={closeCommentEditor} transparent visible={isEditingComment}>
+            <View style={styles.commentActionOverlay}>
+              <View style={styles.commentEditCard}>
+                <Text style={styles.commentActionTitle}>댓글 수정</Text>
+                <TextInput
+                  multiline
+                  placeholder="댓글을 입력하세요"
+                  placeholderTextColor="#777A82"
+                  style={styles.commentEditInput}
+                  value={editingCommentDraft}
+                  onChangeText={setEditingCommentDraft}
+                />
+                {commentActionError ? <Text style={styles.commentActionError}>{commentActionError}</Text> : null}
+                <View style={styles.commentEditButtonRow}>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    disabled={isMutatingComment}
+                    onPress={closeCommentEditor}
+                    style={[styles.commentEditButton, styles.commentEditCancelButton]}>
+                    <Text style={styles.commentCancelButtonText}>취소</Text>
+                  </AnimatedPressable>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    disabled={isMutatingComment || !editingCommentDraft.trim()}
+                    onPress={handleCommentUpdate}
+                    style={[
+                      styles.commentEditButton,
+                      styles.commentEditSaveButton,
+                      (isMutatingComment || !editingCommentDraft.trim()) && styles.commentEditSaveButtonDisabled,
+                    ]}>
+                    <Text style={styles.commentEditSaveButtonText}>
+                      {isMutatingComment ? '저장 중...' : '저장'}
+                    </Text>
+                  </AnimatedPressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
 
           <Modal animationType="fade" onRequestClose={closeHighlight} transparent visible={isHighlightVisible}>
             {selectedHighlightGroup && selectedHighlightItem ? (
@@ -724,7 +973,15 @@ export function FeedScreen(): JSX.Element {
                 </View>
 
                 <View style={[styles.highlightMediaFrame, {top: highlightContentTop}]}>
-                  <Image source={selectedHighlightItem.image} style={styles.highlightViewerImage} resizeMode="cover" />
+                  <Image
+                    blurRadius={18}
+                    source={selectedHighlightItem.image}
+                    style={styles.highlightViewerBackdropImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.highlightViewerImageWrap}>
+                    <Image source={selectedHighlightItem.image} style={styles.highlightViewerImage} resizeMode="contain" />
+                  </View>
                   <LinearGradient
                     colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.88)']}
                     style={styles.highlightViewerGradient}
@@ -808,7 +1065,9 @@ export function FeedScreen(): JSX.Element {
                     <View style={styles.composeAlbumBar}>
                       <View>
                         <Text style={styles.composeAlbumTitle}>최근 항목</Text>
-                        <Text style={styles.composeAlbumDescription}>기기 사진앨범에서 최대 6장을 선택합니다.</Text>
+                        <Text style={styles.composeAlbumDescription}>
+                          최대 5장까지 선택할 수 있고, 10MB 초과 사진은 자동으로 줄여 업로드합니다.
+                        </Text>
                       </View>
                       <AnimatedPressable
                         accessibilityRole="button"
@@ -820,12 +1079,26 @@ export function FeedScreen(): JSX.Element {
                   </>
                 ) : (
                   <>
-                    <View style={styles.composeShareRow}>
+                    <View style={styles.composeTitleBlock}>
+                      <Text style={styles.composeLabel}>제목</Text>
+                      <TextInput
+                        maxLength={60}
+                        placeholder="제목을 입력하세요"
+                        placeholderTextColor="#777A82"
+                        returnKeyType="next"
+                        style={styles.composeTitleInput}
+                        value={composeTitle}
+                        onChangeText={setComposeTitle}
+                      />
+                      <Text style={styles.composeHelperText}>게시물 목록과 상세 영역에 표시될 제목입니다.</Text>
+                    </View>
+
+                    <View style={styles.composePhotoBlock}>
+                      <Text style={styles.composeLabel}>사진</Text>
                       {composeImageUris.length ? (
                         <ScrollView
                           horizontal
                           showsHorizontalScrollIndicator={false}
-                          style={styles.composeShareThumbList}
                           contentContainerStyle={styles.composeShareThumbContent}>
                           {composeImageUris.map((uri, index) => (
                             <View key={`${uri}-${index}`} style={styles.composeShareThumbWrap}>
@@ -839,15 +1112,6 @@ export function FeedScreen(): JSX.Element {
                           ))}
                         </ScrollView>
                       ) : null}
-                      <TextInput
-                        multiline
-                        placeholder="문구 입력..."
-                        placeholderTextColor="#777A82"
-                        style={styles.composeInstagramCaptionInput}
-                        textAlignVertical="top"
-                        value={composeCaption}
-                        onChangeText={setComposeCaption}
-                      />
                     </View>
 
                     <AnimatedPressable
@@ -857,12 +1121,17 @@ export function FeedScreen(): JSX.Element {
                       <Text style={styles.composeChangeImageText}>사진 다시 선택</Text>
                     </AnimatedPressable>
 
-                    <View style={styles.composeProfileRow}>
-                      <Image source={myAvatarSource} style={styles.composeAvatar} resizeMode="cover" />
-                      <View>
-                        <Text style={styles.composeProfileName}>{myName}</Text>
-                        <Text style={styles.composeProfileRole}>{myTeamName} 게시글</Text>
-                      </View>
+                    <View style={styles.composeInputBlock}>
+                      <Text style={styles.composeLabel}>문구</Text>
+                      <TextInput
+                        multiline
+                        placeholder="문구 입력..."
+                        placeholderTextColor="#777A82"
+                        style={styles.composeInstagramCaptionInput}
+                        textAlignVertical="top"
+                        value={composeCaption}
+                        onChangeText={setComposeCaption}
+                      />
                     </View>
 
                     <View style={styles.composeInputBlock}>
@@ -1007,6 +1276,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#161616',
   },
+  emptyFeedText: {
+    paddingHorizontal: 20,
+    paddingVertical: 48,
+    color: '#8A8D95',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 19,
+  },
   postCard: {
     backgroundColor: '#000000',
     borderBottomWidth: 1,
@@ -1073,6 +1350,17 @@ const styles = StyleSheet.create({
   postImageCarousel: {
     width: '100%',
     height: '100%',
+  },
+  postImageSlide: {
+    position: 'relative',
+    height: '100%',
+    overflow: 'hidden',
+    backgroundColor: '#0D0D0F',
+  },
+  postImageBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.36,
+    transform: [{scale: 1.08}],
   },
   postImage: {
     width: '100%',
@@ -1266,6 +1554,13 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
+  commentEmptyText: {
+    paddingVertical: 28,
+    color: '#8A8D95',
+    textAlign: 'center',
+    ...FONTS.font14R,
+    lineHeight: 20,
+  },
   commentRow: {
     flexDirection: 'row',
     marginBottom: 16,
@@ -1337,6 +1632,118 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font22B,
     lineHeight: 24,
+  },
+  commentActionOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.56)',
+  },
+  commentActionSheet: {
+    marginHorizontal: 12,
+    marginBottom: 18,
+    borderRadius: 18,
+    backgroundColor: '#1B1C20',
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#303139',
+  },
+  commentActionTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font18B,
+    lineHeight: 24,
+  },
+  commentActionPreview: {
+    marginTop: 8,
+    color: '#B9BBC3',
+    ...FONTS.font13R,
+    lineHeight: 18,
+  },
+  commentActionError: {
+    marginTop: 10,
+    color: '#E50914',
+    ...FONTS.font12M,
+    lineHeight: 16,
+  },
+  commentActionButton: {
+    marginTop: 14,
+    minHeight: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2A2B31',
+  },
+  commentActionButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 20,
+  },
+  commentDeleteButton: {
+    marginTop: 8,
+    backgroundColor: 'rgba(229,9,20,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(229,9,20,0.34)',
+  },
+  commentDeleteButtonText: {
+    color: '#FF5962',
+  },
+  commentCancelButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentCancelButtonText: {
+    color: '#B9BBC3',
+    ...FONTS.font15M,
+    lineHeight: 20,
+  },
+  commentEditCard: {
+    marginHorizontal: 16,
+    marginBottom: 32,
+    borderRadius: 18,
+    backgroundColor: '#1B1C20',
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#303139',
+  },
+  commentEditInput: {
+    marginTop: 14,
+    minHeight: 112,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#303139',
+    backgroundColor: '#121317',
+    color: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    textAlignVertical: 'top',
+    ...FONTS.font15R,
+    lineHeight: 21,
+  },
+  commentEditButtonRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  commentEditButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentEditCancelButton: {
+    backgroundColor: '#2A2B31',
+  },
+  commentEditSaveButton: {
+    backgroundColor: '#E50914',
+  },
+  commentEditSaveButtonDisabled: {
+    backgroundColor: '#3A3B40',
+  },
+  commentEditSaveButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 20,
   },
   composeFloatingButton: {
     position: 'absolute',
@@ -1482,28 +1889,22 @@ const styles = StyleSheet.create({
     ...FONTS.font13B,
     lineHeight: 17,
   },
-  composeShareRow: {
-    minHeight: 132,
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#242428',
-    paddingBottom: 18,
-  },
-  composeShareThumbList: {
-    maxWidth: 112,
-    marginRight: 14,
+  composePhotoBlock: {
+    marginTop: 4,
   },
   composeShareThumbContent: {
+    paddingVertical: 2,
     gap: 8,
   },
   composeShareThumbWrap: {
     position: 'relative',
-    width: 96,
-    height: 96,
+    width: 112,
+    height: 112,
   },
   composeShareThumb: {
-    width: 96,
-    height: 96,
+    width: 112,
+    height: 112,
+    borderRadius: 14,
     backgroundColor: '#151519',
   },
   composeShareThumbBadge: {
@@ -1523,14 +1924,28 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   composeInstagramCaptionInput: {
-    flex: 1,
-    minHeight: 108,
+    minHeight: 132,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2F3036',
+    backgroundColor: '#151519',
     color: '#FFFFFF',
-    paddingTop: 0,
-    paddingHorizontal: 0,
-    paddingBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     ...FONTS.font16R,
     lineHeight: 23,
+  },
+  composeTitleInput: {
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2F3036',
+    backgroundColor: '#151519',
+    color: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    ...FONTS.font16M,
+    lineHeight: 22,
   },
   composeChangeImageRow: {
     minHeight: 48,
@@ -1581,31 +1996,12 @@ const styles = StyleSheet.create({
     ...FONTS.font14R,
     lineHeight: 20,
   },
-  composeProfileRow: {
-    marginTop: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  composeAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    marginRight: 11,
-    backgroundColor: '#242428',
-  },
-  composeProfileName: {
-    color: '#FFFFFF',
-    ...FONTS.font15B,
-    lineHeight: 20,
-  },
-  composeProfileRole: {
-    marginTop: 3,
-    color: '#8A8D95',
-    ...FONTS.font12R,
-    lineHeight: 16,
-  },
   composeInputBlock: {
     marginTop: 24,
+  },
+  composeTitleBlock: {
+    marginTop: 24,
+    marginBottom: 18,
   },
   composeLabel: {
     marginBottom: 10,
@@ -1780,6 +2176,18 @@ const styles = StyleSheet.create({
     height: 38,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  highlightViewerBackdropImage: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.42,
+    transform: [{scale: 1.08}],
+  },
+  highlightViewerImageWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 86,
   },
   highlightViewerImage: {
     width: '100%',

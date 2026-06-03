@@ -22,11 +22,20 @@ export type CoinBattleStackParamList = {
 
 export type PredictionStackParamList = {
   PredictionHome: undefined;
+  PredictionSelect: {
+    gameId: number;
+    gameTitle?: string;
+  };
   PredictionDetail:
     | {
         cheerComment?: string;
+        gameId?: number;
+        gameTitle?: string;
+        matchId?: number;
         mode?: 'participated';
+        pickedParticipantId?: number;
         selectedTeamId?: 'team-red' | 'team-black';
+        startStep?: 'comment';
       }
     | undefined;
 };

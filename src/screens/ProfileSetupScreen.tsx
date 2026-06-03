@@ -1,6 +1,7 @@
 import React, {useMemo, useState} from 'react';
 import {
   Image,
+  Platform,
   SafeAreaView,
   StatusBar,
   StyleSheet,
@@ -8,19 +9,81 @@ import {
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import {launchImageLibrary} from 'react-native-image-picker';
+import {launchImageLibrary, type Asset as PickerAsset} from 'react-native-image-picker';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
 import {AnimatedPressable} from '../components/AnimatedPressable';
+import {AppLoading} from '../components/AppLoading';
 import {FONTS} from '../constants/theme';
+import {withMinimumLoadingTime} from '../utils/loading';
+
+const API_BASE = 'http://121.254.240.93:8090';
+const PROFILE_UPDATE_METHOD = 'PUT';
 
 type ProfileChoice = 'default' | 'album';
+
+type ProfileUpdateResponse = {
+  code?: string;
+  data?: Record<string, unknown>;
+  message?: string;
+  success?: boolean;
+};
+
+function getImageFileInfo(asset: PickerAsset): {name: string; type: string} {
+  const uri = asset.uri ?? '';
+  const cleanedUri = uri.split('?')[0];
+  const baseFileName = asset.fileName?.trim() || cleanedUri.split('/').pop()?.trim() || `profile-${Date.now()}.jpg`;
+  const safeFileName = baseFileName
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._-]/g, '')
+    .replace(/^$/, `profile-${Date.now()}.jpg`);
+  const loweredFileName = safeFileName.toLowerCase();
+
+  if (asset.type?.trim()) {
+    return {name: safeFileName, type: asset.type.trim()};
+  }
+
+  if (loweredFileName.endsWith('.png')) {
+    return {name: safeFileName, type: 'image/png'};
+  }
+
+  if (loweredFileName.endsWith('.webp')) {
+    return {name: safeFileName, type: 'image/webp'};
+  }
+
+  if (loweredFileName.endsWith('.heic')) {
+    return {name: safeFileName, type: 'image/heic'};
+  }
+
+  return {name: safeFileName, type: 'image/jpeg'};
+}
+
+function normalizeUploadUri(uri: string): string {
+  if (Platform.OS === 'ios' && uri.startsWith('file://')) {
+    return uri.replace('file://', '');
+  }
+
+  return uri;
+}
+
+function getProfileImageUri(profile: Record<string, unknown> | undefined, fallbackUri: string | null): string | null {
+  const profileImageUrl = typeof profile?.profileImageUrl === 'string' && profile.profileImageUrl.trim()
+    ? profile.profileImageUrl.trim()
+    : null;
+  const profileImageUri = typeof profile?.profileImageUri === 'string' && profile.profileImageUri.trim()
+    ? profile.profileImageUri.trim()
+    : null;
+
+  return profileImageUrl ?? profileImageUri ?? fallbackUri;
+}
 
 export function ProfileSetupScreen(): JSX.Element {
   const {auth, setAuth} = useAuth();
   const [selectedChoice, setSelectedChoice] = useState<ProfileChoice>('default');
+  const [selectedImageAsset, setSelectedImageAsset] = useState<PickerAsset | null>(null);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedProfilePreview = useMemo(() => {
     if (selectedChoice === 'album' && selectedImageUri) {
@@ -56,7 +119,48 @@ export function ProfileSetupScreen(): JSX.Element {
     }
 
     setSelectedImageUri(asset.uri);
+    setSelectedImageAsset(asset);
     setSelectedChoice('album');
+  };
+
+  const updateProfileImage = async (asset: PickerAsset): Promise<Record<string, unknown> | null> => {
+    if (!auth?.accessToken || !asset.uri) {
+      throw new Error('프로필을 업데이트할 수 없습니다.');
+    }
+
+    const {name, type} = getImageFileInfo(asset);
+    const formData = new FormData();
+    formData.append('profileFile', {
+      name,
+      type,
+      uri: normalizeUploadUri(asset.uri),
+    } as any);
+
+    const response = await withMinimumLoadingTime(
+      fetch(`${API_BASE}/api/employee/profile`, {
+        body: formData,
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${auth.accessToken}`,
+        },
+        method: PROFILE_UPDATE_METHOD,
+      }),
+    );
+
+    const responseText = await response.text();
+    let responseBody: ProfileUpdateResponse | null = null;
+
+    try {
+      responseBody = JSON.parse(responseText) as ProfileUpdateResponse;
+    } catch {
+      responseBody = null;
+    }
+
+    if (!response.ok || responseBody?.success === false) {
+      throw new Error(responseBody?.message || responseText || '프로필 업데이트에 실패했습니다.');
+    }
+
+    return responseBody?.data ?? null;
   };
 
   const completeProfileSetup = async () => {
@@ -64,15 +168,34 @@ export function ProfileSetupScreen(): JSX.Element {
       return;
     }
 
-    await setAuth({
-      ...auth,
-      firstLoginYn: 'N',
-      profile: {
-        ...(auth.profile ?? {}),
-        profileImageSource: selectedChoice,
-        profileImageUri: selectedChoice === 'album' ? selectedImageUri : undefined,
-      },
-    });
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      if (selectedChoice === 'album' && !selectedImageAsset?.uri) {
+        throw new Error('프로필 사진을 선택해주세요.');
+      }
+
+      const updatedProfile = selectedChoice === 'album' && selectedImageAsset
+        ? await updateProfileImage(selectedImageAsset)
+        : null;
+      const nextProfileImageUri = getProfileImageUri(updatedProfile ?? undefined, selectedChoice === 'album' ? selectedImageUri : null);
+
+      await setAuth({
+        ...auth,
+        firstLoginYn: 'N',
+        profile: {
+          ...(auth.profile ?? {}),
+          ...(updatedProfile ?? {}),
+          profileImageSource: selectedChoice,
+          profileImageUri: nextProfileImageUri ?? undefined,
+        },
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '프로필 업데이트 중 오류가 발생했습니다.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -145,9 +268,19 @@ export function ProfileSetupScreen(): JSX.Element {
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
         <Text style={styles.helperText}>사진은 이 기기에서 선택한 이미지로 표시됩니다.</Text>
 
-        <AnimatedPressable accessibilityRole="button" onPress={completeProfileSetup} style={styles.nextButton}>
-          <Text style={styles.nextButtonText}>시작하기</Text>
+        <AnimatedPressable
+          accessibilityRole="button"
+          disabled={isSubmitting}
+          onPress={completeProfileSetup}
+          style={[styles.nextButton, isSubmitting ? styles.nextButtonDisabled : null]}>
+          <Text style={styles.nextButtonText}>{isSubmitting ? '저장 중...' : '시작하기'}</Text>
         </AnimatedPressable>
+
+        {isSubmitting ? (
+          <View style={styles.loadingOverlay}>
+            <AppLoading label="프로필을 저장하는 중..." />
+          </View>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -295,9 +428,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#E50914',
   },
+  nextButtonDisabled: {
+    opacity: 0.65,
+  },
   nextButtonText: {
     color: '#FFFFFF',
     ...FONTS.font17B,
     lineHeight: 22,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
   },
 });

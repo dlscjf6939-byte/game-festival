@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {createContext, useCallback, useContext, useMemo, useRef, useState} from 'react';
 import {useAuth} from '../auth/AuthProvider';
+import {withMinimumLoadingTime} from '../utils/loading';
 
 const ATTENDANCE_STORAGE_PREFIX = 'game_app_attendance_weekly_v1';
 const API_BASE = 'http://121.254.240.93:8090';
@@ -53,6 +54,13 @@ type AttendanceApiResponse = {
   success?: boolean;
 };
 
+type WeeklyAttendanceApiResponse = {
+  code?: string;
+  data?: unknown;
+  message?: string;
+  success?: boolean;
+};
+
 function toDateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -66,6 +74,94 @@ function getWeekStartDateKey(baseDate: Date): string {
   const daysFromMonday = day === 0 ? 6 : day - 1;
   cloned.setDate(cloned.getDate() - daysFromMonday);
   return toDateKey(cloned);
+}
+
+function toDateKeyFromValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const matched = value.match(/\d{4}-\d{2}-\d{2}/);
+  return matched?.[0] ?? null;
+}
+
+function getAttendanceFlag(record: Record<string, unknown>): boolean | null {
+  const booleanKeys = ['attended', 'checked', 'isAttend', 'isAttended', 'hasAttended', 'isChecked'];
+
+  for (const key of booleanKeys) {
+    const value = record[key];
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+  }
+
+  const ynValue = record.attendYn ?? record.attendanceYn ?? record.checkedYn;
+  if (typeof ynValue === 'string') {
+    const normalized = ynValue.trim().toUpperCase();
+
+    if (normalized === 'Y') {
+      return true;
+    }
+
+    if (normalized === 'N') {
+      return false;
+    }
+  }
+
+  const statusValue = record.status ?? record.attendanceStatus;
+  if (typeof statusValue === 'string') {
+    const normalized = statusValue.trim().toUpperCase();
+
+    if (['ATTENDED', 'CHECKED', 'COMPLETE', 'COMPLETED'].includes(normalized)) {
+      return true;
+    }
+
+    if (['ABSENT', 'MISSED', 'NONE', 'NOT_ATTENDED', 'UNCHECKED', 'UPCOMING'].includes(normalized)) {
+      return false;
+    }
+  }
+
+  return null;
+}
+
+function getDateFromRecord(record: Record<string, unknown>): string | null {
+  const dateKeys = ['attendDate', 'attendanceDate', 'checkedDate', 'date', 'day'];
+
+  for (const key of dateKeys) {
+    const dateKey = toDateKeyFromValue(record[key]);
+
+    if (dateKey) {
+      return dateKey;
+    }
+  }
+
+  return null;
+}
+
+function collectWeeklyCheckedDates(value: unknown, allowPrimitiveDate = false): string[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(item => collectWeeklyCheckedDates(item, true));
+  }
+
+  const primitiveDateKey = allowPrimitiveDate ? toDateKeyFromValue(value) : null;
+  if (primitiveDateKey) {
+    return [primitiveDateKey];
+  }
+
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+  const dateKey = getDateFromRecord(record);
+  const attendanceFlag = getAttendanceFlag(record);
+
+  if (dateKey) {
+    return attendanceFlag === false ? [] : [dateKey];
+  }
+
+  return Object.values(record).flatMap(item => collectWeeklyCheckedDates(item));
 }
 
 function toUniqueSortedDates(dates: string[]): string[] {
@@ -97,16 +193,18 @@ async function requestAttendanceCheckIn(
   accessToken: string,
   fallbackDateKey: string,
 ): Promise<{alreadyChecked: boolean; attendDate: string; rewardCoins: number}> {
-  const response = await fetch(
-    `${API_BASE}/api/attendance/festivals/${ATTENDANCE_FESTIVAL_ID}/events/${ATTENDANCE_EVENT_ID}/attend`,
-    {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+  const response = await withMinimumLoadingTime(
+    fetch(
+      `${API_BASE}/api/attendance/festivals/${ATTENDANCE_FESTIVAL_ID}/events/${ATTENDANCE_EVENT_ID}/attend`,
+      {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
       },
-      method: 'POST',
-    },
+    ),
   );
 
   const responseText = await response.text();
@@ -148,6 +246,35 @@ async function requestAttendanceCheckIn(
     attendDate: json.data.attendDate,
     rewardCoins,
   };
+}
+
+async function requestWeeklyAttendance(accessToken: string): Promise<string[]> {
+  const response = await withMinimumLoadingTime(
+    fetch(
+      `${API_BASE}/api/attendance/festivals/${ATTENDANCE_FESTIVAL_ID}/events/${ATTENDANCE_EVENT_ID}/weekly`,
+      {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    ),
+  );
+
+  const responseText = await response.text();
+  let json: WeeklyAttendanceApiResponse = {};
+
+  try {
+    json = JSON.parse(responseText) as WeeklyAttendanceApiResponse;
+  } catch {
+    throw new Error('주간 출석체크 응답을 해석하지 못했습니다.');
+  }
+
+  if (!response.ok || json.success === false) {
+    throw new Error(json.message || '주간 출석체크 조회에 실패했습니다.');
+  }
+
+  return toUniqueSortedDates(collectWeeklyCheckedDates(json.data));
 }
 
 export function AttendanceProvider({children}: {children: React.ReactNode}): JSX.Element {
@@ -201,9 +328,17 @@ export function AttendanceProvider({children}: {children: React.ReactNode}): JSX
       const nextCheckedDates = alreadyCheckedInStore ? normalizedDates : [...normalizedDates, checkedDate];
       const previousTotalCheckedCount = stored?.totalCheckedCount ?? normalizedDates.length;
       const totalCheckedCount = alreadyCheckedInStore ? previousTotalCheckedCount : previousTotalCheckedCount + 1;
+      let weeklyCheckedDates = toUniqueSortedDates(nextCheckedDates);
+
+      try {
+        weeklyCheckedDates = await requestWeeklyAttendance(auth.accessToken);
+        console.log('[Attendance] weekly response', weeklyCheckedDates);
+      } catch (weeklyError) {
+        console.log('[Attendance] weekly request failed', weeklyError);
+      }
 
       const nextStore: AttendanceStore = {
-        checkedDates: toUniqueSortedDates(nextCheckedDates),
+        checkedDates: weeklyCheckedDates,
         lastCheckedDate: todayKey,
         totalCheckedCount,
         weekStartDate,

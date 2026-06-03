@@ -1,6 +1,7 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
 import {useAuth} from '../auth/AuthProvider';
-import {coinRankings, type CoinRanking} from '../dummyData/coinDummyData';
+import {type CoinRanking} from '../dummyData/coinDummyData';
+import {withMinimumLoadingTime} from '../utils/loading';
 
 const API_BASE = 'http://121.254.240.93:8090';
 
@@ -127,12 +128,13 @@ function normalizeRanking(
 
 export function CoinProvider({children}: {children: React.ReactNode}): JSX.Element {
   const {auth} = useAuth();
-  const [rankingItems, setRankingItems] = useState<CoinRanking[]>(coinRankings);
-  const [isRankingLoading, setIsRankingLoading] = useState(false);
+  const [rankingItems, setRankingItems] = useState<CoinRanking[]>([]);
+  const [isRankingLoading, setIsRankingLoading] = useState(true);
   const [rankingError, setRankingError] = useState<string | null>(null);
 
   const refreshRanking = useCallback(async () => {
     if (!auth?.accessToken) {
+      setIsRankingLoading(false);
       return;
     }
 
@@ -140,11 +142,13 @@ export function CoinProvider({children}: {children: React.ReactNode}): JSX.Eleme
     setRankingError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/coin/ranking?size=30`, {
-        headers: {
-          Authorization: `Bearer ${auth.accessToken}`,
-        },
-      });
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/coin/ranking?size=30`, {
+          headers: {
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
       const responseText = await response.text();
       let responseBody: unknown = responseText;
 
@@ -169,9 +173,7 @@ export function CoinProvider({children}: {children: React.ReactNode}): JSX.Eleme
         .map((item, index) => normalizeRanking(item, index, auth.name, auth.employeeId))
         .filter((item): item is CoinRanking => item !== null);
 
-      if (mapped.length) {
-        setRankingItems(mapped);
-      }
+      setRankingItems(mapped);
 
       if (!response.ok) {
         setRankingError('코인 랭킹 조회에 실패했습니다.');
