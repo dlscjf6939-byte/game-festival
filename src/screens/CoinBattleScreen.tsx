@@ -161,7 +161,7 @@ function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
 export function CoinBattleScreen(): JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
-  const {auth} = useAuth();
+  const {auth, refreshProfile} = useAuth();
   const scrollY = useRef(new Animated.Value(0)).current;
   const quickActionProgress = useRef(new Animated.Value(0)).current;
   const createModalProgress = useRef(new Animated.Value(0)).current;
@@ -297,6 +297,11 @@ export function CoinBattleScreen(): JSX.Element {
     });
 
     if (created) {
+      refreshProfile().catch(error => {
+        if (__DEV__) {
+          console.log('[CoinBattleScreen] profile refresh after create failed', error);
+        }
+      });
       closeCreateModal();
     }
   };
@@ -618,6 +623,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   content: {
+    flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 138,
@@ -659,14 +665,16 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   emptyRoomState: {
-    minHeight: 420,
+    flex: 1,
+    minHeight: 360,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyRoomText: {
-    color: '#FFFFFF',
-    ...FONTS.font16B,
-    lineHeight: 22,
+    color: '#8A8D95',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 19,
   },
   roomRow: {
     minHeight: THUMBNAIL_HEIGHT,

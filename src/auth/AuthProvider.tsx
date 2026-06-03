@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -21,6 +22,7 @@ type AuthContextValue = {
   auth: AuthState | null;
   clearAuth: () => Promise<void>;
   isRestoring: boolean;
+  refreshProfile: () => Promise<void>;
   setAuth: (nextAuth: AuthState) => Promise<void>;
 };
 
@@ -116,6 +118,40 @@ export function AuthProvider({
   const [auth, setAuthState] = useState<AuthState | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
 
+  const refreshProfile = useCallback(async () => {
+    if (!auth?.accessToken) {
+      return;
+    }
+
+    try {
+      logProfileEvent('Refreshing profile');
+      const profileResponse = await fetchProfile(auth.accessToken);
+      logProfileEvent('Profile refresh response', profileResponse);
+
+      if (!profileResponse.data) {
+        return;
+      }
+
+      const nextAuth = {
+        ...auth,
+        profile: {
+          ...(auth.profile ?? {}),
+          ...normalizeProfile(profileResponse.data),
+        },
+      };
+
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
+      setAuthState(nextAuth);
+    } catch (error) {
+      logProfileEvent('Profile refresh failed', error);
+
+      if (error instanceof ProfileFetchError && error.status === 401) {
+        await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+        setAuthState(null);
+      }
+    }
+  }, [auth]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -191,6 +227,7 @@ export function AuthProvider({
         setAuthState(null);
       },
       isRestoring,
+      refreshProfile,
       setAuth: async (nextAuth: AuthState) => {
         await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
         setAuthState(nextAuth);
@@ -220,7 +257,7 @@ export function AuthProvider({
         }
       },
     }),
-    [auth, isRestoring],
+    [auth, isRestoring, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

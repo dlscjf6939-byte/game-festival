@@ -808,7 +808,7 @@ function TypingGamePanel({
 export function CoinBattleRoomScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
   const route = useRoute<RouteProps>();
-  const {auth} = useAuth();
+  const {auth, refreshProfile} = useAuth();
   const {
     checkPictureMatch,
     chooseRps,
@@ -843,6 +843,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const startRequestedRef = useRef(false);
   const latestPresentedRoundRef = useRef(0);
   const latestTypingSyncRequestedRoundRef = useRef(0);
+  const coinRefreshRoomIdRef = useRef<string | null>(null);
   const countdownBackdropOpacity = useRef(new Animated.Value(0)).current;
   const countdownScale = useRef(new Animated.Value(0.72)).current;
   const countdownOpacity = useRef(new Animated.Value(0)).current;
@@ -1007,9 +1008,6 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const latestTypingWinner = latestTypingCompletedRound
     ? getTypingRoundWinner(latestTypingCompletedRound.typingPlayers ?? [])
     : undefined;
-  const latestMyTypingPlayer = latestTypingCompletedRound?.typingPlayers?.find(player => {
-    return isSameTypingPlayer(player, myUserId, auth?.name);
-  });
   const latestMyTypingResult =
     latestTypingWinner && isSameTypingPlayer(latestTypingWinner, myUserId, auth?.name)
       ? 'WIN'
@@ -1132,8 +1130,17 @@ export function CoinBattleRoomScreen(): JSX.Element {
   useEffect(() => {
     if (liveRoom && isMatchFinished && !finishedRoomSnapshot) {
       setFinishedRoomSnapshot(gameRoomSnapshot ?? liveRoom);
+
+      if (coinRefreshRoomIdRef.current !== roomId) {
+        coinRefreshRoomIdRef.current = roomId;
+        refreshProfile().catch(error => {
+          if (__DEV__) {
+            console.log('[CoinBattleRoomScreen] profile refresh after match failed', error);
+          }
+        });
+      }
     }
-  }, [finishedRoomSnapshot, gameRoomSnapshot, isMatchFinished, liveRoom]);
+  }, [finishedRoomSnapshot, gameRoomSnapshot, isMatchFinished, liveRoom, refreshProfile, roomId]);
 
   useEffect(() => {
     if (!canStartCountdown) {
@@ -1431,6 +1438,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
       startRequestedRef.current = false;
       latestPresentedRoundRef.current = 0;
       latestTypingSyncRequestedRoundRef.current = 0;
+      coinRefreshRoomIdRef.current = null;
       resetRpsGame();
       resetPictureMatchGame();
       resetTypingGame();

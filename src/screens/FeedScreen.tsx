@@ -637,9 +637,11 @@ export function FeedScreen(): JSX.Element {
               </ScrollView>
             ) : null}
 
-            <View style={styles.postStack}>
+            <View style={[styles.postStack, isLoading && !posts.length && styles.feedLoadingStack]}>
               {isLoading && !posts.length ? (
-                <AppLoading label="피드를 불러오는 중..." />
+                <View style={styles.feedLoadingState}>
+                  <AppLoading label="피드를 불러오는 중..." />
+                </View>
               ) : !posts.length ? (
                 <Text style={styles.emptyFeedText}>표시할 게시글이 없습니다.</Text>
               ) : posts.map(post => {
@@ -829,7 +831,9 @@ export function FeedScreen(): JSX.Element {
               data={selectedComments}
               ListEmptyComponent={
                 isLoadingComments ? (
-                  <AppLoading label="댓글을 불러오는 중..." />
+                  <View style={styles.commentLoadingState}>
+                    <AppLoading label="댓글을 불러오는 중..." />
+                  </View>
                 ) : (
                   <Text style={styles.commentEmptyText}>아직 댓글이 없습니다.</Text>
                 )
@@ -837,7 +841,10 @@ export function FeedScreen(): JSX.Element {
               keyExtractor={item => item.id}
               renderItem={renderComment}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.commentListContent}
+              contentContainerStyle={[
+                styles.commentListContent,
+                isLoadingComments && !selectedComments.length && styles.commentListLoadingContent,
+              ]}
             />
 
             <View style={[styles.commentInputWrap, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
@@ -1276,6 +1283,15 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#161616',
   },
+  feedLoadingStack: {
+    minHeight: 520,
+  },
+  feedLoadingState: {
+    flex: 1,
+    minHeight: 520,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   emptyFeedText: {
     paddingHorizontal: 20,
     paddingVertical: 48,
@@ -1553,6 +1569,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 12,
+  },
+  commentListLoadingContent: {
+    flexGrow: 1,
+  },
+  commentLoadingState: {
+    flex: 1,
+    minHeight: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   commentEmptyText: {
     paddingVertical: 28,

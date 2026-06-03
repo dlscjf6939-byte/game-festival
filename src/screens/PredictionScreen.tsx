@@ -452,7 +452,9 @@ export function PredictionScreen(): JSX.Element {
             {activeTab === 'prediction' ? (
               <View style={styles.cardStack}>
                 {isGamesLoading ? (
-                  <AppLoading label="게임 목록을 불러오는 중..." />
+                  <View style={styles.loadingCenterState}>
+                    <AppLoading label="게임 목록을 불러오는 중..." />
+                  </View>
                 ) : predictionCards.length ? (
                   predictionCards.map((card, index) => (
                     <PredictionCard
@@ -552,6 +554,11 @@ const styles = StyleSheet.create({
   cardStack: {
     paddingHorizontal: 20,
     gap: 20,
+  },
+  loadingCenterState: {
+    minHeight: 420,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
     color: '#8A8D95',

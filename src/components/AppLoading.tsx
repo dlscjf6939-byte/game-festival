@@ -25,6 +25,9 @@ export function AppLoading({label = '불러오는 중...'}: AppLoadingProps): JS
 
 const styles = StyleSheet.create({
   wrap: {
+    alignSelf: 'stretch',
+    flexGrow: 1,
+    width: '100%',
     minHeight: 220,
     alignItems: 'center',
     justifyContent: 'center',

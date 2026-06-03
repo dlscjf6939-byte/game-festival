@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   Animated,
   Image,
@@ -164,6 +164,13 @@ export function CoinsScreen(): JSX.Element {
       ? Number(myProfile.coinBalance)
       : 0;
   const coinBalance = Number.isFinite(coinBalanceValue) ? coinBalanceValue : 0;
+  const sortedRankingItems = useMemo(
+    () => [...rankingItems].sort((left, right) => left.rank - right.rank).slice(0, 30),
+    [rankingItems],
+  );
+  const topRankingItems = sortedRankingItems.slice(0, 10);
+  const restRankingItems = sortedRankingItems.slice(10);
+
   return (
     <MainScaffold>
       <View style={styles.header}>
@@ -213,19 +220,39 @@ export function CoinsScreen(): JSX.Element {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>코인 랭킹</Text>
-              <Text style={styles.sectionMeta}>
-                {isRankingLoading ? '불러오는 중...' : '상위 30명까지 표시됩니다.'}
-              </Text>
+              <Text style={styles.topRankingBadge}>TOP 10</Text>
             </View>
 
             {isRankingLoading ? (
-              <AppLoading label="코인 랭킹을 불러오는 중..." />
+              <View style={styles.loadingCenterState}>
+                <AppLoading label="코인 랭킹을 불러오는 중..." />
+              </View>
             ) : (
               <>
                 {rankingError ? <Text style={styles.errorText}>{rankingError}</Text> : null}
 
-                {rankingItems.length ? (
-                  rankingItems.map((item, index) => <RankingItem key={item.id} index={index} item={item} />)
+                {sortedRankingItems.length ? (
+                  <>
+                    {topRankingItems.length ? (
+                      <View style={[styles.rankingGroup, styles.topRankingGroup]}>
+                        {topRankingItems.map((item, index) => (
+                          <RankingItem key={item.id} index={index} item={item} />
+                        ))}
+                      </View>
+                    ) : null}
+
+                    {restRankingItems.length ? (
+                      <View style={styles.rankingGroup}>
+                        <View style={styles.rankingGroupHeader}>
+                          <Text style={styles.rankingGroupTitle}>11~30위</Text>
+                          <Text style={styles.rankingGroupMeta}>전체 랭킹</Text>
+                        </View>
+                        {restRankingItems.map((item, index) => (
+                          <RankingItem key={item.id} index={index + topRankingItems.length} item={item} />
+                        ))}
+                      </View>
+                    ) : null}
+                  </>
                 ) : (
                   <Text style={styles.emptyText}>표시할 랭킹이 없습니다.</Text>
                 )}
@@ -303,6 +330,50 @@ const styles = StyleSheet.create({
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
+  },
+  loadingCenterState: {
+    minHeight: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topRankingBadge: {
+    minWidth: 56,
+    height: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    backgroundColor: '#E50914',
+    ...FONTS.font11B,
+    lineHeight: 24,
+  },
+  rankingGroup: {
+    marginTop: 4,
+  },
+  topRankingGroup: {
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  rankingGroupHeader: {
+    minHeight: 38,
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#252525',
+  },
+  rankingGroupTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 19,
+  },
+  rankingGroupMeta: {
+    color: '#8A8D95',
+    ...FONTS.font12M,
+    lineHeight: 16,
   },
   sectionHeader: {
     flexDirection: 'row',

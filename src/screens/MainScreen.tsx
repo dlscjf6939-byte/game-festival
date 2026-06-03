@@ -371,22 +371,91 @@ function MainScreen(): JSX.Element {
                   nestedScrollEnabled
                   style={styles.storyBackScroll}
                   showsVerticalScrollIndicator={false}>
-                  {cardRounds.map(round => (
-                    <View key={round.id} style={styles.storyBackRound}>
-                      <Text style={styles.storyBackRoundLabel}>{round.label}</Text>
-                      {round.matches.map(match => (
-                        <View key={match.id} style={styles.storyBackMatch}>
-                          <View style={styles.storyBackTeamRow}>
-                            <Text style={styles.storyBackTeamName}>{match.left}</Text>
-                            <Text style={styles.storyBackTeamScore}>{match.leftScore}</Text>
+                  {cardRounds.map((round, roundIndex) => (
+                    <View
+                      key={round.id}
+                      style={[
+                        styles.storyBackRound,
+                        roundIndex === cardRounds.length - 1 && styles.storyBackRoundFinal,
+                      ]}>
+                      <View style={styles.storyBackRoundHeader}>
+                        <View style={styles.storyBackRoundTitleWrap}>
+                          <View
+                            style={[
+                              styles.storyBackRoundIndex,
+                              roundIndex === cardRounds.length - 1 && styles.storyBackRoundIndexFinal,
+                            ]}>
+                            <Text style={styles.storyBackRoundIndexText}>{roundIndex + 1}</Text>
                           </View>
-                          <View style={styles.storyBackLine} />
-                          <View style={styles.storyBackTeamRow}>
-                            <Text style={styles.storyBackTeamName}>{match.right}</Text>
-                            <Text style={styles.storyBackTeamScore}>{match.rightScore}</Text>
-                          </View>
+                          <Text style={styles.storyBackRoundLabel}>{round.label}</Text>
                         </View>
-                      ))}
+                        <View
+                          style={[
+                            styles.storyBackRoundMetaBadge,
+                            roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaBadgeFinal,
+                          ]}>
+                          <Text
+                            style={[
+                              styles.storyBackRoundMeta,
+                              roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaFinal,
+                            ]}>
+                            {roundIndex === cardRounds.length - 1 ? 'FINAL' : `${round.matches.length} MATCH`}
+                          </Text>
+                        </View>
+                      </View>
+                      {round.matches.map(match => {
+                        const leftWon = match.leftScore >= match.rightScore;
+                        const winnerName = leftWon ? match.left : match.right;
+
+                        return (
+                          <View
+                            key={match.id}
+                            style={[
+                              styles.storyBackMatch,
+                              roundIndex === cardRounds.length - 1 && styles.storyBackMatchFinal,
+                            ]}>
+                            {roundIndex === cardRounds.length - 1 ? (
+                              <View style={styles.storyBackChampionPill}>
+                                <Text numberOfLines={1} style={styles.storyBackChampionText}>
+                                  WINNER · {winnerName}
+                                </Text>
+                              </View>
+                            ) : null}
+                            <View style={[styles.storyBackTeamRow, leftWon && styles.storyBackTeamRowWinner]}>
+                              <View style={styles.storyBackTeamNameWrap}>
+                                <View style={[styles.storyBackSeedDot, leftWon && styles.storyBackSeedDotWinner]} />
+                                <Text
+                                  numberOfLines={1}
+                                  style={[styles.storyBackTeamName, !leftWon && styles.storyBackTeamNameMuted]}>
+                                  {match.left}
+                                </Text>
+                              </View>
+                              <Text style={[styles.storyBackTeamScore, leftWon && styles.storyBackTeamScoreWinner]}>
+                                {match.leftScore}
+                              </Text>
+                            </View>
+                            <View style={styles.storyBackVsRow}>
+                              <View style={styles.storyBackLine} />
+                              <Text style={styles.storyBackVsText}>VS</Text>
+                              <View style={styles.storyBackLine} />
+                            </View>
+                            <View style={[styles.storyBackTeamRow, !leftWon && styles.storyBackTeamRowWinner]}>
+                              <View style={styles.storyBackTeamNameWrap}>
+                                <View style={[styles.storyBackSeedDot, !leftWon && styles.storyBackSeedDotWinner]} />
+                                <Text
+                                  numberOfLines={1}
+                                  style={[styles.storyBackTeamName, leftWon && styles.storyBackTeamNameMuted]}>
+                                  {match.right}
+                                </Text>
+                              </View>
+                              <Text style={[styles.storyBackTeamScore, !leftWon && styles.storyBackTeamScoreWinner]}>
+                                {match.rightScore}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                      {roundIndex < cardRounds.length - 1 ? <View style={styles.storyBackRoundConnector} /> : null}
                     </View>
                   ))}
                 </ScrollView>
@@ -803,47 +872,176 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   storyBackRoundsContent: {
-    gap: 8,
-    paddingBottom: 10,
+    gap: 10,
+    paddingBottom: 12,
   },
   storyBackRound: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.11)',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    padding: 8,
-  },
-  storyBackRoundLabel: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-    marginBottom: 4,
-  },
-  storyBackMatch: {
-    borderRadius: 8,
-    backgroundColor: 'rgba(5,7,10,0.74)',
+    position: 'relative',
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    padding: 9,
+  },
+  storyBackRoundFinal: {
+    borderColor: 'rgba(229,9,20,0.42)',
+    backgroundColor: 'rgba(229,9,20,0.075)',
+  },
+  storyBackRoundHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 7,
+  },
+  storyBackRoundTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    flex: 1,
+  },
+  storyBackRoundIndex: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 7,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  storyBackRoundIndexFinal: {
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
+  },
+  storyBackRoundIndexText: {
+    color: '#FFFFFF',
+    ...FONTS.font10B,
+    lineHeight: 13,
+  },
+  storyBackRoundLabel: {
+    flexShrink: 1,
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+  },
+  storyBackRoundMetaBadge: {
+    minHeight: 20,
+    borderRadius: 10,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  storyBackRoundMetaBadgeFinal: {
+    backgroundColor: 'rgba(229,9,20,0.18)',
+  },
+  storyBackRoundMeta: {
+    color: '#8F96A3',
+    ...FONTS.font10B,
+    letterSpacing: 0.6,
+  },
+  storyBackRoundMetaFinal: {
+    color: '#FFFFFF',
+  },
+  storyBackMatch: {
+    borderRadius: 12,
+    backgroundColor: 'rgba(5,7,10,0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    padding: 6,
     marginTop: 6,
+  },
+  storyBackMatchFinal: {
+    borderColor: 'rgba(229,9,20,0.28)',
+    backgroundColor: 'rgba(8,4,6,0.90)',
+  },
+  storyBackChampionPill: {
+    minHeight: 24,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    backgroundColor: 'rgba(229,9,20,0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(229,9,20,0.38)',
+  },
+  storyBackChampionText: {
+    color: '#FFFFFF',
+    ...FONTS.font10B,
+    letterSpacing: 0.5,
   },
   storyBackTeamRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 28,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+  },
+  storyBackTeamRowWinner: {
+    backgroundColor: 'rgba(229,9,20,0.16)',
+  },
+  storyBackTeamNameWrap: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: 8,
+  },
+  storyBackSeedDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 7,
+    backgroundColor: '#4A4D56',
+  },
+  storyBackSeedDotWinner: {
+    backgroundColor: '#E50914',
   },
   storyBackTeamName: {
     color: '#E8EAF0',
     ...FONTS.font12B,
   },
+  storyBackTeamNameMuted: {
+    color: '#858A96',
+  },
   storyBackTeamScore: {
-    color: '#FFFFFF',
+    minWidth: 24,
+    height: 22,
+    borderRadius: 7,
+    overflow: 'hidden',
+    color: '#AEB4C1',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    textAlign: 'center',
     ...FONTS.font14B,
+    lineHeight: 22,
+  },
+  storyBackTeamScoreWinner: {
+    color: '#FFFFFF',
+    backgroundColor: '#E50914',
   },
   storyBackLine: {
+    flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    marginVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  storyBackVsRow: {
+    minHeight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  storyBackVsText: {
+    color: '#6F7581',
+    ...FONTS.font10B,
+  },
+  storyBackRoundConnector: {
+    alignSelf: 'center',
+    width: 2,
+    height: 10,
+    marginBottom: -19,
+    backgroundColor: 'rgba(229,9,20,0.45)',
   },
   storyGradient: {
     flex: 1,

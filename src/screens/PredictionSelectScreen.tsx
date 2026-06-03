@@ -183,7 +183,17 @@ export function PredictionSelectScreen(): JSX.Element {
             </AnimatedPressable>
           </View>
 
-          {isEmptyMatchState ? (
+          {isGameLoading && !matches.length ? (
+            <View style={styles.emptyStateScreen}>
+              <View style={styles.heroBlock}>
+                <Text style={styles.heroTitle}>{gameTitle}</Text>
+                <Text style={styles.heroSubtitle}>예측할 경기를 선택해주세요.</Text>
+              </View>
+              <View style={styles.emptyMatchState}>
+                <AppLoading label="경기 목록을 불러오는 중..." />
+              </View>
+            </View>
+          ) : isEmptyMatchState ? (
             <View style={styles.emptyStateScreen}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
@@ -224,8 +234,6 @@ export function PredictionSelectScreen(): JSX.Element {
                     </AnimatedPressable>
                   ))}
                 </View>
-              ) : isGameLoading ? (
-                <AppLoading label="경기 목록을 불러오는 중..." />
               ) : null}
             </ScrollView>
           )}

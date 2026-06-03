@@ -278,7 +278,7 @@ async function requestWeeklyAttendance(accessToken: string): Promise<string[]> {
 }
 
 export function AttendanceProvider({children}: {children: React.ReactNode}): JSX.Element {
-  const {auth, isRestoring} = useAuth();
+  const {auth, isRestoring, refreshProfile} = useAuth();
   const [attendance, setAttendance] = useState<AttendanceSnapshot | null>(null);
   const [checkInNotice, setCheckInNotice] = useState<CheckInNotice | null>(null);
   const [didCheckInToday, setDidCheckInToday] = useState(false);
@@ -366,6 +366,10 @@ export function AttendanceProvider({children}: {children: React.ReactNode}): JSX
           totalCheckedCount,
         });
       }
+
+      if (attendanceResult.rewardCoins > 0) {
+        await refreshProfile();
+      }
     } catch (error) {
       console.log('[Attendance] attend request failed', error);
       const raw = await AsyncStorage.getItem(storageKey);
@@ -390,7 +394,7 @@ export function AttendanceProvider({children}: {children: React.ReactNode}): JSX
     } finally {
       setIsChecking(false);
     }
-  }, [auth, isRestoring]);
+  }, [auth, isRestoring, refreshProfile]);
 
   const value = useMemo(
     () => ({

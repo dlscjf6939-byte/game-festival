@@ -123,6 +123,11 @@ type MatchDetailApiResponse = {
   success?: boolean;
 };
 
+type PredictionSubmitResponse = {
+  message?: string;
+  success?: boolean;
+};
+
 type CheerComment = {
   id: string;
   avatar: ImageSourcePropType;
@@ -221,7 +226,7 @@ function toPredictionTeam(
 export function PredictionDetailScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const route = useRoute<RouteProp<PredictionStackParamList, 'PredictionDetail'>>();
-  const {auth} = useAuth();
+  const {auth, refreshProfile} = useAuth();
   const routeGameId = route.params?.gameId;
   const routeGameTitle = route.params?.gameTitle;
   const routeMatchId = route.params?.matchId;
@@ -242,6 +247,8 @@ export function PredictionDetailScreen(): JSX.Element {
   const [isGameDetailLoading, setIsGameDetailLoading] = useState(false);
   const [isMatchDetailLoading, setIsMatchDetailLoading] = useState(false);
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
+  const [isSubmittingPrediction, setIsSubmittingPrediction] = useState(false);
+  const [predictionSubmitError, setPredictionSubmitError] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const [submittedComment, setSubmittedComment] = useState<CheerComment | null>(() => {
     if (!isParticipatedDetail) {
@@ -626,29 +633,85 @@ export function PredictionDetailScreen(): JSX.Element {
       return;
     }
 
+    setPredictionSubmitError(null);
     setIsConfirmVisible(true);
   };
 
-  const handleConfirmSubmit = () => {
-    const trimmedComment = cheerDraft.trim();
+  const submitPrediction = useCallback(
+    async (participantId: number, commentText: string) => {
+      if (!auth?.accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
+        throw new Error('예측을 등록할 수 없습니다.');
+      }
 
-    if (!trimmedComment) {
-      setIsConfirmVisible(false);
+      const response = await withMinimumLoadingTime(
+        fetch(
+          `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${routeGameId}/matches/${routeMatchId}/predict`,
+          {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${auth.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              participantId,
+              commentText,
+            }),
+          },
+        ),
+      );
+      const responseText = await response.text();
+      let responseBody: PredictionSubmitResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as PredictionSubmitResponse;
+      } catch {
+        responseBody = null;
+      }
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '승부예측 등록에 실패했습니다.');
+      }
+    },
+    [auth?.accessToken, routeGameId, routeMatchId],
+  );
+
+  const handleConfirmSubmit = async () => {
+    const trimmedComment = cheerDraft.trim();
+    const participantId = selectedTeamInfo.participantId;
+
+    if (!trimmedComment || isSubmittingPrediction) {
       return;
     }
 
-    setSubmittedComment({
-      id: `my-cheer-${Date.now()}`,
-      avatar: myAvatarSource,
-      isMine: true,
-      name: myName,
-      teamId: selectedTeam,
-      text: trimmedComment,
-      time: '방금 전',
-    });
-    setIsConfirmVisible(false);
-    showSubmitToast();
-    transitionToStep('result');
+    if (typeof participantId !== 'number') {
+      setPredictionSubmitError('참가팀 정보를 확인할 수 없습니다.');
+      return;
+    }
+
+    setIsSubmittingPrediction(true);
+    setPredictionSubmitError(null);
+
+    try {
+      await submitPrediction(participantId, trimmedComment);
+      await refreshProfile();
+      setSubmittedComment({
+        id: `my-cheer-${Date.now()}`,
+        avatar: myAvatarSource,
+        isMine: true,
+        name: myName,
+        teamId: selectedTeam,
+        text: trimmedComment,
+        time: '방금 전',
+      });
+      setIsConfirmVisible(false);
+      showSubmitToast();
+      transitionToStep('result');
+    } catch (error) {
+      setPredictionSubmitError(error instanceof Error ? error.message : '승부예측 등록에 실패했습니다.');
+    } finally {
+      setIsSubmittingPrediction(false);
+    }
   };
 
   return (
@@ -748,7 +811,9 @@ export function PredictionDetailScreen(): JSX.Element {
                   </View>
 
                   {isMatchDetailLoading && !predictionTeams.length ? (
-                    <AppLoading label="참가팀을 불러오는 중..." />
+                    <View style={styles.teamStateCenter}>
+                      <AppLoading label="참가팀을 불러오는 중..." />
+                    </View>
                   ) : predictionTeams.length ? (
                     <View
                       onLayout={({nativeEvent}) => {
@@ -850,17 +915,29 @@ export function PredictionDetailScreen(): JSX.Element {
                       </View>
                     </View>
                   ) : (
-                    <Text style={styles.emptyText}>참가팀 정보가 없습니다.</Text>
+                    <View style={styles.teamStateCenter}>
+                      <Text style={styles.emptyText}>참가팀 정보가 없습니다.</Text>
+                    </View>
                   )}
                 </ScrollView>
 
                 <View style={styles.bottomActionWrap}>
                   <AnimatedPressable
                     accessibilityRole="button"
-                    disabled={!expandedTeam}
+                    disabled={!expandedTeam || typeof selectedTeamInfo.participantId !== 'number'}
                     onPress={handleSelectNext}
-                    style={[styles.nextButton, !expandedTeam && styles.nextButtonDisabled]}>
-                    <Text style={[styles.nextButtonText, !expandedTeam && styles.nextButtonTextDisabled]}>다음</Text>
+                    style={[
+                      styles.nextButton,
+                      (!expandedTeam || typeof selectedTeamInfo.participantId !== 'number') && styles.nextButtonDisabled,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.nextButtonText,
+                        (!expandedTeam || typeof selectedTeamInfo.participantId !== 'number') &&
+                          styles.nextButtonTextDisabled,
+                      ]}>
+                      다음
+                    </Text>
                   </AnimatedPressable>
                 </View>
               </KeyboardAvoidingView>
@@ -916,13 +993,18 @@ export function PredictionDetailScreen(): JSX.Element {
 
           <Modal
             animationType="fade"
-            onRequestClose={() => setIsConfirmVisible(false)}
+            onRequestClose={() => {
+              if (!isSubmittingPrediction) {
+                setIsConfirmVisible(false);
+              }
+            }}
             transparent
             visible={isConfirmVisible}>
             <View style={styles.confirmOverlay}>
               <Pressable
                 accessibilityLabel="확인창 닫기"
                 accessibilityRole="button"
+                disabled={isSubmittingPrediction}
                 onPress={() => setIsConfirmVisible(false)}
                 style={styles.confirmBackdrop}
               />
@@ -934,19 +1016,28 @@ export function PredictionDetailScreen(): JSX.Element {
                 <Text numberOfLines={3} style={styles.confirmCommentPreview}>
                   “{cheerDraft.trim()}”
                 </Text>
+                {predictionSubmitError ? <Text style={styles.confirmErrorText}>{predictionSubmitError}</Text> : null}
 
                 <View style={styles.confirmActions}>
                   <AnimatedPressable
                     accessibilityRole="button"
+                    disabled={isSubmittingPrediction}
                     onPress={() => setIsConfirmVisible(false)}
                     style={[styles.confirmButton, styles.confirmCancelButton]}>
                     <Text style={styles.confirmCancelText}>취소</Text>
                   </AnimatedPressable>
                   <AnimatedPressable
                     accessibilityRole="button"
+                    disabled={isSubmittingPrediction}
                     onPress={handleConfirmSubmit}
-                    style={[styles.confirmButton, styles.confirmSubmitButton]}>
-                    <Text style={styles.confirmSubmitText}>등록</Text>
+                    style={[
+                      styles.confirmButton,
+                      styles.confirmSubmitButton,
+                      isSubmittingPrediction && styles.confirmSubmitButtonDisabled,
+                    ]}>
+                    <Text style={styles.confirmSubmitText}>
+                      {isSubmittingPrediction ? '등록 중...' : '등록'}
+                    </Text>
                   </AnimatedPressable>
                 </View>
               </View>
@@ -996,6 +1087,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   voteInputContent: {
+    flexGrow: 1,
     paddingBottom: 112,
   },
   backRow: {
@@ -1031,11 +1123,16 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     paddingHorizontal: 20,
-    paddingVertical: 48,
     color: '#8A8D95',
     textAlign: 'center',
     ...FONTS.font14M,
     lineHeight: 19,
+  },
+  teamStateCenter: {
+    flex: 1,
+    minHeight: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   matchupStageWrapper: {
     marginHorizontal: 20,
@@ -1472,6 +1569,12 @@ const styles = StyleSheet.create({
     ...FONTS.font14R,
     lineHeight: 21,
   },
+  confirmErrorText: {
+    marginTop: 10,
+    color: '#E66B70',
+    ...FONTS.font12M,
+    lineHeight: 17,
+  },
   confirmActions: {
     marginTop: 18,
     flexDirection: 'row',
@@ -1489,6 +1592,9 @@ const styles = StyleSheet.create({
   },
   confirmSubmitButton: {
     backgroundColor: '#E50914',
+  },
+  confirmSubmitButtonDisabled: {
+    opacity: 0.65,
   },
   confirmCancelText: {
     color: '#D6D8DE',
