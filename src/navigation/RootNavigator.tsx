@@ -32,7 +32,7 @@ export function RootNavigator(): JSX.Element {
   useEffect(() => {
     const timer = setTimeout(() => {
       setSplashElapsed(true);
-    }, 1200);
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, []);
@@ -44,7 +44,7 @@ export function RootNavigator(): JSX.Element {
 
     Animated.timing(splashOpacity, {
       toValue: 0,
-      duration: 520,
+      duration: 900,
       useNativeDriver: true,
     }).start(({finished}) => {
       if (finished) {

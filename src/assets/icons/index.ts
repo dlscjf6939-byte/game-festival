@@ -3,6 +3,7 @@ import type {ImageSourcePropType} from 'react-native';
 type IconMap = {
   backBtn: ImageSourcePropType;
   battle: ImageSourcePropType;
+  check: ImageSourcePropType;
   closeBtn: ImageSourcePropType;
   coin: ImageSourcePropType;
   commentOutline: ImageSourcePropType;
@@ -19,6 +20,7 @@ type IconMap = {
 export const icon: IconMap = {
   backBtn: require('./backBtn.png'),
   battle: require('./battle.png'),
+  check: require('./check.png'),
   closeBtn: require('./closeBtn.png'),
   coin: require('./coin.png'),
   commentOutline: require('./comment_outline_icon.png'),

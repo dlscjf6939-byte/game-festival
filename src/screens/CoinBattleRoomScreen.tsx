@@ -15,6 +15,7 @@ import {
 import {BlurView} from '@react-native-community/blur';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
+import {icon} from '../assets/icons';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
@@ -321,7 +322,7 @@ function FlippablePictureCard({
         ]}>
         {isMine ? (
           <View style={styles.pictureMatchMineBadge}>
-            <Text style={styles.pictureMatchMineBadgeText}>✓</Text>
+            <Image source={icon.check} style={styles.pictureMatchMineBadgeIcon} />
           </View>
         ) : null}
         {picture.imgUrl ? (
@@ -2697,9 +2698,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#E50914',
   },
-  pictureMatchMineBadgeText: {
-    color: '#FFFFFF',
-    ...FONTS.font12B,
+  pictureMatchMineBadgeIcon: {
+    width: 10,
+    height: 10,
+    resizeMode: 'contain',
+    tintColor: '#FFFFFF',
   },
   typingPanel: {},
   typingHeader: {
