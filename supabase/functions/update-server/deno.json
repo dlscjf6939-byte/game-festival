@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "@hot-updater/server/runtime": "./_hot-updater/hot-updater-server/dist/runtime.mjs",
+    "@hot-updater/plugin-core": "./_hot-updater/hot-updater-plugin-core/dist/index.mjs",
+    "@hot-updater/js": "./_hot-updater/hot-updater-js/dist/index.mjs",
+    "@hot-updater/core": "./_hot-updater/hot-updater-core/dist/index.mjs",
+    "semver": "npm:semver@7.8.1",
+    "es-toolkit": "npm:es-toolkit@1.47.0",
+    "mime": "npm:mime@4.1.0",
+    "@hot-updater/supabase": "./_hot-updater/hot-updater-supabase/dist/edge.mjs",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.76.1"
+  }
+}

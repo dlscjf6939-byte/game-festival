@@ -39,6 +39,7 @@ local.properties
 node_modules/
 npm-debug.log
 yarn-error.log
+.env.hotupdater
 
 # fastlane
 #
@@ -65,3 +66,9 @@ yarn-error.log
 
 # testing
 /coverage
+# hot-updater
+.hot-updater/output
+.hot-updater/log
+/dist/
+/ipa/
+/supabase/.temp/

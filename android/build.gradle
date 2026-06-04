@@ -23,6 +23,10 @@ buildscript {
 }
 
 subprojects { subproject ->
+    subproject.configurations.configureEach {
+        resolutionStrategy.force "org.apache.commons:commons-lang3:3.12.0"
+    }
+
     if (subproject.name == "react-native-image-picker") {
         subproject.afterEvaluate {
             subproject.dependencies.add("implementation", "androidx.activity:activity:1.6.0")

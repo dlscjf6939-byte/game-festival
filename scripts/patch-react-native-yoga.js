@@ -125,3 +125,34 @@ patchFile(
     ),
   'React Native Gradle plugin build.gradle.kts',
 );
+
+const lottiePropertyManager = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  'lottie-react-native',
+  'android',
+  'src',
+  'main',
+  'java',
+  'com',
+  'airbnb',
+  'android',
+  'react',
+  'lottie',
+  'LottieAnimationViewPropertyManager.kt',
+);
+
+patchFile(
+  lottiePropertyManager,
+  source => {
+    const withoutImport = source.replace('import com.facebook.react.common.ReactConstants.UNSET\n', '');
+    const withoutLocalUnset = withoutImport.replaceAll('    private val UNSET = -1\n', '');
+
+    return withoutLocalUnset.replace(
+      'class LottieAnimationViewPropertyManager(view: LottieAnimationView) {',
+      'class LottieAnimationViewPropertyManager(view: LottieAnimationView) {\n    private val UNSET = -1',
+    );
+  },
+  'lottie-react-native LottieAnimationViewPropertyManager.kt',
+);
