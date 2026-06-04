@@ -42,6 +42,19 @@ function getRankIcon(rank: number) {
   return null;
 }
 
+function toCoinNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function HistoryItem({index, item}: {index: number; item: CoinHistory}): JSX.Element {
   const entranceProgress = useRef(new Animated.Value(0)).current;
   const translateY = entranceProgress.interpolate({
@@ -121,7 +134,7 @@ function RankingItem({item, index}: {item: CoinRanking; index: number}): JSX.Ele
           </Text>
           <Text style={styles.rankingTeam}>{item.team}</Text>
         </View>
-        <Text style={styles.rankingCoins}>{item.coins}개</Text>
+        <Text style={styles.rankingCoins}>누적 {item.coins}개</Text>
       </AnimatedPressable>
     </Animated.View>
   );
@@ -249,17 +262,18 @@ export function CoinsScreen(): JSX.Element {
   };
 
   const myProfile = auth?.profile;
-  const coinBalanceValue =
-    typeof myProfile?.coinBalance === 'number'
-      ? myProfile.coinBalance
-      : typeof myProfile?.coinBalance === 'string'
-      ? Number(myProfile.coinBalance)
-      : 0;
-  const coinBalance = Number.isFinite(coinBalanceValue) ? coinBalanceValue : 0;
+  const coinBalance = toCoinNumber(myProfile?.coinBalance) ?? 0;
   const sortedRankingItems = useMemo(
     () => [...rankingItems].sort((left, right) => left.rank - right.rank).slice(0, 30),
     [rankingItems],
   );
+  const myRankingItem = rankingItems.find(item => item.isMe);
+  const accumulatedCoin =
+    myRankingItem?.coins ??
+    toCoinNumber(myProfile?.accumulatedCoin) ??
+    toCoinNumber(myProfile?.totalCoin) ??
+    toCoinNumber(myProfile?.totalCoins) ??
+    0;
   const topRankingItems = sortedRankingItems.slice(0, 10);
   const restRankingItems = sortedRankingItems.slice(10);
 
@@ -386,7 +400,7 @@ export function CoinsScreen(): JSX.Element {
           <>
             <View style={styles.balanceCard}>
               <View style={styles.balanceHeaderRow}>
-                <Text style={styles.label}>나의 보유 코인</Text>
+                <Text style={styles.label}>나의 코인 현황</Text>
                 <AnimatedPressable
                   accessibilityRole="button"
                   onPress={() => switchViewMode('raffle')}
@@ -394,7 +408,16 @@ export function CoinsScreen(): JSX.Element {
                   <Text style={styles.raffleEntryText}>응모하기</Text>
                 </AnimatedPressable>
               </View>
-              <Text style={styles.value}>{coinBalance}개</Text>
+              <View style={styles.balanceSummaryRow}>
+                <View style={styles.balanceSummaryBadge}>
+                  <Text style={styles.balanceSummaryLabel}>보유코인</Text>
+                  <Text style={styles.value}>{coinBalance}개</Text>
+                </View>
+                <View style={styles.balanceSummaryBadge}>
+                  <Text style={styles.balanceSummaryLabel}>누적코인</Text>
+                  <Text style={styles.value}>{accumulatedCoin}개</Text>
+                </View>
+              </View>
             </View>
 
             <View style={styles.section}>
@@ -528,7 +551,29 @@ const styles = StyleSheet.create({
   value: {
     marginTop: 10,
     color: '#FFFFFF',
-    ...FONTS.font40B,
+    textAlign: 'center',
+    ...FONTS.font30B,
+  },
+  balanceSummaryRow: {
+    marginTop: 20,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  balanceSummaryBadge: {
+    flex: 1,
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+  },
+  balanceSummaryLabel: {
+    color: '#A9ABB2',
+    textAlign: 'center',
+    ...FONTS.font13M,
+    lineHeight: 17,
   },
   balanceMeta: {
     marginTop: 12,

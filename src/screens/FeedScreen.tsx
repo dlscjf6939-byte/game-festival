@@ -5,6 +5,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   RefreshControl,
   ScrollView,
@@ -58,6 +59,7 @@ function getEditableCommentId(comment: FeedComment): string | null {
 
 export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
+  const prefetchedHighlightIdsRef = useRef<Set<string>>(new Set());
   const {auth} = useAuth();
   const {
     createComment,
@@ -85,6 +87,7 @@ export function FeedScreen(): JSX.Element {
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [selectedHighlightIndex, setSelectedHighlightIndex] = useState(0);
+  const [loadingHighlightIds, setLoadingHighlightIds] = useState<Record<string, boolean>>({});
   const [expandedCaptionPostIds, setExpandedCaptionPostIds] = useState<string[]>([]);
   const [truncatedCaptionPostIds, setTruncatedCaptionPostIds] = useState<string[]>([]);
   const [isComposeVisible, setIsComposeVisible] = useState(false);
@@ -127,7 +130,8 @@ export function FeedScreen(): JSX.Element {
   const selectedComments = selectedPostId ? commentsByPost[selectedPostId] ?? [] : [];
   const selectedHighlightGroup = highlightGroups.find(group => group.id === selectedHighlightId);
   const selectedHighlightItem = selectedHighlightGroup?.items[selectedHighlightIndex];
-  const isHighlightVisible = Boolean(selectedHighlightGroup && selectedHighlightItem);
+  const isSelectedHighlightLoading = selectedHighlightId ? Boolean(loadingHighlightIds[selectedHighlightId]) : false;
+  const isHighlightVisible = Boolean(selectedHighlightGroup);
   const topSafeArea = Math.max(insets.top, StatusBar.currentHeight ?? 0);
   const highlightContentTop = topSafeArea;
   const highlightProgressTop = topSafeArea + 8;
@@ -156,6 +160,20 @@ export function FeedScreen(): JSX.Element {
     }).start();
   }, [commentSubmitProgress, isCommentSubmittable]);
 
+  useEffect(() => {
+    highlightGroups.forEach(group => {
+      if (group.items.length || prefetchedHighlightIdsRef.current.has(group.id)) {
+        return;
+      }
+
+      prefetchedHighlightIdsRef.current.add(group.id);
+      refreshHighlightPosts(group.id).catch(error => {
+        prefetchedHighlightIdsRef.current.delete(group.id);
+        console.log('[FeedScreen] prefetch highlight failed', {error, highlightId: group.id});
+      });
+    });
+  }, [highlightGroups, refreshHighlightPosts]);
+
   const openComments = useCallback((postId: string) => {
     setSelectedPostId(postId);
     bottomSheetRef.current?.snapToIndex(0);
@@ -175,16 +193,46 @@ export function FeedScreen(): JSX.Element {
       });
   }, [fetchComments]);
 
-  const openHighlight = useCallback((highlightId: string) => {
-    setSelectedHighlightId(highlightId);
-    setSelectedHighlightIndex(0);
-    refreshHighlightPosts(highlightId);
-  }, [refreshHighlightPosts]);
+  const openHighlight = useCallback(
+    (highlightId: string) => {
+      const targetGroup = highlightGroups.find(group => group.id === highlightId);
+
+      setSelectedHighlightId(highlightId);
+      setSelectedHighlightIndex(0);
+
+      if (targetGroup?.items.length) {
+        return;
+      }
+
+      setLoadingHighlightIds(prevLoadingIds => ({...prevLoadingIds, [highlightId]: true}));
+      refreshHighlightPosts(highlightId)
+        .catch(error => {
+          console.log('[FeedScreen] refreshHighlightPosts failed', {error, highlightId});
+        })
+        .finally(() => {
+          setLoadingHighlightIds(prevLoadingIds => ({...prevLoadingIds, [highlightId]: false}));
+        });
+    },
+    [highlightGroups, refreshHighlightPosts],
+  );
 
   const closeHighlight = useCallback(() => {
     setSelectedHighlightId(null);
     setSelectedHighlightIndex(0);
   }, []);
+
+  const highlightSwipeResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 18 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy < -70) {
+          closeHighlight();
+        }
+      },
+    }),
+  ).current;
 
   const showPreviousHighlight = useCallback(() => {
     setSelectedHighlightIndex(currentIndex => Math.max(currentIndex - 1, 0));
@@ -947,27 +995,31 @@ export function FeedScreen(): JSX.Element {
           </Modal>
 
           <Modal animationType="fade" onRequestClose={closeHighlight} transparent visible={isHighlightVisible}>
-            {selectedHighlightGroup && selectedHighlightItem ? (
-              <View style={styles.highlightViewer}>
-                <View style={[styles.highlightProgressRow, {top: highlightProgressTop}]}>
-                  {selectedHighlightGroup.items.map((item, index) => (
-                    <View key={item.id} style={styles.highlightProgressTrack}>
-                      <View
-                        style={[
-                          styles.highlightProgressFill,
-                          index <= selectedHighlightIndex && styles.highlightProgressFillActive,
-                        ]}
-                      />
-                    </View>
-                  ))}
-                </View>
+            {selectedHighlightGroup ? (
+              <View style={styles.highlightViewer} {...highlightSwipeResponder.panHandlers}>
+                {selectedHighlightItem ? (
+                  <View style={[styles.highlightProgressRow, {top: highlightProgressTop}]}>
+                    {selectedHighlightGroup.items.map((item, index) => (
+                      <View key={item.id} style={styles.highlightProgressTrack}>
+                        <View
+                          style={[
+                            styles.highlightProgressFill,
+                            index <= selectedHighlightIndex && styles.highlightProgressFillActive,
+                          ]}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
 
                 <View style={[styles.highlightViewerHeader, {top: highlightHeaderTop}]}>
                   <View style={styles.highlightViewerIdentity}>
                     <Image source={selectedHighlightGroup.cover} style={styles.highlightViewerAvatar} />
                     <View>
                       <Text style={styles.highlightViewerLabel}>{selectedHighlightGroup.label}</Text>
-                      <Text style={styles.highlightViewerTime}>{selectedHighlightItem.time}</Text>
+                      <Text style={styles.highlightViewerTime}>
+                        {selectedHighlightItem?.time ?? (isSelectedHighlightLoading ? '불러오는 중' : '게시글 없음')}
+                      </Text>
                     </View>
                   </View>
                   <AnimatedPressable
@@ -979,41 +1031,57 @@ export function FeedScreen(): JSX.Element {
                   </AnimatedPressable>
                 </View>
 
-                <View style={[styles.highlightMediaFrame, {top: highlightContentTop}]}>
-                  <Image
-                    blurRadius={18}
-                    source={selectedHighlightItem.image}
-                    style={styles.highlightViewerBackdropImage}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.highlightViewerImageWrap}>
-                    <Image source={selectedHighlightItem.image} style={styles.highlightViewerImage} resizeMode="contain" />
+                {selectedHighlightItem ? (
+                  <>
+                    <View style={[styles.highlightMediaFrame, {top: highlightContentTop}]}>
+                      <Image
+                        blurRadius={18}
+                        source={selectedHighlightItem.image}
+                        style={styles.highlightViewerBackdropImage}
+                        resizeMode="cover"
+                      />
+                      <View style={styles.highlightViewerImageWrap}>
+                        <Image
+                          source={selectedHighlightItem.image}
+                          style={styles.highlightViewerImage}
+                          resizeMode="contain"
+                        />
+                      </View>
+                      <LinearGradient
+                        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.88)']}
+                        style={styles.highlightViewerGradient}
+                      />
+                    </View>
+
+                    <View style={[styles.highlightViewerText, {bottom: highlightTextBottom}]}>
+                      <Text style={styles.highlightViewerTitle}>{selectedHighlightItem.title}</Text>
+                      <Text style={styles.highlightViewerDescription}>{selectedHighlightItem.description}</Text>
+                    </View>
+
+                    <View style={styles.highlightTapLayer}>
+                      <AnimatedPressable
+                        accessibilityLabel="이전 하이라이트"
+                        accessibilityRole="button"
+                        onPress={showPreviousHighlight}
+                        style={styles.highlightTapZone}
+                      />
+                      <AnimatedPressable
+                        accessibilityLabel="다음 하이라이트"
+                        accessibilityRole="button"
+                        onPress={showNextHighlight}
+                        style={styles.highlightTapZone}
+                      />
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.highlightLoadingState}>
+                    {isSelectedHighlightLoading ? (
+                      <AppLoading label="하이라이트를 불러오는 중..." />
+                    ) : (
+                      <Text style={styles.highlightEmptyText}>표시할 하이라이트가 없습니다.</Text>
+                    )}
                   </View>
-                  <LinearGradient
-                    colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.88)']}
-                    style={styles.highlightViewerGradient}
-                  />
-                </View>
-
-                <View style={[styles.highlightViewerText, {bottom: highlightTextBottom}]}>
-                  <Text style={styles.highlightViewerTitle}>{selectedHighlightItem.title}</Text>
-                  <Text style={styles.highlightViewerDescription}>{selectedHighlightItem.description}</Text>
-                </View>
-
-                <View style={styles.highlightTapLayer}>
-                  <AnimatedPressable
-                    accessibilityLabel="이전 하이라이트"
-                    accessibilityRole="button"
-                    onPress={showPreviousHighlight}
-                    style={styles.highlightTapZone}
-                  />
-                  <AnimatedPressable
-                    accessibilityLabel="다음 하이라이트"
-                    accessibilityRole="button"
-                    onPress={showNextHighlight}
-                    style={styles.highlightTapZone}
-                  />
-                </View>
+                )}
               </View>
             ) : null}
           </Modal>
@@ -2130,6 +2198,18 @@ const styles = StyleSheet.create({
   highlightViewer: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  highlightLoadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  highlightEmptyText: {
+    color: '#D6D8DE',
+    textAlign: 'center',
+    ...FONTS.font15M,
+    lineHeight: 21,
   },
   highlightMediaFrame: {
     position: 'absolute',

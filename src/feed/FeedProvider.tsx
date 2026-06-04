@@ -69,6 +69,7 @@ type FeedPostApiResponse = {
 type FeedPostItemApi = {
   commentCount?: number;
   content?: string;
+  elapsedTime?: string;
   hashTags?: string[];
   isLiked?: boolean;
   likeCount?: number;
@@ -106,6 +107,7 @@ type FeedHighlightPostApiResponse = {
 
 type FeedHighlightPostItemApi = {
   content?: string;
+  elapsedTime?: string;
   imageUrl?: string;
   postId?: number;
   title?: string;
@@ -119,16 +121,25 @@ type CommentMutationResponse = {
 
 type FeedCommentApiResponse = {
   code?: string;
-  data?: FeedCommentItemApi[] | {comments?: FeedCommentItemApi[]; content?: FeedCommentItemApi[]};
+  data?:
+    | FeedCommentItemApi[]
+    | {
+        comments?: FeedCommentItemApi[];
+        content?: FeedCommentItemApi[];
+        elapsedTime?: string;
+        postId?: number;
+      };
   message?: string;
   success?: boolean;
 };
 
 type FeedCommentItemApi = {
+  authorName?: string;
   commentId?: number | string;
   commentContent?: string;
   content?: string;
   createdAt?: string;
+  elapsedTime?: string;
   employeeId?: number | string;
   employeeName?: string;
   id?: number | string;
@@ -137,11 +148,18 @@ type FeedCommentItemApi = {
   writer?: {
     employeeId?: number | string;
     department?: string;
+    employeeNickname?: string;
     employeeName?: string;
+    memberName?: string;
     name?: string;
+    nickname?: string;
   };
   writerName?: string;
 };
+
+function getDisplayElapsedTime(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : '방금 전';
+}
 
 function toFeedPost(post: FeedPostItemApi): FeedPost | null {
   if (typeof post.postId !== 'number') {
@@ -167,7 +185,7 @@ function toFeedPost(post: FeedPostItemApi): FeedPost | null {
     isLiked: Boolean(post.isLiked),
     likes: typeof post.likeCount === 'number' ? post.likeCount : 0,
     role: post.writer?.department?.trim() || '부서 미지정',
-    time: '방금 전',
+    time: getDisplayElapsedTime(post.elapsedTime),
     title: (post.title ?? '제목 없음').trim() || '제목 없음',
     user: post.writer?.employeeName?.trim() || '이름 없음',
   };
@@ -200,7 +218,7 @@ function toHighlightItem(post: FeedHighlightPostItemApi, fallbackImage: Highligh
     description: (post.content ?? '').trim(),
     id: String(post.postId),
     image: imageUrl ? {uri: imageUrl} : fallbackImage,
-    time: '방금 전',
+    time: getDisplayElapsedTime(post.elapsedTime),
     title: (post.title ?? '제목 없음').trim() || '제목 없음',
   };
 }
@@ -236,6 +254,15 @@ function getCommentsFromResponseData(data: FeedCommentApiResponse['data']): Feed
   return data?.comments ?? data?.content ?? [];
 }
 
+function getPostElapsedTimeFromDetail(data: FeedCommentApiResponse['data']): string | null {
+  if (!data || Array.isArray(data)) {
+    return null;
+  }
+
+  const elapsedTime = getDisplayElapsedTime(data.elapsedTime);
+  return elapsedTime === '방금 전' ? null : elapsedTime;
+}
+
 function toFeedComment(
   comment: FeedCommentItemApi,
   fallbackIndex: number,
@@ -253,8 +280,12 @@ function toFeedComment(
   const user =
     comment.writer?.employeeName?.trim() ||
     comment.writer?.name?.trim() ||
+    comment.writer?.memberName?.trim() ||
+    comment.writer?.nickname?.trim() ||
+    comment.writer?.employeeNickname?.trim() ||
     comment.employeeName?.trim() ||
     comment.writerName?.trim() ||
+    comment.authorName?.trim() ||
     '이름 없음';
 
   return {
@@ -272,7 +303,7 @@ function toFeedComment(
         ? user === myName
         : false),
     text,
-    time: '방금 전',
+    time: getDisplayElapsedTime(comment.elapsedTime ?? comment.createdAt),
     user,
   };
 }
@@ -400,7 +431,14 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         .map(toHighlightGroup)
         .filter((group): group is HighlightGroup => Boolean(group));
 
-      setHighlightGroups(mappedGroups);
+      setHighlightGroups(prevGroups => {
+        const previousGroupById = new Map(prevGroups.map(group => [group.id, group]));
+
+        return mappedGroups.map(group => ({
+          ...group,
+          items: previousGroupById.get(group.id)?.items ?? group.items,
+        }));
+      });
     } catch (error) {
       console.log('[FeedProvider] highlights request failed', error);
     }
@@ -414,6 +452,10 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
 
       const targetGroup = highlightGroups.find(group => group.id === highlightId);
       const fallbackImage = targetGroup?.cover ?? image.profile;
+
+      if (targetGroup?.items.length) {
+        return;
+      }
 
       try {
         const response = await withMinimumLoadingTime(
@@ -638,6 +680,14 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
 
       if (!response.ok || responseBody.success === false) {
         throw new Error(responseBody.message || responseText || '댓글 조회에 실패했습니다.');
+      }
+
+      const detailElapsedTime = getPostElapsedTimeFromDetail(responseBody.data);
+
+      if (detailElapsedTime) {
+        setPosts(prevPosts =>
+          prevPosts.map(post => (post.id === postId ? {...post, time: detailElapsedTime} : post)),
+        );
       }
 
       return getCommentsFromResponseData(responseBody.data)

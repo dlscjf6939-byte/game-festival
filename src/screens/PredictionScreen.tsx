@@ -35,9 +35,9 @@ type PredictionCardItem = {
 const fallbackPredictionCards: PredictionCardItem[] = [
   {
     id: 'tekken7',
-    title: '철권7',
+    title: '철권',
     description:
-      '게임설명이 들어가가 낭 랄랄리릴아러알ㅇ어쩌고 저쩌고입니다. 어리아리아ㅣ라ㅣㅇ리아ㅣㅏ라',
+      '한 번의 빈틈이 곧 패배! 주먹과 심리전이 폭발하는 최후의 1:1 격투전!',
     posterSource: image.tekken,
     wordmarkSource: image.tekkenLetter,
   },
@@ -45,7 +45,7 @@ const fallbackPredictionCards: PredictionCardItem[] = [
     id: 'starcraft',
     title: '스타크래프트',
     description:
-      '게임설명이 들어가가 낭 랄랄리릴아러알ㅇ어쩌고 저쩌고입니다. 어리아리아ㅣ라ㅣㅇ리아ㅣㅏ라',
+      '자원, 병력, 전략까지 단 한순간도 방심할 수 없는 실시간 전쟁!',
     posterSource: image.starcraft,
     wordmarkSource: image.starcraftLetter,
   },
@@ -53,7 +53,7 @@ const fallbackPredictionCards: PredictionCardItem[] = [
     id: 'crazyarcade',
     title: '크레이지 아케이드',
     description:
-      '게임설명이 들어가가 낭 랄랄리릴아러알ㅇ어쩌고 저쩌고입니다. 어리아리아ㅣ라ㅣㅇ리아ㅣㅏ라',
+      '터지는 물풍선, 좁혀오는 압박! 살아남는 팀만이 승리를 가져간다!',
     posterSource: image.crazyarcade,
     wordmarkSource: image.crazyarcadeLetter,
   },
@@ -158,7 +158,12 @@ function PredictionCard({
         opacity: entranceProgress,
         transform: [{translateY}],
       }}>
-      <View style={styles.card}>
+      <AnimatedPressable
+        accessibilityLabel={`${card.title} 예측하기`}
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={onPress}
+        style={[styles.card, disabled && styles.cardDisabled]}>
         <Image source={card.posterSource} resizeMode="cover" style={styles.cardImage} />
 
         <View style={styles.cardContent}>
@@ -168,17 +173,13 @@ function PredictionCard({
             {card.description}
           </Text>
 
-          <AnimatedPressable
-            accessibilityRole="button"
-            disabled={disabled}
-            onPress={onPress}
-            style={[styles.predictButton, disabled && styles.predictButtonDisabled]}>
+          <View style={[styles.predictButton, disabled && styles.predictButtonDisabled]}>
             <Text style={[styles.predictButtonText, disabled && styles.predictButtonTextDisabled]}>
               {disabled ? '준비 중' : '예측하기'}
             </Text>
-          </AnimatedPressable>
+          </View>
         </View>
-      </View>
+      </AnimatedPressable>
     </Animated.View>
   );
 }
@@ -578,6 +579,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingBottom: 16,
     backgroundColor: '#000000',
+  },
+  cardDisabled: {
+    opacity: 0.62,
   },
   cardImage: {
     width: '100%',

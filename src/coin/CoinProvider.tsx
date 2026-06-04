@@ -99,6 +99,7 @@ function normalizeRanking(
     toNumberValue(record.position) ??
     index + 1;
   const coins =
+    toNumberValue(record.accumulatedCoin) ??
     toNumberValue(record.coins) ??
     toNumberValue(record.balance) ??
     toNumberValue(record.coinCount) ??

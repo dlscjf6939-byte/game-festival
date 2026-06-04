@@ -17,9 +17,15 @@ export type CoinBattleConnectionStatus =
 export type CoinBattleRoomStatus = 'EXIT' | 'FULL' | 'IN_PROGRESS' | 'WAITING';
 
 export type CoinBattleRoomMember = {
+  coinBalance?: number;
   employeeId: number;
   employeeName: string;
   isReady: boolean;
+  record?: {
+    drawCount: number;
+    loseCount: number;
+    winCount: number;
+  };
 };
 
 export type CoinBattleRoom = {
@@ -59,31 +65,47 @@ type StartCoinBattleRoomParams = {
   userId?: null | number | string;
 };
 
-function isCoinBattleRoom(value: unknown): value is CoinBattleRoom {
+function toCoinBattleRoom(value: unknown): CoinBattleRoom | null {
   if (!value || typeof value !== 'object') {
-    return false;
+    return null;
   }
 
   const room = value as Partial<CoinBattleRoom>;
 
-  return (
-    typeof room.roomId === 'string' &&
-    typeof room.roomName === 'string' &&
-    typeof room.maxMembers === 'number' &&
-    Array.isArray(room.roomMembers)
-  );
+  if (typeof room.roomId !== 'string' || typeof room.roomName !== 'string' || !Array.isArray(room.roomMembers)) {
+    return null;
+  }
+
+  const roomMembers = room.roomMembers.filter(member => {
+    return (
+      member &&
+      typeof member === 'object' &&
+      typeof member.employeeId === 'number' &&
+      typeof member.employeeName === 'string'
+    );
+  });
+
+  return {
+    ...room,
+    currentMemberCount:
+      typeof room.currentMemberCount === 'number' ? room.currentMemberCount : roomMembers.length,
+    maxMembers: typeof room.maxMembers === 'number' ? room.maxMembers : Math.max(roomMembers.length, 2),
+    roomId: room.roomId,
+    roomMembers,
+    roomName: room.roomName,
+  } as CoinBattleRoom;
 }
 
 function normalizeRooms(payload: unknown): CoinBattleRoom[] {
   if (Array.isArray(payload)) {
-    return payload.filter(isCoinBattleRoom);
+    return payload.map(toCoinBattleRoom).filter((room): room is CoinBattleRoom => Boolean(room));
   }
 
   if (payload && typeof payload === 'object') {
     const response = payload as RoomListResponse;
 
     if (Array.isArray(response.data)) {
-      return response.data.filter(isCoinBattleRoom);
+      return response.data.map(toCoinBattleRoom).filter((room): room is CoinBattleRoom => Boolean(room));
     }
   }
 

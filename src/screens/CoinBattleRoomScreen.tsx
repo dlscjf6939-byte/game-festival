@@ -92,16 +92,38 @@ function normalizeRoomDetail(payload: unknown): CoinBattleRoom | undefined {
 
   const room = payload as Partial<CoinBattleRoom>;
 
-  if (
-    typeof room.roomId !== 'string' ||
-    typeof room.roomName !== 'string' ||
-    typeof room.maxMembers !== 'number' ||
-    !Array.isArray(room.roomMembers)
-  ) {
+  if (typeof room.roomId !== 'string' || typeof room.roomName !== 'string' || !Array.isArray(room.roomMembers)) {
     return undefined;
   }
 
-  return room as CoinBattleRoom;
+  const roomMembers = room.roomMembers.filter(member => {
+    return (
+      member &&
+      typeof member === 'object' &&
+      typeof member.employeeId === 'number' &&
+      typeof member.employeeName === 'string'
+    );
+  });
+
+  return {
+    ...room,
+    currentMemberCount:
+      typeof room.currentMemberCount === 'number' ? room.currentMemberCount : roomMembers.length,
+    maxMembers: typeof room.maxMembers === 'number' ? room.maxMembers : Math.max(roomMembers.length, 2),
+    roomId: room.roomId,
+    roomMembers,
+    roomName: room.roomName,
+  } as CoinBattleRoom;
+}
+
+function formatRoomMemberRecord(member: CoinBattleRoom['roomMembers'][number]): string | null {
+  const record = member.record;
+
+  if (!record) {
+    return null;
+  }
+
+  return `${record.winCount ?? 0}승 ${record.drawCount ?? 0}무 ${record.loseCount ?? 0}패`;
 }
 
 function BattleSlotCard({
@@ -1129,8 +1151,16 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [liveRoom]);
 
   useEffect(() => {
-    if (liveRoom && isMatchFinished && !finishedRoomSnapshot) {
-      setFinishedRoomSnapshot(gameRoomSnapshot ?? liveRoom);
+    if (liveRoom && isMatchFinished) {
+      setFinishedRoomSnapshot(previousSnapshot => {
+        const baseSnapshot = previousSnapshot ?? gameRoomSnapshot ?? liveRoom;
+
+        return {
+          ...baseSnapshot,
+          ...liveRoom,
+          roomMembers: liveRoom.roomMembers.length > 0 ? liveRoom.roomMembers : baseSnapshot.roomMembers,
+        };
+      });
 
       if (coinRefreshRoomIdRef.current !== roomId) {
         coinRefreshRoomIdRef.current = roomId;
@@ -1141,7 +1171,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
         });
       }
     }
-  }, [finishedRoomSnapshot, gameRoomSnapshot, isMatchFinished, liveRoom, refreshProfile, roomId]);
+  }, [gameRoomSnapshot, isMatchFinished, liveRoom, refreshProfile, roomId]);
 
   useEffect(() => {
     if (!canStartCountdown) {
@@ -1680,13 +1710,17 @@ export function CoinBattleRoomScreen(): JSX.Element {
                       const memberIsOwner = currentRoom?.ownerEmployeeId === member.employeeId;
                       const isMe = String(member.employeeId) === String(myUserId);
                       const memberReady = isMe ? myReady : member.isReady;
+                      const memberRecordText = formatRoomMemberRecord(member);
 
                       return (
                         <View key={member.employeeId} style={styles.memberRow}>
                           <View style={styles.avatar} />
                           <View style={styles.memberText}>
                             <Text style={styles.memberName}>{member.employeeName}</Text>
-                            <Text style={styles.memberRole}>{memberIsOwner ? '방장' : '참가자'}</Text>
+                            <Text style={styles.memberRole}>
+                              {memberIsOwner ? '방장' : '참가자'}
+                              {memberRecordText ? ` · ${memberRecordText}` : ''}
+                            </Text>
                           </View>
                           <View style={[styles.readyBadge, memberReady && styles.readyBadgeActive]}>
                             <Text style={styles.readyBadgeText}>{memberReady ? '준비완료' : '준비중'}</Text>

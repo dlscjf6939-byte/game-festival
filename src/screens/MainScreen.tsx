@@ -1,5 +1,5 @@
 import React, {useRef, useState} from 'react';
-import {useFocusEffect} from '@react-navigation/native';
+import {useFocusEffect, useNavigation, type NavigationProp} from '@react-navigation/native';
 import {
   Animated,
   Dimensions,
@@ -24,6 +24,7 @@ import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {FONTS} from '../constants/theme';
+import type {MainStackParamList} from '../navigation/types';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
@@ -145,7 +146,21 @@ function toDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function toCoinNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function MainScreen(): JSX.Element {
+  const navigation = useNavigation<NavigationProp<MainStackParamList>>();
   const {auth} = useAuth();
   const {rankingItems, isRankingLoading} = useCoin();
   const {attendance, checkInNotice, dismissCheckInNotice, isChecking, refreshAttendance} = useAttendance();
@@ -162,13 +177,7 @@ function MainScreen(): JSX.Element {
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
   const profile = auth?.profile;
-  const coinBalanceRaw =
-    typeof profile?.coinBalance === 'number'
-      ? profile.coinBalance
-      : typeof profile?.coinBalance === 'string'
-      ? Number(profile.coinBalance)
-      : 0;
-  const coinBalance = Number.isFinite(coinBalanceRaw) ? coinBalanceRaw : 0;
+  const coinBalance = toCoinNumber(profile?.coinBalance) ?? 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
   const profileImageUri = typeof profile?.profileImageUri === 'string' && profile.profileImageUri.trim()
     ? profile.profileImageUri.trim()
@@ -177,6 +186,12 @@ function MainScreen(): JSX.Element {
   const name = auth?.name ?? '이인철';
   const greetingPrefix = department || '서비스개발팀';
   const myRankingItem = rankingItems.find(item => item.isMe);
+  const accumulatedCoin =
+    myRankingItem?.coins ??
+    toCoinNumber(profile?.accumulatedCoin) ??
+    toCoinNumber(profile?.totalCoin) ??
+    toCoinNumber(profile?.totalCoins) ??
+    0;
   const rankingText = isRankingLoading ? '집계 중' : myRankingItem ? `${myRankingItem.rank}위` : '미집계';
   const checkedDateSet = new Set(attendance?.checkedDates ?? []);
   const todayKey = toDateKey(new Date());
@@ -265,6 +280,9 @@ function MainScreen(): JSX.Element {
     },
     [animateFlip, flippedCardId],
   );
+  const handleCoinCardPress = React.useCallback(() => {
+    navigation.navigate('Coins');
+  }, [navigation]);
 
   const renderStoryCard = React.useCallback(
     ({item, index}: {item: (typeof storyCards)[number]; index: number}): JSX.Element => {
@@ -590,12 +608,25 @@ function MainScreen(): JSX.Element {
                   <Image source={profileImageSource} style={styles.profileImage} />
                   <Text style={styles.greeting}>{`${greetingPrefix} ${name}님`}</Text>
                 </View>
-                <View style={styles.coinCard}>
+                <AnimatedPressable
+                  accessibilityLabel="나의 코인현황 상세 보기"
+                  accessibilityRole="button"
+                  onPress={handleCoinCardPress}
+                  style={styles.coinCard}>
                   <View style={styles.coinHeader}>
-                    <Text style={styles.coinHeaderTitle}>나의 보유코인</Text>
-                    <View style={styles.coinValueWrap}>
+                    <Text style={styles.coinHeaderTitle}>나의 코인현황</Text>
+                    <View style={styles.coinChevron} />
+                  </View>
+
+                  <View style={styles.coinSummaryRow}>
+                    <View style={styles.coinSummaryItem}>
+                      <Text style={styles.coinSummaryLabel}>보유코인</Text>
                       <Text style={styles.coinValue}>{coinBalance}개</Text>
-                      <View style={styles.coinChevron} />
+                    </View>
+                    <View style={styles.coinSummaryDivider} />
+                    <View style={styles.coinSummaryItem}>
+                      <Text style={styles.coinSummaryLabel}>누적코인</Text>
+                      <Text style={styles.coinValue}>{accumulatedCoin}개</Text>
                     </View>
                   </View>
 
@@ -619,7 +650,7 @@ function MainScreen(): JSX.Element {
                       <Text style={styles.coinRowValue}>{department || '-'}</Text>
                     </View>
                   </View>
-                </View>
+                </AnimatedPressable>
 
                 <View style={styles.attendanceCard}>
                   <View style={styles.attendanceHeader}>
@@ -1128,6 +1159,25 @@ const styles = StyleSheet.create({
   coinValue: {
     color: '#FFFFFF',
     ...FONTS.font18B,
+  },
+  coinSummaryRow: {
+    marginTop: 18,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  coinSummaryItem: {
+    flex: 1,
+  },
+  coinSummaryLabel: {
+    marginBottom: 8,
+    color: '#B9BBC1',
+    ...FONTS.font12M,
+    lineHeight: 16,
+  },
+  coinSummaryDivider: {
+    width: 1,
+    marginHorizontal: 16,
+    backgroundColor: 'rgba(242,243,245,0.18)',
   },
   coinChevron: {
     width: 8,

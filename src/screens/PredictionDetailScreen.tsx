@@ -109,6 +109,7 @@ type MatchDetailApiResponse = {
   data?: {
     matchName?: string;
     participants?: Array<{
+      logoImageUrl?: string;
       participantId?: number;
       name?: string;
       participantType?: string;
@@ -116,6 +117,12 @@ type MatchDetailApiResponse = {
         nickname?: string;
       }>;
     }>;
+    pickedParticipant?: {
+      logoImageUrl?: string;
+      participantId?: number;
+      name?: string;
+      participantType?: string;
+    } | null;
     pickedParticipantId?: number | null;
     roundName?: string;
   };
@@ -210,10 +217,11 @@ function toPredictionTeam(
 
   const isRed = participant.participantType === 'TEAM_RED';
   const fallbackTeam = isRed ? teams[0] : teams[1];
+  const logoImageUrl = participant.logoImageUrl?.trim();
 
   return {
     id: fallbackTeam.id,
-    imageSource: fallbackTeam.imageSource,
+    imageSource: logoImageUrl ? {uri: logoImageUrl} : fallbackTeam.imageSource,
     members: (participant.participantMembers ?? [])
       .map(member => member.nickname?.trim())
       .filter((nickname): nickname is string => Boolean(nickname)),
@@ -510,10 +518,13 @@ export function PredictionDetailScreen(): JSX.Element {
         if (isMounted && nextTeams.length) {
           setPredictionTeams(nextTeams);
 
-          const pickedTeam = nextTeams.find(team => team.participantId === responseBody?.data?.pickedParticipantId);
+          const pickedParticipantId =
+            responseBody?.data?.pickedParticipantId ?? responseBody?.data?.pickedParticipant?.participantId;
+          const pickedTeam = nextTeams.find(team => team.participantId === pickedParticipantId);
 
           if (pickedTeam) {
             setSelectedTeam(pickedTeam.id);
+            setExpandedTeam(pickedTeam.id);
           }
         }
       } catch (error) {
