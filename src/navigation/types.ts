@@ -9,6 +9,7 @@ export type MainStackParamList = {
 };
 
 export type CoinBattleStackParamList = {
+  CoinBattleGuide: undefined;
   CoinBattleHome: undefined;
   CoinBattleRoom: {
     game: string;

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import BottomSheet, {BottomSheetBackdrop, BottomSheetFlatList, BottomSheetTextInput} from '@gorhom/bottom-sheet';
 import {
+  ActivityIndicator,
   Animated,
   Image,
   KeyboardAvoidingView,
@@ -15,6 +16,8 @@ import {
   TextInput,
   View,
   type ImageSourcePropType,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   useWindowDimensions,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -66,8 +69,11 @@ export function FeedScreen(): JSX.Element {
     createPost,
     deleteComment,
     fetchComments,
+    hasMorePosts,
     highlightGroups,
     isLoading,
+    isLoadingMorePosts,
+    loadMorePosts,
     posts,
     refreshHighlights,
     refreshHighlightPosts,
@@ -227,7 +233,7 @@ export function FeedScreen(): JSX.Element {
         return Math.abs(gestureState.dy) > 18 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2;
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy < -70) {
+        if (Math.abs(gestureState.dy) > 70) {
           closeHighlight();
         }
       },
@@ -632,6 +638,22 @@ export function FeedScreen(): JSX.Element {
     }
   }, [isRefreshingFeed, refreshHighlights, refreshPosts]);
 
+  const handleFeedScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+      const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+
+      if (distanceFromBottom > 520 || !posts.length || !hasMorePosts || isLoading || isLoadingMorePosts) {
+        return;
+      }
+
+      loadMorePosts().catch(error => {
+        console.log('[FeedScreen] load more posts failed', error);
+      });
+    },
+    [hasMorePosts, isLoading, isLoadingMorePosts, loadMorePosts, posts.length],
+  );
+
   return (
     <TabSceneTransition>
       <View style={[styles.safeArea, {paddingTop: topSafeArea}]}>
@@ -645,6 +667,7 @@ export function FeedScreen(): JSX.Element {
             contentContainerStyle={styles.feedFrame}
             refreshControl={
               <RefreshControl
+                colors={['#E50914']}
                 progressBackgroundColor="#151519"
                 refreshing={isRefreshingFeed}
                 tintColor="#FFFFFF"
@@ -653,6 +676,7 @@ export function FeedScreen(): JSX.Element {
             }
             showsVerticalScrollIndicator={false}
             onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {
+              listener: handleFeedScroll,
               useNativeDriver: true,
             })}
             scrollEventThrottle={16}>
@@ -692,159 +716,168 @@ export function FeedScreen(): JSX.Element {
                 </View>
               ) : !posts.length ? (
                 <Text style={styles.emptyFeedText}>표시할 게시글이 없습니다.</Text>
-              ) : posts.map(post => {
-                const isLiked = Boolean(post.isLiked);
-                const isCaptionExpanded = expandedCaptionPostIds.includes(post.id);
-                const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
-                const comments = commentsByPost[post.id] ?? [];
-                const likeCount = post.likes;
-                const commentCount = typeof post.commentCount === 'number' ? post.commentCount : comments.length;
-                const postImages = post.images ?? (post.image ? [post.image] : []);
-                const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
+              ) : (
+                <>
+                  {posts.map(post => {
+                    const isLiked = Boolean(post.isLiked);
+                    const isCaptionExpanded = expandedCaptionPostIds.includes(post.id);
+                    const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
+                    const comments = commentsByPost[post.id] ?? [];
+                    const likeCount = post.likes;
+                    const commentCount = typeof post.commentCount === 'number' ? post.commentCount : comments.length;
+                    const postImages = post.images ?? (post.image ? [post.image] : []);
+                    const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
 
-                return (
-                  <View key={post.id} style={styles.postCard}>
-                    <View style={styles.postHeader}>
-                      <View style={styles.postHeaderLeft}>
-                        <View style={styles.profileRing}>
-                          <Image source={post.avatar} style={styles.profileImage} resizeMode="cover" />
+                    return (
+                      <View key={post.id} style={styles.postCard}>
+                        <View style={styles.postHeader}>
+                          <View style={styles.postHeaderLeft}>
+                            <View style={styles.profileRing}>
+                              <Image source={post.avatar} style={styles.profileImage} resizeMode="cover" />
+                            </View>
+                            <View>
+                              <Text style={styles.profileName}>{post.user}</Text>
+                              <Text style={styles.profileRole}>{post.role}</Text>
+                            </View>
+                          </View>
+                          <AnimatedPressable accessibilityRole="button" style={styles.moreButton}>
+                            <Text style={styles.moreIcon}>...</Text>
+                          </AnimatedPressable>
                         </View>
-                        <View>
-                          <Text style={styles.profileName}>{post.user}</Text>
-                          <Text style={styles.profileRole}>{post.role}</Text>
-                        </View>
-                      </View>
-                      <AnimatedPressable accessibilityRole="button" style={styles.moreButton}>
-                        <Text style={styles.moreIcon}>...</Text>
-                      </AnimatedPressable>
-                    </View>
 
-                    {postImages.length ? (
-                      <View style={styles.postImageWrap}>
-                        <ScrollView
-                          horizontal
-                          pagingEnabled
-                          directionalLockEnabled
-                          nestedScrollEnabled
-                          style={styles.postImageCarousel}
-                          showsHorizontalScrollIndicator={false}
-                          onMomentumScrollEnd={({nativeEvent}) => {
-                            const nextIndex = Math.round(
-                              nativeEvent.contentOffset.x / nativeEvent.layoutMeasurement.width,
-                            );
-                            setActivePostImageIndex(post.id, nextIndex);
-                          }}>
-                          {postImages.map((postImage, index) => (
-                            <View key={`${post.id}-image-${index}`} style={[styles.postImageSlide, {width: screenWidth}]}>
-                              <Image
-                                blurRadius={14}
-                                source={postImage}
-                                style={styles.postImageBackdrop}
-                                resizeMode="cover"
-                              />
-                              <Image source={postImage} style={styles.postImage} resizeMode="contain" />
-                            </View>
-                          ))}
-                        </ScrollView>
-                        <LinearGradient
-                          pointerEvents="none"
-                          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.78)']}
-                          style={styles.postImageGradient}
-                        />
-                        {postImages.length > 1 ? (
-                          <>
-                            <View pointerEvents="none" style={styles.postImageCountBadge}>
-                              <Text style={styles.postImageCountText}>
-                                {activeImageIndex + 1}/{postImages.length}
-                              </Text>
-                            </View>
-                            <View pointerEvents="none" style={styles.postImageDotRow}>
-                              {postImages.map((_, index) => (
-                                <View
-                                  key={`${post.id}-dot-${index}`}
-                                  style={[styles.postImageDot, index === activeImageIndex && styles.postImageDotActive]}
-                                />
+                        {postImages.length ? (
+                          <View style={styles.postImageWrap}>
+                            <ScrollView
+                              horizontal
+                              pagingEnabled
+                              directionalLockEnabled
+                              nestedScrollEnabled
+                              style={styles.postImageCarousel}
+                              showsHorizontalScrollIndicator={false}
+                              onMomentumScrollEnd={({nativeEvent}) => {
+                                const nextIndex = Math.round(
+                                  nativeEvent.contentOffset.x / nativeEvent.layoutMeasurement.width,
+                                );
+                                setActivePostImageIndex(post.id, nextIndex);
+                              }}>
+                              {postImages.map((postImage, index) => (
+                                <View key={`${post.id}-image-${index}`} style={[styles.postImageSlide, {width: screenWidth}]}>
+                                  <Image
+                                    blurRadius={14}
+                                    source={postImage}
+                                    style={styles.postImageBackdrop}
+                                    resizeMode="cover"
+                                  />
+                                  <Image source={postImage} style={styles.postImage} resizeMode="contain" />
+                                </View>
                               ))}
+                            </ScrollView>
+                            <LinearGradient
+                              pointerEvents="none"
+                              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.78)']}
+                              style={styles.postImageGradient}
+                            />
+                            {postImages.length > 1 ? (
+                              <>
+                                <View pointerEvents="none" style={styles.postImageCountBadge}>
+                                  <Text style={styles.postImageCountText}>
+                                    {activeImageIndex + 1}/{postImages.length}
+                                  </Text>
+                                </View>
+                                <View pointerEvents="none" style={styles.postImageDotRow}>
+                                  {postImages.map((_, index) => (
+                                    <View
+                                      key={`${post.id}-dot-${index}`}
+                                      style={[styles.postImageDot, index === activeImageIndex && styles.postImageDotActive]}
+                                    />
+                                  ))}
+                                </View>
+                              </>
+                            ) : null}
+                            <View
+                              pointerEvents="none"
+                              style={[styles.imageTitleWrap, postImages.length > 1 && styles.imageTitleWrapWithDots]}>
+                              <Text style={styles.imageTitle}>{post.title}</Text>
+                              <Text style={styles.imageTime}>{post.time}</Text>
                             </View>
-                          </>
-                        ) : null}
-                        <View
-                          pointerEvents="none"
-                          style={[styles.imageTitleWrap, postImages.length > 1 && styles.imageTitleWrapWithDots]}>
-                          <Text style={styles.imageTitle}>{post.title}</Text>
-                          <Text style={styles.imageTime}>{post.time}</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.textOnlyPostIntro}>
+                            <Text style={styles.textOnlyPostTitle}>{post.title}</Text>
+                            <Text style={styles.textOnlyPostTime}>{post.time}</Text>
+                          </View>
+                        )}
+
+                        <View style={styles.actionRow}>
+                          <View style={styles.leftActions}>
+                            <AnimatedPressable
+                              accessibilityLabel="좋아요"
+                              accessibilityRole="button"
+                              onPress={() => toggleLike(post.id)}
+                              style={styles.iconButton}>
+                              <Image
+                                source={isLiked ? icon.heartFilled : icon.heartOutline}
+                                style={styles.actionIconImage}
+                                resizeMode="contain"
+                              />
+                            </AnimatedPressable>
+                            <AnimatedPressable
+                              accessibilityLabel="댓글 보기"
+                              accessibilityRole="button"
+                              onPress={() => openComments(post.id)}
+                              style={styles.iconButton}>
+                              <Image source={icon.commentOutline} style={styles.actionIconImage} resizeMode="contain" />
+                            </AnimatedPressable>
+                          </View>
+                        </View>
+
+                        <View style={styles.captionBlock}>
+                          <Text style={styles.likeText}>좋아요 {formatCount(likeCount)}개</Text>
+                          <Text
+                            style={styles.captionMeasureLine}
+                            onTextLayout={({nativeEvent}) => markCaptionAsTruncated(post.id, nativeEvent.lines.length)}>
+                            <Text style={styles.captionUser}>{post.user} </Text>
+                            {post.caption}
+                          </Text>
+                          <Text
+                            ellipsizeMode="tail"
+                            numberOfLines={isCaptionExpanded ? undefined : 2}
+                            style={styles.captionLine}>
+                            <Text style={styles.captionUser}>{post.user} </Text>
+                            {post.caption}
+                          </Text>
+                          {isCaptionTruncated && !isCaptionExpanded ? (
+                            <AnimatedPressable accessibilityRole="button" onPress={() => expandCaption(post.id)}>
+                              <Text style={styles.captionMoreText}>더보기</Text>
+                            </AnimatedPressable>
+                          ) : null}
+                          <View style={styles.hashtagRow}>
+                            {post.hashtags.map(hashtag => (
+                              <Text key={hashtag} style={styles.hashtagText}>
+                                {hashtag}
+                              </Text>
+                            ))}
+                          </View>
+                          <AnimatedPressable onPress={() => openComments(post.id)}>
+                            <Text style={styles.commentLink}>댓글 {commentCount}개 모두 보기</Text>
+                          </AnimatedPressable>
+                          {comments[0] ? (
+                            <Text numberOfLines={1} style={styles.previewComment}>
+                              <Text style={styles.captionUser}>{comments[0].user} </Text>
+                              {comments[0].text}
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
-                    ) : (
-                      <View style={styles.textOnlyPostIntro}>
-                        <Text style={styles.textOnlyPostTitle}>{post.title}</Text>
-                        <Text style={styles.textOnlyPostTime}>{post.time}</Text>
-                      </View>
-                    )}
-
-                    <View style={styles.actionRow}>
-                      <View style={styles.leftActions}>
-                        <AnimatedPressable
-                          accessibilityLabel="좋아요"
-                          accessibilityRole="button"
-                          onPress={() => toggleLike(post.id)}
-                          style={styles.iconButton}>
-                          <Image
-                            source={isLiked ? icon.heartFilled : icon.heartOutline}
-                            style={styles.actionIconImage}
-                            resizeMode="contain"
-                          />
-                        </AnimatedPressable>
-                        <AnimatedPressable
-                          accessibilityLabel="댓글 보기"
-                          accessibilityRole="button"
-                          onPress={() => openComments(post.id)}
-                          style={styles.iconButton}>
-                          <Image source={icon.commentOutline} style={styles.actionIconImage} resizeMode="contain" />
-                        </AnimatedPressable>
-                      </View>
+                    );
+                  })}
+                  {isLoadingMorePosts ? (
+                    <View style={styles.feedPaginationLoading}>
+                      <ActivityIndicator color="#E50914" />
                     </View>
-
-                    <View style={styles.captionBlock}>
-                      <Text style={styles.likeText}>좋아요 {formatCount(likeCount)}개</Text>
-                      <Text
-                        style={styles.captionMeasureLine}
-                        onTextLayout={({nativeEvent}) => markCaptionAsTruncated(post.id, nativeEvent.lines.length)}>
-                        <Text style={styles.captionUser}>{post.user} </Text>
-                        {post.caption}
-                      </Text>
-                      <Text
-                        ellipsizeMode="tail"
-                        numberOfLines={isCaptionExpanded ? undefined : 2}
-                        style={styles.captionLine}>
-                        <Text style={styles.captionUser}>{post.user} </Text>
-                        {post.caption}
-                      </Text>
-                      {isCaptionTruncated && !isCaptionExpanded ? (
-                        <AnimatedPressable accessibilityRole="button" onPress={() => expandCaption(post.id)}>
-                          <Text style={styles.captionMoreText}>더보기</Text>
-                        </AnimatedPressable>
-                      ) : null}
-                      <View style={styles.hashtagRow}>
-                        {post.hashtags.map(hashtag => (
-                          <Text key={hashtag} style={styles.hashtagText}>
-                            {hashtag}
-                          </Text>
-                        ))}
-                      </View>
-                      <AnimatedPressable onPress={() => openComments(post.id)}>
-                        <Text style={styles.commentLink}>댓글 {commentCount}개 모두 보기</Text>
-                      </AnimatedPressable>
-                      {comments[0] ? (
-                        <Text numberOfLines={1} style={styles.previewComment}>
-                          <Text style={styles.captionUser}>{comments[0].user} </Text>
-                          {comments[0].text}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                );
-              })}
+                  ) : null}
+                </>
+              )}
             </View>
           </Animated.ScrollView>
 
@@ -853,10 +886,7 @@ export function FeedScreen(): JSX.Element {
             accessibilityRole="button"
             onPress={openCompose}
             style={styles.composeFloatingButton}>
-            <View style={styles.composePlusGlyph}>
-              <View style={[styles.composePlusLine, styles.composePlusHorizontal]} />
-              <View style={[styles.composePlusLine, styles.composePlusVertical]} />
-            </View>
+            <Image resizeMode="contain" source={icon.plusBtn} style={styles.composeFloatingIcon} />
           </AnimatedPressable>
 
           <BottomSheet
@@ -1360,6 +1390,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  feedPaginationLoading: {
+    minHeight: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   emptyFeedText: {
     paddingHorizontal: 20,
     paddingVertical: 48,
@@ -1854,24 +1889,9 @@ const styles = StyleSheet.create({
     shadowOffset: {width: 0, height: 8},
     elevation: 8,
   },
-  composePlusGlyph: {
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  composePlusLine: {
-    position: 'absolute',
-    borderRadius: 2,
-    backgroundColor: '#FFFFFF',
-  },
-  composePlusHorizontal: {
-    width: 20,
-    height: 2,
-  },
-  composePlusVertical: {
-    width: 2,
-    height: 20,
+  composeFloatingIcon: {
+    width: 32,
+    height: 32,
   },
   composeScreen: {
     flex: 1,

@@ -19,7 +19,11 @@ import {icon} from '../assets/icons';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
-import {useCoinBattleRooms, type CoinBattleRoom} from '../hooks/useCoinBattleRooms';
+import {
+  normalizeCoinBattleRoom,
+  useCoinBattleRooms,
+  type CoinBattleRoom,
+} from '../hooks/useCoinBattleRooms';
 import {
   normalizeRpsResult,
   useCoinBattleRpsGame,
@@ -64,16 +68,23 @@ const rpsChoiceById = Object.fromEntries(rpsChoices.map(choice => [choice.id, ch
   (typeof rpsChoices)[number]
 >;
 const rpsResultMeta = {
-  DRAW: {icon: '🤝', label: '무'},
-  LOSE: {icon: '💥', label: '패'},
-  WIN: {icon: '🏆', label: '승'},
+  DRAW: {label: '무'},
+  LOSE: {label: '패'},
+  WIN: {label: '승'},
 } as const;
+const maxRoundCountByGameId: Record<number, number> = {
+  1: 3,
+  2: 1,
+  21: 3,
+};
 const START_COUNTDOWN_SECONDS = 3;
+const PICTURE_MATCH_LOCAL_REVEAL_MS = 2000;
+const PICTURE_MATCH_REVEAL_STAGGER_MS = 90;
 
 type RoundResultOverlay = {
   result: RpsResult;
   roundNumber: number;
-  source?: 'rps' | 'typing';
+  source?: 'picture' | 'rps' | 'typing';
   winnerName?: string;
 };
 
@@ -85,37 +96,6 @@ type TypingRankingItem = {
   winCount: number;
 };
 
-function normalizeRoomDetail(payload: unknown): CoinBattleRoom | undefined {
-  if (!payload || typeof payload !== 'object') {
-    return undefined;
-  }
-
-  const room = payload as Partial<CoinBattleRoom>;
-
-  if (typeof room.roomId !== 'string' || typeof room.roomName !== 'string' || !Array.isArray(room.roomMembers)) {
-    return undefined;
-  }
-
-  const roomMembers = room.roomMembers.filter(member => {
-    return (
-      member &&
-      typeof member === 'object' &&
-      typeof member.employeeId === 'number' &&
-      typeof member.employeeName === 'string'
-    );
-  });
-
-  return {
-    ...room,
-    currentMemberCount:
-      typeof room.currentMemberCount === 'number' ? room.currentMemberCount : roomMembers.length,
-    maxMembers: typeof room.maxMembers === 'number' ? room.maxMembers : Math.max(roomMembers.length, 2),
-    roomId: room.roomId,
-    roomMembers,
-    roomName: room.roomName,
-  } as CoinBattleRoom;
-}
-
 function formatRoomMemberRecord(member: CoinBattleRoom['roomMembers'][number]): string | null {
   const record = member.record;
 
@@ -124,6 +104,58 @@ function formatRoomMemberRecord(member: CoinBattleRoom['roomMembers'][number]): 
   }
 
   return `${record.winCount ?? 0}승 ${record.drawCount ?? 0}무 ${record.loseCount ?? 0}패`;
+}
+
+function resetRoomForWaiting(room: CoinBattleRoom | undefined): CoinBattleRoom | undefined {
+  if (!room) {
+    return undefined;
+  }
+
+  return {
+    ...room,
+    roomMembers: room.roomMembers.map(member => {
+      return {
+        ...member,
+        isReady: false,
+      };
+    }),
+    roomStatus: 'WAITING',
+  };
+}
+
+function getMaxRoundCount(realtimeGameId?: number): number {
+  if (typeof realtimeGameId !== 'number') {
+    return 1;
+  }
+
+  return maxRoundCountByGameId[realtimeGameId] ?? 1;
+}
+
+function getProfileImageUriFromRecord(profile?: Record<string, unknown>): string | null {
+  if (typeof profile?.profileImageUri === 'string' && profile.profileImageUri.trim().length > 0) {
+    return profile.profileImageUri.trim();
+  }
+
+  if (typeof profile?.profileImageUrl === 'string' && profile.profileImageUrl.trim().length > 0) {
+    return profile.profileImageUrl.trim();
+  }
+
+  return null;
+}
+
+function getMemberProfileImageUri(
+  member: CoinBattleRoom['roomMembers'][number],
+  fallbackProfile?: Record<string, unknown>,
+): string | null {
+  if (typeof member.profileImageUri === 'string' && member.profileImageUri.trim().length > 0) {
+    return member.profileImageUri.trim();
+  }
+
+  if (typeof member.profileImageUrl === 'string' && member.profileImageUrl.trim().length > 0) {
+    return member.profileImageUrl.trim();
+  }
+
+  return getProfileImageUriFromRecord(fallbackProfile);
 }
 
 function BattleSlotCard({
@@ -284,6 +316,67 @@ function isSamePictureMatchPlayer(
   return Boolean(myUserName && player.employeeName && player.employeeName === myUserName);
 }
 
+function getPictureMatchBoardKey(pictures: PictureMatchState['pictures']): string {
+  if (!Array.isArray(pictures) || pictures.length === 0) {
+    return '';
+  }
+
+  return pictures
+    .map((picture, index) => {
+      return picture.imgUrl ?? picture.employeeName ?? String(index);
+    })
+    .join('|');
+}
+
+function getPictureMatchResultForMe({
+  finalResults,
+  myUserId,
+  myUserName,
+  pictures,
+}: {
+  finalResults: PictureMatchPlayer[];
+  myUserId?: null | number | string;
+  myUserName?: string;
+  pictures: PictureMatchState['pictures'];
+}): RpsResult | null {
+  const myFinalResult = finalResults.find(player => {
+    return isSamePictureMatchPlayer(player, myUserId, myUserName);
+  });
+  const normalizedFinalResult = normalizeRpsResult(myFinalResult?.result);
+
+  if (normalizedFinalResult) {
+    return normalizedFinalResult;
+  }
+
+  if (!Array.isArray(pictures) || pictures.length === 0 || pictures.some(picture => !picture.isMatched)) {
+    return null;
+  }
+
+  const myMatchedCount = pictures.reduce((count, picture) => {
+    if (
+      myUserId === null ||
+      myUserId === undefined ||
+      picture.matchedEmployeeId === undefined ||
+      String(picture.matchedEmployeeId) !== String(myUserId)
+    ) {
+      return count;
+    }
+
+    return count + 1;
+  }, 0);
+  const opponentMatchedCount = pictures.length - myMatchedCount;
+
+  if (myMatchedCount > opponentMatchedCount) {
+    return 'WIN';
+  }
+
+  if (myMatchedCount < opponentMatchedCount) {
+    return 'LOSE';
+  }
+
+  return 'DRAW';
+}
+
 function FlippablePictureCard({
   disabled,
   isFaceUp,
@@ -291,6 +384,7 @@ function FlippablePictureCard({
   isMine,
   onPress,
   picture,
+  revealDelayMs = 0,
 }: {
   disabled: boolean;
   isFaceUp: boolean;
@@ -301,17 +395,27 @@ function FlippablePictureCard({
     employeeName?: string;
     imgUrl?: string;
   };
+  revealDelayMs?: number;
 }): JSX.Element {
   const flipProgress = useRef(new Animated.Value(isFaceUp ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.spring(flipProgress, {
-      bounciness: 0,
-      speed: 18,
-      toValue: isFaceUp ? 1 : 0,
-      useNativeDriver: true,
-    }).start();
-  }, [flipProgress, isFaceUp]);
+    const startFlip = () => {
+      Animated.spring(flipProgress, {
+        bounciness: 0,
+        speed: 18,
+        toValue: isFaceUp ? 1 : 0,
+        useNativeDriver: true,
+      }).start();
+    };
+
+    if (isFaceUp && revealDelayMs > 0) {
+      const timer = setTimeout(startFlip, revealDelayMs);
+      return () => clearTimeout(timer);
+    }
+
+    startFlip();
+  }, [flipProgress, isFaceUp, revealDelayMs]);
 
   const frontRotateY = flipProgress.interpolate({
     inputRange: [0, 1],
@@ -376,6 +480,14 @@ function PictureMatchGamePanel({
   const pictures = state && Array.isArray(state.pictures) ? state.pictures : [];
   const matchPictureCount =
     typeof state?.matchPictureCount === 'number' && state.matchPictureCount > 0 ? state.matchPictureCount : 2;
+  const boardKey = getPictureMatchBoardKey(pictures);
+  const pictureImageUrlsKey = pictures
+    .map(picture => picture.imgUrl)
+    .filter((imgUrl): imgUrl is string => typeof imgUrl === 'string' && imgUrl.trim().length > 0)
+    .join('\n');
+  const [preparingRevealBoardKey, setPreparingRevealBoardKey] = useState<string | null>(null);
+  const [localRevealBoardKey, setLocalRevealBoardKey] = useState<string | null>(null);
+  const [handledRevealBoardKey, setHandledRevealBoardKey] = useState<string | null>(null);
   const currentTurnPlayer = players.find(player => player.isMyTurn);
   const isMyTurn = currentTurnPlayer ? isSamePictureMatchPlayer(currentTurnPlayer, myUserId, myUserName) : false;
   const myMatchedCardCount = pictures.reduce((count, picture) => {
@@ -401,15 +513,73 @@ function PictureMatchGamePanel({
   const totalMatchedSetCount = Math.floor((myMatchedCardCount + opponentMatchedCardCount) / matchPictureCount);
   const totalSetCount = Math.floor(pictures.length / matchPictureCount);
   const remainingSetCount = Math.max(totalSetCount - totalMatchedSetCount, 0);
-  const allVisibleAtStart =
+  const serverInitialReveal =
     pictures.length > 0 &&
     pictures.every(picture => picture.isFlipped) &&
     pictures.every(picture => !picture.isMatched);
+  const shouldIgnoreServerInitialReveal = handledRevealBoardKey === boardKey && serverInitialReveal;
+  const allVisibleAtStart = serverInitialReveal && !shouldIgnoreServerInitialReveal;
+  const isInitialUnmatchedBoard = pictures.length > 0 && pictures.every(picture => !picture.isMatched);
+  const isLocalRevealActive = localRevealBoardKey === boardKey;
+  const shouldRunLocalReveal = Boolean(
+    boardKey &&
+      isInitialUnmatchedBoard &&
+      !isFinished &&
+      handledRevealBoardKey !== boardKey,
+  );
+  const shouldConcealForLocalReveal = shouldRunLocalReveal && !isLocalRevealActive;
+  const isPreparingLocalReveal = shouldConcealForLocalReveal || preparingRevealBoardKey === boardKey;
   const rows = Array.from({length: width > 0 ? Math.ceil(pictures.length / width) : 0}, (_, rowIndex) => {
     const start = rowIndex * width;
     return pictures.slice(start, start + width);
   });
-  const turnLabel = isFinished ? '게임 종료' : allVisibleAtStart ? '기억하세요' : isMyTurn ? '내 턴' : '상대 턴';
+  const turnLabel = isFinished
+    ? '게임 종료'
+    : isPreparingLocalReveal
+    ? '준비중'
+    : allVisibleAtStart || isLocalRevealActive
+    ? '기억하세요'
+    : isMyTurn
+    ? '내 턴'
+    : '상대 턴';
+
+  useEffect(() => {
+    if (!boardKey || !isInitialUnmatchedBoard || isFinished || handledRevealBoardKey === boardKey) {
+      setPreparingRevealBoardKey(null);
+      setLocalRevealBoardKey(null);
+      return;
+    }
+
+    let cancelled = false;
+    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+    setPreparingRevealBoardKey(boardKey);
+    setLocalRevealBoardKey(null);
+
+    const imageUrls = pictureImageUrlsKey.length > 0 ? pictureImageUrlsKey.split('\n') : [];
+
+    Promise.allSettled(imageUrls.map(imgUrl => Image.prefetch(imgUrl))).then(() => {
+      if (cancelled) {
+        return;
+      }
+
+      setPreparingRevealBoardKey(null);
+      setLocalRevealBoardKey(boardKey);
+      revealTimer = setTimeout(() => {
+        if (!cancelled) {
+          setLocalRevealBoardKey(null);
+          setHandledRevealBoardKey(boardKey);
+        }
+      }, PICTURE_MATCH_LOCAL_REVEAL_MS);
+    });
+
+    return () => {
+      cancelled = true;
+
+      if (revealTimer) {
+        clearTimeout(revealTimer);
+      }
+    };
+  }, [boardKey, handledRevealBoardKey, isFinished, isInitialUnmatchedBoard, pictureImageUrlsKey]);
 
   return (
     <View style={styles.pictureMatchPanel}>
@@ -440,7 +610,9 @@ function PictureMatchGamePanel({
           <View key={`row-${rowIndex}`} style={styles.pictureMatchRow}>
             {row.map((picture, columnIndex) => {
               const pictureIndex = rowIndex * width + columnIndex;
-              const isFaceUp = Boolean(picture.isFlipped || picture.isMatched);
+              const isFaceUp = shouldConcealForLocalReveal || shouldIgnoreServerInitialReveal
+                ? Boolean(picture.isMatched)
+                : Boolean(picture.isFlipped || picture.isMatched);
               const isMine =
                 picture.isMatched &&
                 myUserId !== null &&
@@ -454,15 +626,18 @@ function PictureMatchGamePanel({
                   disabled={
                     isFinished ||
                     allVisibleAtStart ||
+                    shouldConcealForLocalReveal ||
+                    isLocalRevealActive ||
                     !isMyTurn ||
                     Boolean(picture.isMatched) ||
-                    Boolean(picture.isFlipped)
+                    (Boolean(picture.isFlipped) && !shouldIgnoreServerInitialReveal)
                   }
-                  isFaceUp={isFaceUp}
+                  isFaceUp={isFaceUp || isLocalRevealActive}
                   isMatched={Boolean(picture.isMatched)}
                   isMine={Boolean(isMine)}
                   onPress={() => onFlip(pictureIndex)}
                   picture={picture}
+                  revealDelayMs={isLocalRevealActive ? pictureIndex * PICTURE_MATCH_REVEAL_STAGGER_MS : 0}
                 />
               );
             })}
@@ -852,6 +1027,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     submitTypingSentence,
   } = useCoinBattleRooms({accessToken: auth?.accessToken});
   const [ready, setReady] = useState(false);
+  const [optimisticReady, setOptimisticReady] = useState<boolean | null>(null);
   const [roomDetail, setRoomDetail] = useState<CoinBattleRoom | undefined>(undefined);
   const [gameRoomSnapshot, setGameRoomSnapshot] = useState<CoinBattleRoom | undefined>(undefined);
   const [hasGameStarted, setHasGameStarted] = useState(false);
@@ -878,17 +1054,21 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const {game, host, isRealtime, roomId, status, title} = route.params;
   const myUserId = auth?.employeeId ?? auth?.id;
   const liveRoom = roomDetail ?? realtimeRooms.find(room => room.roomId === roomId);
-  const currentRoom = finishedRoomSnapshot ?? (hasGameStarted ? gameRoomSnapshot ?? liveRoom : liveRoom);
+  const currentRoom = hasGameStarted ? finishedRoomSnapshot ?? gameRoomSnapshot ?? liveRoom : liveRoom;
   const myMember = currentRoom?.roomMembers.find(member => {
     return String(member.employeeId) === String(myUserId);
   });
-  const myReady = myMember?.isReady ?? ready;
+  const serverMyReady = myMember?.isReady;
+  const myReady = optimisticReady ?? serverMyReady ?? ready;
   const roomMembers = currentRoom?.roomMembers ?? [];
   const currentMemberCount = currentRoom?.currentMemberCount ?? Math.max(roomMembers.length, 1);
   const maxMembers = currentRoom?.maxMembers ?? 2;
   const roomStatus = currentRoom?.roomStatus;
   const roomStatusLabel = roomStatus ? roomStatusLabels[roomStatus] : status;
-  const totalRoundCount = currentRoom?.totalRoundCount ?? 1;
+  const totalRoundCount = Math.min(
+    currentRoom?.totalRoundCount ?? 1,
+    getMaxRoundCount(currentRoom?.realtimeGameId),
+  );
   const emptySlotCount = Math.max(maxMembers - roomMembers.length, 0);
   const isOwner =
     currentRoom?.ownerEmployeeId !== undefined && String(currentRoom.ownerEmployeeId) === String(myUserId);
@@ -949,6 +1129,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const isPictureMatchFinished =
     pictureMatchFinalResults.length > 0 ||
     (pictureMatchPictures.length > 0 && pictureMatchPictures.every(picture => picture.isMatched));
+  const latestMyPictureMatchResult = getPictureMatchResultForMe({
+    finalResults: pictureMatchFinalResults,
+    myUserId,
+    myUserName: auth?.name,
+    pictures: pictureMatchPictures,
+  });
   const typingFinalResults =
     typingGameState && Array.isArray(typingGameState.finalResults) ? typingGameState.finalResults : [];
   const typingRounds = typingGameState && Array.isArray(typingGameState.rounds) ? typingGameState.rounds : [];
@@ -1039,6 +1225,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
       : null;
   const displayedMyChoice = selectedRpsChoice;
   const displayedOpponentChoice = opponentRpsChoice;
+  const myProfileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const shouldShowChoiceOverlay =
     shouldShowGame && isRpsGame && !isMatchFinished && !selectedRpsChoice && !roundResultOverlay;
 
@@ -1063,6 +1250,23 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [roomId]);
 
   useEffect(() => {
+    setOptimisticReady(null);
+    setReady(false);
+  }, [roomId]);
+
+  useEffect(() => {
+    if (serverMyReady === undefined) {
+      return;
+    }
+
+    setReady(serverMyReady);
+
+    if (optimisticReady === serverMyReady) {
+      setOptimisticReady(null);
+    }
+  }, [optimisticReady, serverMyReady]);
+
+  useEffect(() => {
     if (connectionStatus !== 'connected') {
       return;
     }
@@ -1070,7 +1274,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     const unsubscribe = subscribeRoom(roomId, messageBody => {
       try {
         const parsed = JSON.parse(messageBody) as unknown;
-        const nextRoom = normalizeRoomDetail(parsed);
+        const nextRoom = normalizeCoinBattleRoom(parsed);
 
         if (!nextRoom) {
           if (__DEV__) {
@@ -1298,6 +1502,25 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [isTypingGame, latestMyTypingResult, latestTypingCompletedRound, latestTypingWinner]);
 
   useEffect(() => {
+    if (!isPictureMatchGame || !isPictureMatchFinished || !latestMyPictureMatchResult) {
+      return;
+    }
+
+    const finalRoundNumber = Math.max(totalRoundCount, 1);
+
+    if (finalRoundNumber <= latestPresentedRoundRef.current) {
+      return;
+    }
+
+    latestPresentedRoundRef.current = finalRoundNumber;
+    setRoundResultOverlay({
+      result: latestMyPictureMatchResult,
+      roundNumber: finalRoundNumber,
+      source: 'picture',
+    });
+  }, [isPictureMatchFinished, isPictureMatchGame, latestMyPictureMatchResult, totalRoundCount]);
+
+  useEffect(() => {
     if (!isTypingGame || !latestTypingCompletedRound || isTypingMatchFinished) {
       return;
     }
@@ -1424,11 +1647,21 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
   const handleReady = () => {
     const nextReady = !myReady;
-    setReady(nextReady);
 
     if (isRealtime) {
-      readyRoom(roomId, myUserId, nextReady);
+      const requested = readyRoom(roomId, myUserId, nextReady);
+
+      if (!requested) {
+        return;
+      }
+
+      setReady(nextReady);
+      setOptimisticReady(nextReady);
+      requestRoomState(roomId);
+      return;
     }
+
+    setReady(nextReady);
   };
 
   const handleReturnToWaitingRoom = () => {
@@ -1461,10 +1694,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
       }
 
       setHasGameStarted(false);
+      setRoomDetail(resetRoomForWaiting(currentRoom ?? liveRoom));
       setGameRoomSnapshot(undefined);
       setFinishedRoomSnapshot(undefined);
       setStartCountdownSeconds(null);
       setReady(false);
+      setOptimisticReady(null);
       setPendingRpsChoice(null);
       startRequestedRef.current = false;
       latestPresentedRoundRef.current = 0;
@@ -1711,10 +1946,15 @@ export function CoinBattleRoomScreen(): JSX.Element {
                       const isMe = String(member.employeeId) === String(myUserId);
                       const memberReady = isMe ? myReady : member.isReady;
                       const memberRecordText = formatRoomMemberRecord(member);
+                      const memberProfileImageUri = getMemberProfileImageUri(member, isMe ? auth?.profile : undefined);
 
                       return (
                         <View key={member.employeeId} style={styles.memberRow}>
-                          <View style={styles.avatar} />
+                          <Image
+                            resizeMode="cover"
+                            source={memberProfileImageUri ? {uri: memberProfileImageUri} : image.profile}
+                            style={styles.avatar}
+                          />
                           <View style={styles.memberText}>
                             <Text style={styles.memberName}>{member.employeeName}</Text>
                             <Text style={styles.memberRole}>
@@ -1730,7 +1970,11 @@ export function CoinBattleRoomScreen(): JSX.Element {
                     })
                   ) : (
                     <View style={styles.memberRow}>
-                      <View style={styles.avatar} />
+                      <Image
+                        resizeMode="cover"
+                        source={myProfileImageUri ? {uri: myProfileImageUri} : image.profile}
+                        style={styles.avatar}
+                      />
                       <View style={styles.memberText}>
                         <Text style={styles.memberName}>{host}</Text>
                         <Text style={styles.memberRole}>방장</Text>
@@ -1865,6 +2109,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   ? `${roundResultOverlay.winnerName}님이 먼저 입력했어요`
                   : roundResultOverlay.source === 'typing'
                   ? '다음 문장을 노려보세요'
+                  : roundResultOverlay.source === 'picture' && roundResultOverlay.result === 'WIN'
+                  ? '같은 그림을 더 많이 찾았어요'
+                  : roundResultOverlay.source === 'picture' && roundResultOverlay.result === 'LOSE'
+                  ? '상대가 더 많이 찾았어요'
+                  : roundResultOverlay.source === 'picture'
+                  ? '같은 수를 찾았어요'
                   : roundResultOverlay.result === 'WIN'
                   ? '멋져요!'
                   : roundResultOverlay.result === 'LOSE'
@@ -1929,7 +2179,7 @@ function RpsRoundRow({
     return (
       <View style={[styles.roundPlayerLine, isMe && styles.roundPlayerLineMine]}>
         <Text style={[styles.roundPlayerName, isMe && styles.roundPlayerNameMine]}>
-          {resultMeta ? `${resultMeta.icon} ${resultMeta.label} · ` : ''}
+          {resultMeta ? `${resultMeta.label} · ` : ''}
           {member?.employeeName ?? player?.employeeName ?? fallbackName}
           {isMe ? ' (나)' : ''}
         </Text>
@@ -2184,6 +2434,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#FFFFFF',
     marginRight: 14,
+    overflow: 'hidden',
   },
   memberText: {
     flex: 1,

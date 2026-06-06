@@ -1,4 +1,4 @@
-import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
+import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
 import {Platform} from 'react-native';
 import ImageResizer from '@bam.tech/react-native-image-resizer';
 import {useAuth} from '../auth/AuthProvider';
@@ -41,9 +41,12 @@ type FeedContextValue = {
     title: string;
   }) => Promise<void>;
   isLoading: boolean;
+  isLoadingMorePosts: boolean;
   lastError: string | null;
   lastResponseBody: unknown;
+  hasMorePosts: boolean;
   highlightGroups: HighlightGroup[];
+  loadMorePosts: () => Promise<void>;
   posts: FeedPost[];
   fetchComments: (postId: string) => Promise<FeedComment[]>;
   refreshHighlights: () => Promise<void>;
@@ -61,6 +64,11 @@ type FeedPostApiResponse = {
   code?: string;
   data?: {
     content?: FeedPostItemApi[];
+    last?: boolean;
+    number?: number;
+    page?: number;
+    size?: number;
+    totalPages?: number;
   };
   message?: string;
   success?: boolean;
@@ -189,6 +197,34 @@ function toFeedPost(post: FeedPostItemApi): FeedPost | null {
     title: (post.title ?? '제목 없음').trim() || '제목 없음',
     user: post.writer?.employeeName?.trim() || '이름 없음',
   };
+}
+
+function getHasMorePosts(responseBody: FeedPostApiResponse, requestedPage: number, receivedCount: number): boolean {
+  const pageData = responseBody.data;
+
+  if (typeof pageData?.last === 'boolean') {
+    return !pageData.last;
+  }
+
+  if (typeof pageData?.totalPages === 'number' && pageData.totalPages > 0) {
+    return requestedPage < pageData.totalPages;
+  }
+
+  return receivedCount >= FEED_POST_SIZE;
+}
+
+function appendUniquePosts(previousPosts: FeedPost[], nextPosts: FeedPost[]): FeedPost[] {
+  const knownPostIds = new Set(previousPosts.map(post => post.id));
+  const uniqueNextPosts = nextPosts.filter(post => {
+    if (knownPostIds.has(post.id)) {
+      return false;
+    }
+
+    knownPostIds.add(post.id);
+    return true;
+  });
+
+  return [...previousPosts, ...uniqueNextPosts];
 }
 
 function toHighlightGroup(item: FeedHighlightItemApi): HighlightGroup | null {
@@ -397,8 +433,12 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [highlightGroups, setHighlightGroups] = useState<HighlightGroup[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [nextPostPage, setNextPostPage] = useState(FEED_POST_PAGE);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastResponseBody, setLastResponseBody] = useState<unknown>(null);
+  const isLoadingMorePostsRef = useRef(false);
 
   const refreshHighlights = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -501,53 +541,111 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
     [auth?.accessToken, highlightGroups],
   );
 
+  const requestPostsPage = useCallback(async (page: number) => {
+    if (!auth?.accessToken) {
+      return null;
+    }
+
+    const queryString = new URLSearchParams({
+      page: String(page),
+      size: String(FEED_POST_SIZE),
+    }).toString();
+
+    const response = await withMinimumLoadingTime(
+      fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts?${queryString}`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${auth.accessToken}`,
+        },
+      }),
+    );
+    const responseText = await response.text();
+    let responseBody: FeedPostApiResponse | null = null;
+
+    try {
+      responseBody = JSON.parse(responseText) as FeedPostApiResponse;
+    } catch {
+      throw new Error('피드 응답을 해석하지 못했습니다.');
+    }
+
+    setLastResponseBody(responseBody);
+
+    if (!response.ok || responseBody.success === false) {
+      throw new Error(responseBody.message || '피드 조회에 실패했습니다.');
+    }
+
+    const mappedPosts = (responseBody.data?.content ?? [])
+      .map(toFeedPost)
+      .filter((post): post is FeedPost => Boolean(post));
+
+    return {
+      hasMore: getHasMorePosts(responseBody, page, mappedPosts.length),
+      posts: mappedPosts,
+    };
+  }, [auth?.accessToken]);
+
   const refreshPosts = useCallback(async () => {
     if (!auth?.accessToken) {
+      setPosts([]);
+      setHasMorePosts(false);
+      setNextPostPage(FEED_POST_PAGE);
       return;
     }
 
     setIsLoading(true);
     setLastError(null);
-    const queryString = new URLSearchParams({
-      page: String(FEED_POST_PAGE),
-      size: String(FEED_POST_SIZE),
-    }).toString();
 
     try {
-      const response = await withMinimumLoadingTime(
-        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts?${queryString}`, {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${auth.accessToken}`,
-          },
-        }),
-      );
-      const responseText = await response.text();
-      let responseBody: FeedPostApiResponse | null = null;
+      const result = await requestPostsPage(FEED_POST_PAGE);
 
-      try {
-        responseBody = JSON.parse(responseText) as FeedPostApiResponse;
-      } catch {
-        throw new Error('피드 응답을 해석하지 못했습니다.');
+      if (!result) {
+        return;
       }
 
-      setLastResponseBody(responseBody);
-
-      if (!response.ok || responseBody.success === false) {
-        throw new Error(responseBody.message || '피드 조회에 실패했습니다.');
-      }
-
-      const mappedPosts = (responseBody.data?.content ?? []).map(toFeedPost).filter((post): post is FeedPost => Boolean(post));
-      setPosts(mappedPosts);
+      setPosts(result.posts);
+      setHasMorePosts(result.hasMore);
+      setNextPostPage(FEED_POST_PAGE + 1);
     } catch (error) {
       const message = getErrorMessage(error);
       setLastError(message);
       setPosts([]);
-      console.log('[FeedProvider] posts request failed', {error, queryString});
+      setHasMorePosts(false);
+      setNextPostPage(FEED_POST_PAGE);
+      console.log('[FeedProvider] posts request failed', {error});
     } finally {
       setIsLoading(false);
     }
-  }, [auth?.accessToken]);
+  }, [auth?.accessToken, requestPostsPage]);
+
+  const loadMorePosts = useCallback(async () => {
+    if (!auth?.accessToken || !hasMorePosts || isLoading || isLoadingMorePostsRef.current) {
+      return;
+    }
+
+    isLoadingMorePostsRef.current = true;
+    setIsLoadingMorePosts(true);
+    setLastError(null);
+
+    try {
+      const pageToRequest = nextPostPage;
+      const result = await requestPostsPage(pageToRequest);
+
+      if (!result) {
+        return;
+      }
+
+      setPosts(previousPosts => appendUniquePosts(previousPosts, result.posts));
+      setHasMorePosts(result.hasMore);
+      setNextPostPage(pageToRequest + 1);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setLastError(message);
+      console.log('[FeedProvider] more posts request failed', {error, page: nextPostPage});
+    } finally {
+      isLoadingMorePostsRef.current = false;
+      setIsLoadingMorePosts(false);
+    }
+  }, [auth?.accessToken, hasMorePosts, isLoading, nextPostPage, requestPostsPage]);
 
   const togglePostLike = useCallback(
     async (postId: string) => {
@@ -564,7 +662,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
           }
 
           previousPost = post;
-          const nextIsLiked = !Boolean(post.isLiked);
+          const nextIsLiked = !post.isLiked;
           const nextLikes = Math.max(0, post.likes + (nextIsLiked ? 1 : -1));
 
           return {
@@ -880,10 +978,13 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       createPost,
       deleteComment,
       fetchComments,
+      hasMorePosts,
       highlightGroups,
       isLoading,
+      isLoadingMorePosts,
       lastError,
       lastResponseBody,
+      loadMorePosts,
       posts,
       refreshHighlights,
       refreshHighlightPosts,
@@ -897,10 +998,13 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       createPost,
       deleteComment,
       fetchComments,
+      hasMorePosts,
       highlightGroups,
       isLoading,
+      isLoadingMorePosts,
       lastError,
       lastResponseBody,
+      loadMorePosts,
       posts,
       refreshHighlights,
       refreshHighlightPosts,

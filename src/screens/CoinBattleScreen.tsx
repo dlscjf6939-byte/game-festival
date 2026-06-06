@@ -3,6 +3,7 @@ import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
   Animated,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,6 +15,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import {icon} from '../assets/icons';
+import {image} from '../assets/images';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
@@ -35,6 +38,7 @@ type DisplayRoom = {
   cropY: number;
   game: string;
   host: string;
+  hostProfileImageUri?: string;
   id: string;
   isRealtime: boolean;
   ownerEmployeeId?: number;
@@ -45,8 +49,8 @@ type DisplayRoom = {
 
 const filters = ['전체', '대기중', '게임중'];
 const quickActions = [
-  {id: 'create', label: '방 만들기', icon: '＋'},
-  {id: 'search', label: '검색', icon: '⌕'},
+  {id: 'create', label: '방 만들기', iconSource: icon.plusBtn},
+  {id: 'guide', label: '연습', iconSource: icon.howBtn},
 ];
 
 const gameOptions = [
@@ -54,7 +58,12 @@ const gameOptions = [
   {id: 2, label: '같은 카드 맞추기'},
   {id: 21, label: '타자게임'},
 ];
-const roundOptions = [1, 2, 3, 4, 5];
+const maxRoundCountByGameId: Record<number, number> = {
+  1: 3,
+  2: 1,
+  21: 3,
+};
+const roundOptions = [1, 2, 3];
 const MIN_BET_AMOUNT = 1;
 const MAX_BET_AMOUNT = 5;
 
@@ -102,6 +111,15 @@ function getRoomHost(room: CoinBattleRoom): string {
   return owner?.employeeName ?? firstMember?.employeeName ?? '대기중';
 }
 
+function getRoomHostProfileImageUri(room: CoinBattleRoom): string | undefined {
+  const owner = room.roomMembers.find(member => {
+    return member.employeeId === room.ownerEmployeeId;
+  });
+  const firstMember = room.roomMembers[0];
+
+  return owner?.profileImageUri ?? firstMember?.profileImageUri;
+}
+
 function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
   return rooms.map((room, index) => {
     const status = getRoomStatusLabel(room.roomStatus);
@@ -111,6 +129,7 @@ function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
       cropY: cropOffsets[index % cropOffsets.length],
       game: getRoomGameTitle(room),
       host: getRoomHost(room),
+      hostProfileImageUri: getRoomHostProfileImageUri(room),
       id: room.roomId,
       isRealtime: true,
       ownerEmployeeId: room.ownerEmployeeId,
@@ -130,6 +149,10 @@ function isSameEmployeeId(
   }
 
   return String(left) === String(right);
+}
+
+function getMaxRoundCount(realtimeGameId: number): number {
+  return maxRoundCountByGameId[realtimeGameId] ?? 1;
 }
 
 function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
@@ -185,6 +208,10 @@ export function CoinBattleScreen(): JSX.Element {
     () => mapRealtimeRooms(realtimeRooms),
     [realtimeRooms],
   );
+  const maxRoundCount = getMaxRoundCount(realtimeGameId);
+  const visibleRoundOptions = useMemo(() => {
+    return roundOptions.filter(option => option <= maxRoundCount);
+  }, [maxRoundCount]);
   const ownedRoom = useMemo(() => {
     return visibleRooms.find(room => {
       return (
@@ -193,6 +220,12 @@ export function CoinBattleScreen(): JSX.Element {
       );
     });
   }, [auth?.employeeId, visibleRooms]);
+
+  useEffect(() => {
+    setTotalRoundCount(previousCount => {
+      return Math.min(previousCount, maxRoundCount);
+    });
+  }, [maxRoundCount]);
 
   useEffect(() => {
     if (quickActionOpen) {
@@ -217,10 +250,6 @@ export function CoinBattleScreen(): JSX.Element {
     });
   }, [quickActionOpen, quickActionProgress]);
 
-  const fabRotate = quickActionProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '45deg'],
-  });
   const createPanelTranslateY = createModalProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [28, 0],
@@ -232,6 +261,10 @@ export function CoinBattleScreen(): JSX.Element {
   const modalBackdropOpacity = createModalProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
+  });
+  const fabIconRotation = quickActionProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '45deg'],
   });
 
   const openCreateModal = () => {
@@ -289,11 +322,12 @@ export function CoinBattleScreen(): JSX.Element {
   };
 
   const handleCreateRoom = () => {
+    const clampedRoundCount = Math.min(totalRoundCount, maxRoundCount);
     const created = createRoom({
       betAmount: Math.min(MAX_BET_AMOUNT, Math.max(MIN_BET_AMOUNT, betAmount)),
       realtimeGameId,
       roomName: roomName.trim() || '코인대전 대기방',
-      totalRoundCount,
+      totalRoundCount: clampedRoundCount,
     });
 
     if (created) {
@@ -359,7 +393,15 @@ export function CoinBattleScreen(): JSX.Element {
               {useNativeDriver: true},
             )}
             scrollEventThrottle={16}>
-            <Text style={styles.title}>코인대전</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>코인대전</Text>
+              <AnimatedPressable
+                accessibilityRole="button"
+                onPress={() => navigation.navigate('CoinBattleGuide')}
+                style={styles.guideEntryButton}>
+                <Text style={styles.guideEntryButtonText}>연습하기</Text>
+              </AnimatedPressable>
+            </View>
 
             <View style={styles.filterRow}>
               {filters.map((filter, index) => {
@@ -403,7 +445,11 @@ export function CoinBattleScreen(): JSX.Element {
                       </Text>
 
                       <View style={styles.hostRow}>
-                        <View style={styles.hostDot} />
+                        <Image
+                          resizeMode="cover"
+                          source={room.hostProfileImageUri ? {uri: room.hostProfileImageUri} : image.profile}
+                          style={styles.hostDot}
+                        />
                         <Text numberOfLines={1} style={styles.hostName}>
                           {room.host}
                         </Text>
@@ -450,10 +496,16 @@ export function CoinBattleScreen(): JSX.Element {
                       onPress={() => {
                         if (action.id === 'create') {
                           openCreateModal();
+                          return;
+                        }
+
+                        if (action.id === 'guide') {
+                          setQuickActionOpen(false);
+                          navigation.navigate('CoinBattleGuide');
                         }
                       }}
                       style={styles.quickActionButton}>
-                      <Text style={styles.quickActionIcon}>{action.icon}</Text>
+                      <Image resizeMode="contain" source={action.iconSource} style={styles.quickActionIcon} />
                     </AnimatedPressable>
                   </Animated.View>
                 );
@@ -469,10 +521,16 @@ export function CoinBattleScreen(): JSX.Element {
               styles.fab,
               quickActionOpen ? styles.fabOpen : styles.fabClosed,
             ]}>
-            <Animated.View style={[styles.fabPlusGlyph, {transform: [{rotate: fabRotate}]}]}>
-              <View style={[styles.fabPlusLine, styles.fabPlusHorizontal]} />
-              <View style={[styles.fabPlusLine, styles.fabPlusVertical]} />
-            </Animated.View>
+            <Animated.Image
+              resizeMode="contain"
+              source={icon.plusBtn}
+              style={[
+                styles.fabIcon,
+                {
+                  transform: [{rotate: fabIconRotation}],
+                },
+              ]}
+            />
           </AnimatedPressable>
 
           <Modal
@@ -521,7 +579,12 @@ export function CoinBattleScreen(): JSX.Element {
                     return (
                       <AnimatedPressable
                         key={option.id}
-                        onPress={() => setRealtimeGameId(option.id)}
+                        onPress={() => {
+                          setRealtimeGameId(option.id);
+                          setTotalRoundCount(previousCount => {
+                            return Math.min(previousCount, getMaxRoundCount(option.id));
+                          });
+                        }}
                         style={[
                           styles.optionChip,
                           active && styles.optionChipActive,
@@ -540,7 +603,7 @@ export function CoinBattleScreen(): JSX.Element {
 
                 <Text style={styles.createLabel}>진행 라운드</Text>
                 <View style={styles.optionRow}>
-                  {roundOptions.map(option => {
+                  {visibleRoundOptions.map(option => {
                     const active = option === totalRoundCount;
 
                     return (
@@ -632,6 +695,26 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font22B,
     lineHeight: 29,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  guideEntryButton: {
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333333',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  guideEntryButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font13B,
+    lineHeight: 18,
   },
   filterRow: {
     flexDirection: 'row',
@@ -735,6 +818,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#FFFFFF',
     marginRight: 5,
+    overflow: 'hidden',
   },
   hostName: {
     flex: 1,
@@ -774,24 +858,9 @@ const styles = StyleSheet.create({
   fabOpen: {
     backgroundColor: '#E50914',
   },
-  fabPlusGlyph: {
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fabPlusLine: {
-    position: 'absolute',
-    borderRadius: 2,
-    backgroundColor: '#FFFFFF',
-  },
-  fabPlusHorizontal: {
-    width: 20,
-    height: 2,
-  },
-  fabPlusVertical: {
-    width: 2,
-    height: 20,
+  fabIcon: {
+    width: 32,
+    height: 32,
   },
   quickActionList: {
     position: 'absolute',
@@ -808,9 +877,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   quickActionIcon: {
-    color: '#FFFFFF',
-    ...FONTS.font30M,
-    lineHeight: 36,
+    width: 32,
+    height: 32,
   },
   modalOverlay: {
     flex: 1,

@@ -21,6 +21,8 @@ export type CoinBattleRoomMember = {
   employeeId: number;
   employeeName: string;
   isReady: boolean;
+  profileImageUri?: string;
+  profileImageUrl?: string;
   record?: {
     drawCount: number;
     loseCount: number;
@@ -65,25 +67,94 @@ type StartCoinBattleRoomParams = {
   userId?: null | number | string;
 };
 
-function toCoinBattleRoom(value: unknown): CoinBattleRoom | null {
+function normalizeReadyValue(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+
+  if (typeof value === 'string') {
+    const normalizedValue = value.trim().toLowerCase();
+    return normalizedValue === 'true' || normalizedValue === 'ready' || normalizedValue === '1';
+  }
+
+  return false;
+}
+
+function toAbsoluteAssetUri(value: string): string {
+  if (/^(https?:|file:|data:)/i.test(value)) {
+    return value;
+  }
+
+  if (value.startsWith('/')) {
+    return `${COIN_BATTLE_API_BASE_URL}${value}`;
+  }
+
+  return value;
+}
+
+function normalizeProfileImageUri(member: Record<string, unknown>): string | undefined {
+  const imageValue =
+    typeof member.profileImageUri === 'string' && member.profileImageUri.trim().length > 0
+      ? member.profileImageUri.trim()
+      : typeof member.profileImageUrl === 'string' && member.profileImageUrl.trim().length > 0
+      ? member.profileImageUrl.trim()
+      : typeof member.imageUrl === 'string' && member.imageUrl.trim().length > 0
+      ? member.imageUrl.trim()
+      : null;
+
+  return imageValue ? toAbsoluteAssetUri(imageValue) : undefined;
+}
+
+function normalizeRoomMember(value: unknown): CoinBattleRoomMember | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
 
-  const room = value as Partial<CoinBattleRoom>;
+  const member = value as Record<string, unknown>;
+  const employeeIdValue = member.employeeId;
+  const employeeNameValue = member.employeeName;
+  const employeeId =
+    typeof employeeIdValue === 'number'
+      ? employeeIdValue
+      : typeof employeeIdValue === 'string' && employeeIdValue.trim().length > 0
+      ? Number(employeeIdValue)
+      : NaN;
+
+  if (!Number.isFinite(employeeId) || typeof employeeNameValue !== 'string') {
+    return null;
+  }
+
+  return {
+    ...(value as Partial<CoinBattleRoomMember>),
+    employeeId,
+    employeeName: employeeNameValue,
+    isReady: normalizeReadyValue(member.isReady ?? member.ready ?? member.readyStatus),
+    profileImageUri: normalizeProfileImageUri(member),
+  };
+}
+
+export function normalizeCoinBattleRoom(value: unknown): CoinBattleRoom | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const room = value as Partial<CoinBattleRoom> & {
+    roomId?: unknown;
+    roomMembers?: unknown;
+    roomName?: unknown;
+  };
 
   if (typeof room.roomId !== 'string' || typeof room.roomName !== 'string' || !Array.isArray(room.roomMembers)) {
     return null;
   }
 
-  const roomMembers = room.roomMembers.filter(member => {
-    return (
-      member &&
-      typeof member === 'object' &&
-      typeof member.employeeId === 'number' &&
-      typeof member.employeeName === 'string'
-    );
-  });
+  const roomMembers = room.roomMembers
+    .map(normalizeRoomMember)
+    .filter((member): member is CoinBattleRoomMember => Boolean(member));
 
   return {
     ...room,
@@ -98,14 +169,14 @@ function toCoinBattleRoom(value: unknown): CoinBattleRoom | null {
 
 function normalizeRooms(payload: unknown): CoinBattleRoom[] {
   if (Array.isArray(payload)) {
-    return payload.map(toCoinBattleRoom).filter((room): room is CoinBattleRoom => Boolean(room));
+    return payload.map(normalizeCoinBattleRoom).filter((room): room is CoinBattleRoom => Boolean(room));
   }
 
   if (payload && typeof payload === 'object') {
     const response = payload as RoomListResponse;
 
     if (Array.isArray(response.data)) {
-      return response.data.map(toCoinBattleRoom).filter((room): room is CoinBattleRoom => Boolean(room));
+      return response.data.map(normalizeCoinBattleRoom).filter((room): room is CoinBattleRoom => Boolean(room));
     }
   }
 
