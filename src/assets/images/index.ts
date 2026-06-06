@@ -12,6 +12,7 @@ type ImageMap = {
   poster1: ImageSourcePropType;
   poster2: ImageSourcePropType;
   poster3: ImageSourcePropType;
+  product1: ImageSourcePropType;
   profile: ImageSourcePropType;
   qrCode: ImageSourcePropType;
   starcraft: ImageSourcePropType;
@@ -37,6 +38,7 @@ export const image: ImageMap = {
   poster1: require('./poster1.png'),
   poster2: require('./poster2.png'),
   poster3: require('./poster3.png'),
+  product1: require('./product1.png'),
   profile: require('./profile.png'),
   qrCode: require('./qrCode.png'),
   starcraft: require('./starcraft.png'),
