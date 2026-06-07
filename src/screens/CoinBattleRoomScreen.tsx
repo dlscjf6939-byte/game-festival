@@ -801,16 +801,19 @@ function TypingGamePanel({
   disabled,
   myUserId,
   myUserName,
+  onStickySentenceChange,
   onSubmit,
   state,
 }: {
   disabled?: boolean;
   myUserId?: null | number | string;
   myUserName?: string;
+  onStickySentenceChange?: (sentence: string | null) => void;
   onSubmit: (sentence: string) => boolean;
   state: TypingGameState | null;
 }): JSX.Element {
   const [inputValue, setInputValue] = useState('');
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const submittedRoundKeyRef = useRef<string | null>(null);
   const rounds = state?.rounds ?? [];
   const currentRound = rounds.at(-1);
@@ -862,6 +865,23 @@ function TypingGamePanel({
     submittedRoundKeyRef.current = null;
   }, [currentRoundKey]);
 
+  useEffect(() => {
+    if (!onStickySentenceChange) {
+      return;
+    }
+
+    if (isInputFocused && answerSentence) {
+      onStickySentenceChange(answerSentence);
+      return;
+    }
+
+    onStickySentenceChange(null);
+
+    return () => {
+      onStickySentenceChange(null);
+    };
+  }, [answerSentence, isInputFocused, onStickySentenceChange]);
+
   const handleSubmit = () => {
     if (!isComplete || hasSubmitted || isSubmitPending) {
       return;
@@ -909,6 +929,28 @@ function TypingGamePanel({
         </Text>
       </View>
 
+      <TextInput
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={editable}
+        blurOnSubmit
+        multiline
+        onChangeText={setInputValue}
+        onBlur={() => setIsInputFocused(false)}
+        onFocus={() => setIsInputFocused(true)}
+        onSubmitEditing={handleSubmit}
+        placeholder="문장을 입력하세요"
+        placeholderTextColor="#777777"
+        returnKeyType="done"
+        style={[
+          styles.typingInput,
+          hasMistake && styles.typingInputError,
+          isComplete && styles.typingInputComplete,
+          !editable && styles.typingInputDisabled,
+        ]}
+        value={inputValue}
+      />
+
       <View style={styles.typingButtonRow}>
         <AnimatedPressable
           disabled={!editable || inputValue.length === 0}
@@ -926,26 +968,6 @@ function TypingGamePanel({
           <Text style={styles.typingPrimaryButtonText}>{isSubmitPending ? '제출 중' : '제출'}</Text>
         </AnimatedPressable>
       </View>
-
-      <TextInput
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={editable}
-        blurOnSubmit
-        multiline
-        onChangeText={setInputValue}
-        onSubmitEditing={handleSubmit}
-        placeholder="문장을 입력하세요"
-        placeholderTextColor="#777777"
-        returnKeyType="done"
-        style={[
-          styles.typingInput,
-          hasMistake && styles.typingInputError,
-          isComplete && styles.typingInputComplete,
-          !editable && styles.typingInputDisabled,
-        ]}
-        value={inputValue}
-      />
 
       <View style={styles.typingPlayersCard}>
         <Text style={styles.roundHistoryTitle}>참가 현황</Text>
@@ -1036,6 +1058,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const [roundResultOverlay, setRoundResultOverlay] = useState<RoundResultOverlay | null>(null);
   const [pendingRpsChoice, setPendingRpsChoice] = useState<RpsChoice | null>(null);
   const [isReturningToWaitingRoom, setIsReturningToWaitingRoom] = useState(false);
+  const [stickyTypingSentence, setStickyTypingSentence] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roundResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1748,9 +1771,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
         <ScrollView
           ref={scrollViewRef}
-          automaticallyAdjustKeyboardInsets
           bounces={false}
           contentContainerStyle={styles.content}
+          keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <Animated.View
@@ -1792,6 +1815,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                       disabled={Boolean(roundResultOverlay)}
                       myUserId={myUserId}
                       myUserName={auth?.name}
+                      onStickySentenceChange={setStickyTypingSentence}
                       onSubmit={handleSubmitTyping}
                       state={typingGameState}
                     />
@@ -2009,6 +2033,13 @@ export function CoinBattleRoomScreen(): JSX.Element {
             )}
           </Animated.View>
         </ScrollView>
+
+        {stickyTypingSentence ? (
+          <View pointerEvents="none" style={styles.typingStickySentence}>
+            <Text style={styles.typingStickyLabel}>출제 문장</Text>
+            <Text numberOfLines={3} style={styles.typingStickyText}>{stickyTypingSentence}</Text>
+          </View>
+        ) : null}
 
         {shouldShowGame && isMatchFinished && !isReturningToWaitingRoom ? (
           <View style={styles.finishDock}>
@@ -3020,6 +3051,35 @@ const styles = StyleSheet.create({
     ...FONTS.font18B,
     lineHeight: 27,
   },
+  typingStickySentence: {
+    position: 'absolute',
+    top: 68,
+    left: 20,
+    right: 20,
+    zIndex: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(229, 9, 20, 0.5)',
+    backgroundColor: 'rgba(16, 16, 16, 0.96)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 8,
+  },
+  typingStickyLabel: {
+    color: '#FF8A94',
+    ...FONTS.font10B,
+    letterSpacing: 0.6,
+  },
+  typingStickyText: {
+    marginTop: 5,
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 22,
+  },
   typingProgressTrack: {
     height: 7,
     marginTop: 14,
@@ -3034,7 +3094,7 @@ const styles = StyleSheet.create({
   },
   typingInput: {
     minHeight: 88,
-    marginTop: 14,
+    marginTop: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#343434',
@@ -3078,7 +3138,7 @@ const styles = StyleSheet.create({
   typingButtonRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    marginTop: 12,
   },
   typingSubButton: {
     flex: 1,
