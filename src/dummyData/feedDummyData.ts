@@ -30,6 +30,7 @@ export type FeedPost = {
   commentCount?: number;
   id: string;
   isLiked?: boolean;
+  writerEmployeeId?: string;
   user: string;
   role: string;
   avatar: ImageSourcePropType;

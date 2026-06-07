@@ -3,6 +3,7 @@ import BottomSheet, {BottomSheetBackdrop, BottomSheetFlatList, BottomSheetTextIn
 import {
   ActivityIndicator,
   Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -32,7 +33,7 @@ import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
 import {useFeed} from '../feed/FeedProvider';
-import {type FeedComment} from '../dummyData/feedDummyData';
+import {type FeedComment, type FeedPost} from '../dummyData/feedDummyData';
 
 type ComposeStep = 'select' | 'details';
 type ComposeImageAsset = {
@@ -42,7 +43,55 @@ type ComposeImageAsset = {
   uri: string;
 };
 
+type EmployeeProfilePost = {
+  postId: number;
+  title: string;
+  content: string;
+  createdAt: string;
+  thumbnailUrl: string | null;
+};
+
+type EmployeeProfile = {
+  employeeId: number;
+  employeeName: string;
+  division: string | null;
+  department: string | null;
+  introduction: string | null;
+  profileImageUri: string | null;
+  posts: EmployeeProfilePost[];
+};
+
+type EmployeeProfileResponse = {
+  code?: string;
+  data?: {
+    department?: string | null;
+    division?: string | null;
+    employeeId?: number;
+    employeeName?: string;
+    introduction?: string | null;
+    posts?: Array<{
+      content?: string | null;
+      createdAt?: string | null;
+      postId?: number;
+      thumbnailUrl?: string | null;
+      title?: string | null;
+    }>;
+    profileImageUri?: string | null;
+    profileImageUrl?: string | null;
+  };
+  message?: string;
+  success?: boolean;
+};
+
+type EmployeePostInteraction = {
+  commentCount: number;
+  isLiked: boolean;
+  likes: number;
+};
+
 const MAX_COMPOSE_IMAGE_COUNT = 5;
+const FEED_API_BASE = 'http://121.254.240.93:8090';
+const FEED_BOARD_ID = 21;
 
 function formatCount(count: number): string {
   if (count >= 1000) {
@@ -58,6 +107,54 @@ function getEditableCommentId(comment: FeedComment): string | null {
   }
 
   return /^\d+$/.test(comment.id) ? comment.id : null;
+}
+
+function normalizeProfileImageUri(value: string | null | undefined): string | null {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  if (/^(https?:|file:|data:)/i.test(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  if (trimmedValue.startsWith('/')) {
+    return `${FEED_API_BASE}${trimmedValue}`;
+  }
+
+  return trimmedValue;
+}
+
+function normalizeEmployeeProfile(data: EmployeeProfileResponse['data']): EmployeeProfile | null {
+  if (!data || typeof data.employeeId !== 'number') {
+    return null;
+  }
+
+  return {
+    department: data.department?.trim() || null,
+    division: data.division?.trim() || null,
+    employeeId: data.employeeId,
+    employeeName: data.employeeName?.trim() || '이름 없음',
+    introduction: data.introduction?.trim() || null,
+    posts: (data.posts ?? [])
+      .map(post => {
+        if (typeof post.postId !== 'number') {
+          return null;
+        }
+
+        return {
+          content: post.content?.trim() || '',
+          createdAt: post.createdAt?.trim() || '',
+          postId: post.postId,
+          thumbnailUrl: post.thumbnailUrl?.trim() || null,
+          title: post.title?.trim() || '제목 없음',
+        };
+      })
+      .filter((post): post is EmployeeProfilePost => Boolean(post)),
+    profileImageUri: normalizeProfileImageUri(data.profileImageUri ?? data.profileImageUrl ?? null),
+  };
 }
 
 export function FeedScreen(): JSX.Element {
@@ -81,10 +178,13 @@ export function FeedScreen(): JSX.Element {
     togglePostLike,
     updateComment,
   } = useFeed();
-  const {width: screenWidth} = useWindowDimensions();
+  const {height: screenHeight, width: screenWidth} = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
   const commentSubmitProgress = useRef(new Animated.Value(0)).current;
+  const profileCardProgress = useRef(new Animated.Value(0)).current;
+  const profileModalOpacity = useRef(new Animated.Value(0)).current;
+  const employeePostDetailProgress = useRef(new Animated.Value(0)).current;
   const snapPoints = useMemo(() => ['66%'], []);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentActionError, setCommentActionError] = useState<string | null>(null);
@@ -113,6 +213,14 @@ export function FeedScreen(): JSX.Element {
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [activePostImageIndexes, setActivePostImageIndexes] = useState<Record<string, number>>({});
   const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>({});
+  const [isProfileCardVisible, setIsProfileCardVisible] = useState(false);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null);
+  const [selectedEmployeeProfile, setSelectedEmployeeProfile] = useState<EmployeeProfile | null>(null);
+  const [selectedEmployeePost, setSelectedEmployeePost] = useState<EmployeeProfilePost | null>(null);
+  const [isEmployeePostCommentsVisible, setIsEmployeePostCommentsVisible] = useState(false);
+  const [employeePostInteractions, setEmployeePostInteractions] = useState<Record<string, EmployeePostInteraction>>({});
+  const [selectedProfileAvatar, setSelectedProfileAvatar] = useState<ImageSourcePropType>(image.profile);
 
   useEffect(() => {
     setCommentsByPost(prevCommentsByPost =>
@@ -143,6 +251,11 @@ export function FeedScreen(): JSX.Element {
   const highlightProgressTop = topSafeArea + 8;
   const highlightHeaderTop = topSafeArea + 22;
   const highlightTextBottom = Math.max(insets.bottom + 32, 42);
+  const profileModalBottomPadding = Math.max(insets.bottom + 20, 32);
+  const employeeProfileCardHeight = Math.max(
+    460,
+    Math.min(screenHeight - topSafeArea - profileModalBottomPadding - 18, 660),
+  );
   const isCommentSubmittable = commentDraft.trim().length > 0 && !isSubmittingComment;
   const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
   const myAvatarSource = useMemo<ImageSourcePropType>(
@@ -156,6 +269,59 @@ export function FeedScreen(): JSX.Element {
       inputRange: [0, 1],
       outputRange: ['#3A3B40', '#E50914'],
     }),
+  };
+  const profileCardAnimatedStyle = {
+    transform: [
+      {perspective: 900},
+      {
+        translateY: profileCardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [32, 0],
+        }),
+      },
+      {
+        rotateY: profileCardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['-78deg', '0deg'],
+        }),
+      },
+      {
+        scale: profileCardProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.92, 1],
+        }),
+      },
+    ],
+  };
+  const employeeProfileImageSource = selectedEmployeeProfile?.profileImageUri
+    ? {uri: selectedEmployeeProfile.profileImageUri}
+    : selectedProfileAvatar;
+  const selectedEmployeePostId = selectedEmployeePost ? String(selectedEmployeePost.postId) : null;
+  const selectedEmployeeFeedPost = useMemo(
+    () => (selectedEmployeePostId ? posts.find(post => post.id === selectedEmployeePostId) : undefined),
+    [posts, selectedEmployeePostId],
+  );
+  const selectedEmployeePostInteraction = selectedEmployeePostId
+    ? employeePostInteractions[selectedEmployeePostId]
+    : undefined;
+  const selectedEmployeePostCommentCount =
+    (selectedEmployeePostId && commentsByPost[selectedEmployeePostId]?.length) ??
+    selectedEmployeePostInteraction?.commentCount ??
+    selectedEmployeeFeedPost?.commentCount ??
+    selectedEmployeeFeedPost?.comments.length ??
+    0;
+  const selectedEmployeePostIsLiked = selectedEmployeePostInteraction?.isLiked ?? Boolean(selectedEmployeeFeedPost?.isLiked);
+  const selectedEmployeePostLikeCount = selectedEmployeePostInteraction?.likes ?? selectedEmployeeFeedPost?.likes ?? 0;
+  const employeePostDetailAnimatedStyle = {
+    opacity: employeePostDetailProgress,
+    transform: [
+      {
+        translateX: employeePostDetailProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [24, 0],
+        }),
+      },
+    ],
   };
 
   useEffect(() => {
@@ -190,6 +356,21 @@ export function FeedScreen(): JSX.Element {
           ...prevComments,
           [postId]: comments,
         }));
+        setEmployeePostInteractions(prevInteractions => {
+          const currentInteraction = prevInteractions[postId];
+
+          if (!currentInteraction) {
+            return prevInteractions;
+          }
+
+          return {
+            ...prevInteractions,
+            [postId]: {
+              ...currentInteraction,
+              commentCount: comments.length,
+            },
+          };
+        });
       })
       .catch(error => {
         console.log('[FeedScreen] fetchComments failed', {error, postId});
@@ -312,6 +493,21 @@ export function FeedScreen(): JSX.Element {
           },
         ],
       }));
+      setEmployeePostInteractions(prevInteractions => {
+        const currentInteraction = prevInteractions[selectedPostId];
+
+        if (!currentInteraction) {
+          return prevInteractions;
+        }
+
+        return {
+          ...prevInteractions,
+          [selectedPostId]: {
+            ...currentInteraction,
+            commentCount: currentInteraction.commentCount + 1,
+          },
+        };
+      });
       setCommentDraft('');
     } catch (error) {
       console.log('[FeedScreen] createComment failed', error);
@@ -624,6 +820,236 @@ export function FeedScreen(): JSX.Element {
     [myName, openCommentActions],
   );
 
+  const openEmployeeProfile = useCallback(
+    async (post: FeedPost) => {
+      setSelectedEmployeeProfile({
+        department: post.role,
+        division: null,
+        employeeId: Number(post.writerEmployeeId ?? 0),
+        employeeName: post.user,
+        introduction: null,
+        posts: [],
+        profileImageUri: null,
+      });
+      setSelectedProfileAvatar(post.avatar);
+      setSelectedEmployeePost(null);
+      setIsEmployeePostCommentsVisible(false);
+      setProfileErrorMessage(null);
+      setIsProfileCardVisible(true);
+      setIsProfileLoading(true);
+      profileCardProgress.setValue(0);
+      profileModalOpacity.setValue(0);
+      employeePostDetailProgress.setValue(0);
+      Animated.parallel([
+        Animated.timing(profileModalOpacity, {
+          toValue: 1,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(profileCardProgress, {
+          toValue: 1,
+          duration: 430,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      if (!auth?.accessToken) {
+        setProfileErrorMessage('로그인 정보가 필요합니다.');
+        setIsProfileLoading(false);
+        return;
+      }
+
+      if (!post.writerEmployeeId) {
+        setProfileErrorMessage('회원 정보를 불러올 수 없습니다.');
+        setIsProfileLoading(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${FEED_API_BASE}/api/boards/${FEED_BOARD_ID}/profile/employees/${post.writerEmployeeId}`,
+          {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${auth.accessToken}`,
+            },
+          },
+        );
+        const responseText = await response.text();
+        let responseBody: EmployeeProfileResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as EmployeeProfileResponse;
+        } catch {
+          throw new Error('회원 프로필 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || responseText || '회원 프로필 조회에 실패했습니다.');
+        }
+
+        const normalizedProfile = normalizeEmployeeProfile(responseBody.data);
+
+        if (!normalizedProfile) {
+          throw new Error('회원 프로필 정보가 비어 있습니다.');
+        }
+
+        setSelectedEmployeeProfile(normalizedProfile);
+      } catch (error) {
+        console.log('[FeedScreen] employee profile request failed', {
+          employeeId: post.writerEmployeeId,
+          error,
+        });
+        setProfileErrorMessage(error instanceof Error && error.message ? error.message : '회원 프로필 조회에 실패했습니다.');
+      } finally {
+        setIsProfileLoading(false);
+      }
+    },
+    [auth?.accessToken, employeePostDetailProgress, profileCardProgress, profileModalOpacity],
+  );
+
+  const openEmployeePostDetail = useCallback(
+    (post: EmployeeProfilePost) => {
+      setSelectedEmployeePost(post);
+      setIsEmployeePostCommentsVisible(false);
+      employeePostDetailProgress.setValue(0);
+      Animated.timing(employeePostDetailProgress, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    },
+    [employeePostDetailProgress],
+  );
+
+  const toggleEmployeePostLike = useCallback(() => {
+    if (!selectedEmployeePostId) {
+      return;
+    }
+
+    const nextIsLiked = !selectedEmployeePostIsLiked;
+    const nextLikes = Math.max(0, selectedEmployeePostLikeCount + (nextIsLiked ? 1 : -1));
+
+    setEmployeePostInteractions(prevInteractions => ({
+      ...prevInteractions,
+      [selectedEmployeePostId]: {
+        commentCount: selectedEmployeePostCommentCount,
+        isLiked: nextIsLiked,
+        likes: nextLikes,
+      },
+    }));
+    togglePostLike(selectedEmployeePostId).catch(error => {
+      console.log('[FeedScreen] employee profile like failed', {
+        error,
+        postId: selectedEmployeePostId,
+      });
+    });
+  }, [
+    selectedEmployeePostCommentCount,
+    selectedEmployeePostId,
+    selectedEmployeePostIsLiked,
+    selectedEmployeePostLikeCount,
+    togglePostLike,
+  ]);
+
+  const closeEmployeePostDetail = useCallback(() => {
+    Animated.timing(employeePostDetailProgress, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({finished}) => {
+      if (finished) {
+        setSelectedEmployeePost(null);
+        setIsEmployeePostCommentsVisible(false);
+      }
+    });
+  }, [employeePostDetailProgress]);
+
+  const closeEmployeeProfile = useCallback(() => {
+    Animated.timing(profileModalOpacity, {
+      toValue: 0,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({finished}) => {
+      if (!finished) {
+        return;
+      }
+
+      setIsProfileCardVisible(false);
+      setIsProfileLoading(false);
+      setProfileErrorMessage(null);
+      setSelectedEmployeeProfile(null);
+      setSelectedEmployeePost(null);
+      setIsEmployeePostCommentsVisible(false);
+      setSelectedProfileAvatar(image.profile);
+      employeePostDetailProgress.setValue(0);
+    });
+  }, [employeePostDetailProgress, profileModalOpacity]);
+
+  const openEmployeePostComments = useCallback(() => {
+    if (!selectedEmployeePostId) {
+      return;
+    }
+
+    const postId = selectedEmployeePostId;
+
+    setEmployeePostInteractions(prevInteractions => ({
+      ...prevInteractions,
+      [postId]: {
+        commentCount: selectedEmployeePostCommentCount,
+        isLiked: selectedEmployeePostIsLiked,
+        likes: selectedEmployeePostLikeCount,
+      },
+    }));
+    setSelectedPostId(postId);
+    setCommentDraft('');
+    setIsEmployeePostCommentsVisible(true);
+    setIsLoadingComments(true);
+    fetchComments(postId)
+      .then(comments => {
+        setCommentsByPost(prevComments => ({
+          ...prevComments,
+          [postId]: comments,
+        }));
+        setEmployeePostInteractions(prevInteractions => {
+          const currentInteraction = prevInteractions[postId];
+
+          if (!currentInteraction) {
+            return prevInteractions;
+          }
+
+          return {
+            ...prevInteractions,
+            [postId]: {
+              ...currentInteraction,
+              commentCount: comments.length,
+            },
+          };
+        });
+      })
+      .catch(error => {
+        console.log('[FeedScreen] employee profile comments failed', {error, postId});
+      })
+      .finally(() => {
+        setIsLoadingComments(false);
+      });
+  }, [
+    fetchComments,
+    selectedEmployeePostCommentCount,
+    selectedEmployeePostId,
+    selectedEmployeePostIsLiked,
+    selectedEmployeePostLikeCount,
+  ]);
+
+  const closeEmployeePostComments = useCallback(() => {
+    setIsEmployeePostCommentsVisible(false);
+  }, []);
+
   const handleFeedRefresh = useCallback(async () => {
     if (isRefreshingFeed) {
       return;
@@ -731,7 +1157,11 @@ export function FeedScreen(): JSX.Element {
                     return (
                       <View key={post.id} style={styles.postCard}>
                         <View style={styles.postHeader}>
-                          <View style={styles.postHeaderLeft}>
+                          <AnimatedPressable
+                            accessibilityLabel={`${post.user} 회원 정보 보기`}
+                            accessibilityRole="button"
+                            onPress={() => openEmployeeProfile(post)}
+                            style={styles.postHeaderLeft}>
                             <View style={styles.profileRing}>
                               <Image source={post.avatar} style={styles.profileImage} resizeMode="cover" />
                             </View>
@@ -739,7 +1169,7 @@ export function FeedScreen(): JSX.Element {
                               <Text style={styles.profileName}>{post.user}</Text>
                               <Text style={styles.profileRole}>{post.role}</Text>
                             </View>
-                          </View>
+                          </AnimatedPressable>
                           <AnimatedPressable accessibilityRole="button" style={styles.moreButton}>
                             <Text style={styles.moreIcon}>...</Text>
                           </AnimatedPressable>
@@ -1116,6 +1546,281 @@ export function FeedScreen(): JSX.Element {
             ) : null}
           </Modal>
 
+          <Modal
+            animationType="fade"
+            onRequestClose={
+              isEmployeePostCommentsVisible
+                ? closeEmployeePostComments
+                : selectedEmployeePost
+                ? closeEmployeePostDetail
+                : closeEmployeeProfile
+            }
+            transparent
+            visible={isProfileCardVisible}>
+            <Animated.View
+              style={[
+                styles.profileModalOverlay,
+                {opacity: profileModalOpacity},
+                {paddingTop: topSafeArea + 18, paddingBottom: profileModalBottomPadding},
+              ]}>
+              {selectedEmployeeProfile ? (
+                <Animated.View
+                  style={[styles.employeeProfileCard, {height: employeeProfileCardHeight}, profileCardAnimatedStyle]}>
+                  <View style={styles.employeeProfileHeader}>
+                    {selectedEmployeePost ? (
+                      <AnimatedPressable
+                        accessibilityLabel={isEmployeePostCommentsVisible ? '게시글로 돌아가기' : '회원 게시글 목록으로 돌아가기'}
+                        accessibilityRole="button"
+                        onPress={isEmployeePostCommentsVisible ? closeEmployeePostComments : closeEmployeePostDetail}
+                        style={styles.employeeProfileHeaderButton}>
+                        <Image source={icon.backBtn} style={styles.employeeProfileHeaderIcon} />
+                      </AnimatedPressable>
+                    ) : (
+                      <View style={styles.employeeProfileHeaderButton} />
+                    )}
+                    <Text numberOfLines={1} style={styles.employeeProfileTitle}>
+                      {isEmployeePostCommentsVisible ? '댓글' : selectedEmployeePost ? '게시글' : '회원 정보'}
+                    </Text>
+                    <AnimatedPressable
+                      accessibilityLabel="회원 정보 닫기"
+                      accessibilityRole="button"
+                      onPress={closeEmployeeProfile}
+                      style={styles.employeeProfileHeaderButton}>
+                      <Image source={icon.closeBtn} style={styles.closeIcon} />
+                    </AnimatedPressable>
+                  </View>
+
+                  {selectedEmployeePost ? (
+                    isEmployeePostCommentsVisible ? (
+                      <View style={styles.employeePostCommentsPanel}>
+                        <ScrollView
+                          contentContainerStyle={[
+                            styles.employeePostCommentsContent,
+                            !selectedComments.length && styles.employeePostCommentsEmptyContent,
+                          ]}
+                          showsVerticalScrollIndicator={false}
+                          style={styles.employeeProfileScroll}>
+                          {isLoadingComments && !selectedComments.length ? (
+                            <View style={styles.employeePostCommentsLoading}>
+                              <ActivityIndicator color="#E50914" />
+                              <Text style={styles.employeePostCommentsLoadingText}>댓글을 불러오는 중...</Text>
+                            </View>
+                          ) : selectedComments.length ? (
+                            selectedComments.map(comment => (
+                              <AnimatedPressable
+                                key={comment.id}
+                                accessibilityRole={comment.isMine || comment.user === myName ? 'button' : undefined}
+                                onPress={() => openCommentActions(comment)}
+                                style={styles.employeePostCommentRow}>
+                                <Image source={image.profile} style={styles.commentAvatar} />
+                                <View style={styles.commentBody}>
+                                  <Text style={styles.commentLine}>
+                                    <Text style={styles.commentUser}>{comment.user}</Text> {comment.text}
+                                  </Text>
+                                  <Text style={styles.commentMeta}>{comment.time || '방금 전'}</Text>
+                                </View>
+                              </AnimatedPressable>
+                            ))
+                          ) : (
+                            <Text style={styles.employeePostCommentsEmptyText}>아직 댓글이 없습니다.</Text>
+                          )}
+                        </ScrollView>
+                        <View style={styles.employeePostCommentInputWrap}>
+                          <Image source={myAvatarSource} style={styles.inputAvatar} />
+                          <TextInput
+                            placeholder="댓글 달기"
+                            placeholderTextColor="#8A8D95"
+                            style={styles.employeePostCommentInput}
+                            value={commentDraft}
+                            onChangeText={setCommentDraft}
+                          />
+                          <AnimatedPressable
+                            accessibilityRole="button"
+                            disabled={!isCommentSubmittable}
+                            style={styles.commentSubmitPressable}
+                            onPress={handleCommentSubmit}>
+                            <Animated.View style={[styles.commentSubmitButton, commentSubmitAnimatedStyle]}>
+                              <Text style={styles.commentSubmitIcon}>↑</Text>
+                            </Animated.View>
+                          </AnimatedPressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <Animated.ScrollView
+                        contentContainerStyle={styles.employeePostDetailContent}
+                        showsVerticalScrollIndicator={false}
+                        style={[styles.employeeProfileScroll, employeePostDetailAnimatedStyle]}>
+                        <View style={styles.employeePostDetailHeader}>
+                          <Image source={employeeProfileImageSource} style={styles.employeePostDetailHeaderAvatar} />
+                          <View style={styles.employeePostDetailHeaderText}>
+                            <Text numberOfLines={1} style={styles.employeePostDetailHeaderName}>
+                              {selectedEmployeeProfile.employeeName}
+                            </Text>
+                            <Text numberOfLines={1} style={styles.employeePostDetailHeaderRole}>
+                              {selectedEmployeeProfile.department ?? selectedEmployeeProfile.division ?? '소속 정보 없음'}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.employeePostDetailHero}>
+                          {selectedEmployeePost.thumbnailUrl ? (
+                            <>
+                              <Image
+                                blurRadius={16}
+                                source={{uri: selectedEmployeePost.thumbnailUrl}}
+                                style={styles.employeePostDetailBackdrop}
+                                resizeMode="cover"
+                              />
+                              <Image
+                                source={{uri: selectedEmployeePost.thumbnailUrl}}
+                                style={styles.employeePostDetailImage}
+                                resizeMode="contain"
+                              />
+                            </>
+                          ) : (
+                            <View style={styles.employeePostDetailFallback}>
+                              <Text numberOfLines={3} style={styles.employeePostDetailFallbackTitle}>
+                                {selectedEmployeePost.title}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={styles.employeePostDetailActionRow}>
+                          <AnimatedPressable
+                            accessibilityLabel="좋아요"
+                            accessibilityRole="button"
+                            onPress={toggleEmployeePostLike}
+                            style={styles.employeePostDetailIconButton}>
+                            <Image
+                              source={selectedEmployeePostIsLiked ? icon.heartFilled : icon.heartOutline}
+                              style={styles.actionIconImage}
+                              resizeMode="contain"
+                            />
+                          </AnimatedPressable>
+                          <AnimatedPressable
+                            accessibilityLabel="댓글 보기"
+                            accessibilityRole="button"
+                            onPress={openEmployeePostComments}
+                            style={styles.employeePostDetailIconButton}>
+                            <Image source={icon.commentOutline} style={styles.actionIconImage} resizeMode="contain" />
+                          </AnimatedPressable>
+                        </View>
+                        <Text style={styles.employeePostDetailLikeText}>
+                          좋아요 {formatCount(selectedEmployeePostLikeCount)}개
+                          </Text>
+                        <Text style={styles.employeePostDetailTitle}>{selectedEmployeePost.title}</Text>
+                        <Text style={styles.employeePostDetailMeta}>
+                          {selectedEmployeePost.createdAt || '작성일 정보 없음'}
+                        </Text>
+                        <Text style={styles.employeePostDetailBody}>
+                          {selectedEmployeePost.content || '내용이 없습니다.'}
+                        </Text>
+                        <AnimatedPressable accessibilityRole="button" onPress={openEmployeePostComments}>
+                          <Text style={styles.employeePostDetailCommentLink}>
+                            댓글 {selectedEmployeePostCommentCount}개 모두 보기
+                          </Text>
+                        </AnimatedPressable>
+                      </Animated.ScrollView>
+                    )
+                  ) : (
+                    <ScrollView
+                      contentContainerStyle={styles.employeeProfileScrollContent}
+                      showsVerticalScrollIndicator={false}
+                      style={styles.employeeProfileScroll}>
+                      <View style={styles.employeeProfileHero}>
+                        <Image source={employeeProfileImageSource} style={styles.employeeProfileAvatar} resizeMode="cover" />
+                        <Text numberOfLines={1} style={styles.employeeProfileName}>
+                          {selectedEmployeeProfile.employeeName}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.employeeProfileSubText}>
+                          {[selectedEmployeeProfile.division, selectedEmployeeProfile.department].filter(Boolean).join(' · ') ||
+                            '소속 정보 없음'}
+                        </Text>
+                      </View>
+
+                      <View style={styles.employeeInfoList}>
+                        <View style={styles.employeeInfoRow}>
+                          <Text style={styles.employeeInfoLabel}>이름</Text>
+                          <Text numberOfLines={1} style={styles.employeeInfoValue}>
+                            {selectedEmployeeProfile.employeeName}
+                          </Text>
+                        </View>
+                        <View style={styles.employeeInfoRow}>
+                          <Text style={styles.employeeInfoLabel}>본부</Text>
+                          <Text numberOfLines={1} style={styles.employeeInfoValue}>
+                            {selectedEmployeeProfile.division ?? '정보 없음'}
+                          </Text>
+                        </View>
+                        <View style={styles.employeeInfoRow}>
+                          <Text style={styles.employeeInfoLabel}>부서</Text>
+                          <Text numberOfLines={1} style={styles.employeeInfoValue}>
+                            {selectedEmployeeProfile.department ?? '정보 없음'}
+                          </Text>
+                        </View>
+                        <View style={styles.employeeInfoRow}>
+                          <Text style={styles.employeeInfoLabel}>소개</Text>
+                          <Text numberOfLines={2} style={styles.employeeInfoValue}>
+                            {selectedEmployeeProfile.introduction ?? '소개가 아직 없습니다.'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.employeePostSectionHeader}>
+                        <Text style={styles.employeePostSectionTitle}>작성 게시글</Text>
+                        <Text style={styles.employeePostCountText}>{selectedEmployeeProfile.posts.length}개</Text>
+                      </View>
+
+                      {isProfileLoading ? (
+                        <View style={styles.employeeProfileLoading}>
+                          <ActivityIndicator color="#E50914" />
+                          <Text style={styles.employeeProfileLoadingText}>회원 정보를 불러오는 중...</Text>
+                        </View>
+                      ) : profileErrorMessage ? (
+                        <Text style={styles.employeeProfileErrorText}>{profileErrorMessage}</Text>
+                      ) : selectedEmployeeProfile.posts.length ? (
+                        <View style={styles.employeePostGrid}>
+                          {selectedEmployeeProfile.posts.map(post => (
+                            <AnimatedPressable
+                              key={post.postId}
+                              accessibilityLabel={`${post.title} 게시글 보기`}
+                              accessibilityRole="button"
+                              onPress={() => openEmployeePostDetail(post)}
+                              style={styles.employeePostTile}>
+                              <View style={styles.employeePostTileInner}>
+                                {post.thumbnailUrl ? (
+                                  <Image
+                                    source={{uri: post.thumbnailUrl}}
+                                    style={styles.employeePostThumbnail}
+                                    resizeMode="cover"
+                                  />
+                                ) : (
+                                  <View style={styles.employeePostFallback}>
+                                    <Text numberOfLines={3} style={styles.employeePostFallbackTitle}>
+                                      {post.title}
+                                    </Text>
+                                  </View>
+                                )}
+                                <LinearGradient
+                                  pointerEvents="none"
+                                  colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.72)']}
+                                  style={styles.employeePostTileGradient}
+                                />
+                                <Text numberOfLines={2} style={styles.employeePostTileTitle}>
+                                  {post.title}
+                                </Text>
+                              </View>
+                            </AnimatedPressable>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text style={styles.employeeProfileEmptyText}>작성한 게시글이 없습니다.</Text>
+                      )}
+                    </ScrollView>
+                  )}
+                </Animated.View>
+              ) : null}
+            </Animated.View>
+          </Modal>
+
           <Modal animationType="slide" onRequestClose={closeCompose} visible={isComposeVisible}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.composeScreen}>
               <StatusBar barStyle="light-content" backgroundColor="#050505" />
@@ -1426,16 +2131,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E50914',
     backgroundColor: '#1A1A1A',
-    padding: 2,
+    overflow: 'hidden',
     marginRight: 10,
   },
   profileImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 18,
+    borderRadius: 20,
   },
   profileName: {
     color: '#FFFFFF',
@@ -1872,6 +2575,365 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font15B,
     lineHeight: 20,
+  },
+  profileModalOverlay: {
+    flex: 1,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  employeeProfileCard: {
+    width: '100%',
+    maxWidth: 430,
+    maxHeight: '100%',
+    borderRadius: 22,
+    backgroundColor: '#15161A',
+    borderWidth: 1,
+    borderColor: '#2B2D34',
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.36,
+    shadowRadius: 22,
+    shadowOffset: {width: 0, height: 12},
+    elevation: 12,
+  },
+  employeeProfileHeader: {
+    minHeight: 54,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#24262D',
+  },
+  employeeProfileHeaderButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  employeeProfileHeaderIcon: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+  employeeProfileTitle: {
+    flex: 1,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    ...FONTS.font16B,
+    lineHeight: 21,
+  },
+  employeeProfileScroll: {
+    flex: 1,
+  },
+  employeeProfileScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 18,
+  },
+  employeeProfileHero: {
+    alignItems: 'center',
+  },
+  employeeProfileAvatar: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    backgroundColor: '#24262B',
+  },
+  employeeProfileName: {
+    marginTop: 13,
+    maxWidth: '90%',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    ...FONTS.font22B,
+    lineHeight: 28,
+  },
+  employeeProfileSubText: {
+    marginTop: 6,
+    maxWidth: '92%',
+    color: '#A7AAB4',
+    textAlign: 'center',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeInfoList: {
+    marginTop: 20,
+    borderRadius: 14,
+    backgroundColor: '#1E2026',
+    overflow: 'hidden',
+  },
+  employeeInfoRow: {
+    minHeight: 46,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2A2D35',
+  },
+  employeeInfoLabel: {
+    width: 52,
+    color: '#8F939D',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeInfoValue: {
+    flex: 1,
+    color: '#F0F1F4',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeePostSectionHeader: {
+    marginTop: 22,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  employeePostSectionTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font17B,
+    lineHeight: 22,
+  },
+  employeePostCountText: {
+    color: '#8F939D',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeProfileLoading: {
+    minHeight: 132,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  employeeProfileLoadingText: {
+    color: '#A7AAB4',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeProfileErrorText: {
+    paddingVertical: 34,
+    color: '#FF5962',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeeProfileEmptyText: {
+    paddingVertical: 34,
+    color: '#8F939D',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeePostGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -2,
+  },
+  employeePostTile: {
+    width: '33.333%',
+    aspectRatio: 1,
+    padding: 2,
+  },
+  employeePostTileInner: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#24262B',
+  },
+  employeePostThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  employeePostFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    backgroundColor: '#24262B',
+  },
+  employeePostFallbackTitle: {
+    color: '#D9DBE2',
+    textAlign: 'center',
+    ...FONTS.font12B,
+    lineHeight: 16,
+  },
+  employeePostTileGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '70%',
+  },
+  employeePostTileTitle: {
+    position: 'absolute',
+    left: 7,
+    right: 7,
+    bottom: 7,
+    color: '#FFFFFF',
+    ...FONTS.font11B,
+    lineHeight: 14,
+  },
+  employeePostDetailContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 22,
+  },
+  employeePostDetailHeader: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  employeePostDetailHeaderAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#24262B',
+  },
+  employeePostDetailHeaderText: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  employeePostDetailHeaderName: {
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 19,
+  },
+  employeePostDetailHeaderRole: {
+    marginTop: 3,
+    color: '#8F939D',
+    ...FONTS.font12R,
+    lineHeight: 15,
+  },
+  employeePostDetailHero: {
+    width: '100%',
+    aspectRatio: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 14,
+    backgroundColor: '#24262B',
+  },
+  employeePostDetailBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.34,
+    transform: [{scale: 1.08}],
+  },
+  employeePostDetailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  employeePostDetailFallback: {
+    flex: 1,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#24262B',
+  },
+  employeePostDetailFallbackTitle: {
+    color: '#F0F1F4',
+    textAlign: 'center',
+    ...FONTS.font20B,
+    lineHeight: 27,
+  },
+  employeePostDetailActionRow: {
+    minHeight: 48,
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  employeePostDetailIconButton: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
+  employeePostDetailLikeText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 18,
+  },
+  employeePostDetailTitle: {
+    marginTop: 10,
+    color: '#FFFFFF',
+    ...FONTS.font22B,
+    lineHeight: 29,
+  },
+  employeePostDetailMeta: {
+    marginTop: 7,
+    color: '#8F939D',
+    ...FONTS.font12M,
+    lineHeight: 16,
+  },
+  employeePostDetailBody: {
+    marginTop: 16,
+    color: '#E5E7EC',
+    ...FONTS.font15R,
+    lineHeight: 23,
+  },
+  employeePostDetailCommentLink: {
+    marginTop: 12,
+    color: '#8F939D',
+    ...FONTS.font14R,
+    lineHeight: 18,
+  },
+  employeePostCommentsPanel: {
+    flex: 1,
+  },
+  employeePostCommentsContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  employeePostCommentsEmptyContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  employeePostCommentsLoading: {
+    minHeight: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  employeePostCommentsLoadingText: {
+    color: '#A7AAB4',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeePostCommentsEmptyText: {
+    color: '#8F939D',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeePostCommentRow: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  employeePostCommentInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#24262D',
+    backgroundColor: '#15161A',
+  },
+  employeePostCommentInput: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 8,
+    backgroundColor: '#232427',
+    color: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    ...FONTS.font14R,
   },
   composeFloatingButton: {
     position: 'absolute',

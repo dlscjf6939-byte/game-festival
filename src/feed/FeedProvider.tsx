@@ -88,6 +88,7 @@ type FeedPostItemApi = {
   }>;
   writer?: {
     department?: string;
+    employeeId?: number | string;
     employeeName?: string;
   };
 };
@@ -196,6 +197,10 @@ function toFeedPost(post: FeedPostItemApi): FeedPost | null {
     time: getDisplayElapsedTime(post.elapsedTime),
     title: (post.title ?? '제목 없음').trim() || '제목 없음',
     user: post.writer?.employeeName?.trim() || '이름 없음',
+    writerEmployeeId:
+      typeof post.writer?.employeeId === 'number' || typeof post.writer?.employeeId === 'string'
+        ? String(post.writer.employeeId)
+        : undefined,
   };
 }
 
