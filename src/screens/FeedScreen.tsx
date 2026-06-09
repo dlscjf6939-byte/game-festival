@@ -34,6 +34,7 @@ import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
 import {useFeed} from '../feed/FeedProvider';
 import {type FeedComment, type FeedPost} from '../dummyData/feedDummyData';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
 
 type ComposeStep = 'select' | 'details';
 type ComposeImageAsset = {
@@ -257,7 +258,7 @@ export function FeedScreen(): JSX.Element {
     Math.min(screenHeight - topSafeArea - profileModalBottomPadding - 18, 660),
   );
   const isCommentSubmittable = commentDraft.trim().length > 0 && !isSubmittingComment;
-  const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
+  const profileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const myAvatarSource = useMemo<ImageSourcePropType>(
     () => (profileImageUri ? {uri: profileImageUri} : image.profile),
     [profileImageUri],
@@ -479,19 +480,11 @@ export function FeedScreen(): JSX.Element {
     setIsSubmittingComment(true);
 
     try {
-      const createdCommentId = await createComment(selectedPostId, trimmedComment);
+      await createComment(selectedPostId, trimmedComment);
+      const nextComments = await fetchComments(selectedPostId);
       setCommentsByPost(prevComments => ({
         ...prevComments,
-        [selectedPostId]: [
-          ...(prevComments[selectedPostId] ?? []),
-          {
-            commentId: createdCommentId ?? undefined,
-            id: `${selectedPostId}-${Date.now()}`,
-            user: myName,
-            text: trimmedComment,
-            time: '방금 전',
-          },
-        ],
+        [selectedPostId]: nextComments,
       }));
       setEmployeePostInteractions(prevInteractions => {
         const currentInteraction = prevInteractions[selectedPostId];
@@ -514,7 +507,7 @@ export function FeedScreen(): JSX.Element {
     } finally {
       setIsSubmittingComment(false);
     }
-  }, [commentDraft, createComment, isSubmittingComment, myName, selectedPostId]);
+  }, [commentDraft, createComment, fetchComments, isSubmittingComment, selectedPostId]);
 
   const openCommentActions = useCallback(
     (comment: FeedComment) => {
@@ -566,11 +559,10 @@ export function FeedScreen(): JSX.Element {
 
     try {
       await updateComment(selectedPostId, commentId, nextText);
+      const nextComments = await fetchComments(selectedPostId);
       setCommentsByPost(prevComments => ({
         ...prevComments,
-        [selectedPostId]: (prevComments[selectedPostId] ?? []).map(item =>
-          item.id === comment.id ? {...item, text: nextText} : item,
-        ),
+        [selectedPostId]: nextComments,
       }));
       closeCommentEditor();
       closeCommentActions();
@@ -583,6 +575,7 @@ export function FeedScreen(): JSX.Element {
     closeCommentActions,
     closeCommentEditor,
     editingCommentDraft,
+    fetchComments,
     isMutatingComment,
     selectedCommentForAction,
     selectedPostId,
@@ -605,9 +598,10 @@ export function FeedScreen(): JSX.Element {
 
     try {
       await deleteComment(selectedPostId, commentId);
+      const nextComments = await fetchComments(selectedPostId);
       setCommentsByPost(prevComments => ({
         ...prevComments,
-        [selectedPostId]: (prevComments[selectedPostId] ?? []).filter(item => item.id !== comment.id),
+        [selectedPostId]: nextComments,
       }));
       closeCommentActions();
     } catch (error) {
@@ -615,7 +609,7 @@ export function FeedScreen(): JSX.Element {
     } finally {
       setIsMutatingComment(false);
     }
-  }, [closeCommentActions, deleteComment, isMutatingComment, selectedCommentForAction, selectedPostId]);
+  }, [closeCommentActions, deleteComment, fetchComments, isMutatingComment, selectedCommentForAction, selectedPostId]);
 
   const openCompose = useCallback(() => {
     setComposeErrorMessage(null);
@@ -755,7 +749,10 @@ export function FeedScreen(): JSX.Element {
 
     const normalizedTags = (draftTag ? [...composeTags, `#${draftTag.replace(/^#+/, '')}`] : composeTags)
       .map(tag => tag.replace(/^#+/, '').trim())
-      .filter((tag, index, tags) => Boolean(tag) && tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index)
+      .filter(
+        (tag, index, tags) =>
+          Boolean(tag) && tags.findIndex(item => item.toLowerCase() === tag.toLowerCase()) === index,
+      )
       .slice(0, 6);
 
     setComposeErrorMessage(null);
@@ -785,15 +782,7 @@ export function FeedScreen(): JSX.Element {
       }
       setIsSubmittingCompose(false);
     }
-  }, [
-    closeCompose,
-    composeCaption,
-    composeImageAssets,
-    composeTagDraft,
-    composeTags,
-    composeTitle,
-    createPost,
-  ]);
+  }, [closeCompose, composeCaption, composeImageAssets, composeTagDraft, composeTags, composeTitle, createPost]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -808,7 +797,12 @@ export function FeedScreen(): JSX.Element {
         accessibilityRole={item.isMine || item.user === myName ? 'button' : undefined}
         onPress={() => openCommentActions(item)}
         style={styles.commentRow}>
-        <Image source={image.profile} style={styles.commentAvatar} />
+        <Image
+          fadeDuration={0}
+          resizeMethod="resize"
+          source={item.avatar ?? image.profile}
+          style={styles.commentAvatar}
+        />
         <View style={styles.commentBody}>
           <Text style={styles.commentLine}>
             <Text style={styles.commentUser}>{item.user}</Text> {item.text}
@@ -1091,6 +1085,7 @@ export function FeedScreen(): JSX.Element {
           <Animated.ScrollView
             bounces
             contentContainerStyle={styles.feedFrame}
+            removeClippedSubviews
             refreshControl={
               <RefreshControl
                 colors={['#E50914']}
@@ -1107,7 +1102,11 @@ export function FeedScreen(): JSX.Element {
             })}
             scrollEventThrottle={16}>
             {highlightGroups.length ? (
-              <ScrollView horizontal contentContainerStyle={styles.highlightRow} showsHorizontalScrollIndicator={false}>
+              <ScrollView
+                horizontal
+                contentContainerStyle={styles.highlightRow}
+                removeClippedSubviews
+                showsHorizontalScrollIndicator={false}>
                 {highlightGroups.map((group, index) => (
                   <AnimatedPressable
                     key={group.id}
@@ -1120,7 +1119,13 @@ export function FeedScreen(): JSX.Element {
                         end={{x: 0.85, y: 1}}
                         style={styles.storyRingGradient}>
                         <View style={styles.storyRing}>
-                          <Image source={group.cover} style={styles.storyImage} resizeMode="cover" />
+                          <Image
+                            fadeDuration={0}
+                            resizeMethod="resize"
+                            source={group.cover}
+                            style={styles.storyImage}
+                            resizeMode="cover"
+                          />
                         </View>
                       </LinearGradient>
                       <View style={styles.highlightCountBadge}>
@@ -1150,7 +1155,7 @@ export function FeedScreen(): JSX.Element {
                     const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
                     const comments = commentsByPost[post.id] ?? [];
                     const likeCount = post.likes;
-                    const commentCount = typeof post.commentCount === 'number' ? post.commentCount : comments.length;
+                    const commentCount = typeof post.commentCount === 'number' ? post.commentCount : 0;
                     const postImages = post.images ?? (post.image ? [post.image] : []);
                     const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
 
@@ -1163,7 +1168,13 @@ export function FeedScreen(): JSX.Element {
                             onPress={() => openEmployeeProfile(post)}
                             style={styles.postHeaderLeft}>
                             <View style={styles.profileRing}>
-                              <Image source={post.avatar} style={styles.profileImage} resizeMode="cover" />
+                              <Image
+                                fadeDuration={0}
+                                resizeMethod="resize"
+                                source={post.avatar}
+                                style={styles.profileImage}
+                                resizeMode="cover"
+                              />
                             </View>
                             <View>
                               <Text style={styles.profileName}>{post.user}</Text>
@@ -1182,6 +1193,7 @@ export function FeedScreen(): JSX.Element {
                               pagingEnabled
                               directionalLockEnabled
                               nestedScrollEnabled
+                              removeClippedSubviews
                               style={styles.postImageCarousel}
                               showsHorizontalScrollIndicator={false}
                               onMomentumScrollEnd={({nativeEvent}) => {
@@ -1191,14 +1203,16 @@ export function FeedScreen(): JSX.Element {
                                 setActivePostImageIndex(post.id, nextIndex);
                               }}>
                               {postImages.map((postImage, index) => (
-                                <View key={`${post.id}-image-${index}`} style={[styles.postImageSlide, {width: screenWidth}]}>
+                                <View
+                                  key={`${post.id}-image-${index}`}
+                                  style={[styles.postImageSlide, {width: screenWidth}]}>
                                   <Image
-                                    blurRadius={14}
+                                    fadeDuration={0}
+                                    resizeMethod="resize"
                                     source={postImage}
-                                    style={styles.postImageBackdrop}
-                                    resizeMode="cover"
+                                    style={styles.postImage}
+                                    resizeMode="contain"
                                   />
-                                  <Image source={postImage} style={styles.postImage} resizeMode="contain" />
                                 </View>
                               ))}
                             </ScrollView>
@@ -1445,9 +1459,7 @@ export function FeedScreen(): JSX.Element {
                       styles.commentEditSaveButton,
                       (isMutatingComment || !editingCommentDraft.trim()) && styles.commentEditSaveButtonDisabled,
                     ]}>
-                    <Text style={styles.commentEditSaveButtonText}>
-                      {isMutatingComment ? '저장 중...' : '저장'}
-                    </Text>
+                    <Text style={styles.commentEditSaveButtonText}>{isMutatingComment ? '저장 중...' : '저장'}</Text>
                   </AnimatedPressable>
                 </View>
               </View>
@@ -1875,9 +1887,7 @@ export function FeedScreen(): JSX.Element {
                     <View style={styles.composeAlbumBar}>
                       <View>
                         <Text style={styles.composeAlbumTitle}>최근 항목</Text>
-                        <Text style={styles.composeAlbumDescription}>
-                          최대 5장까지 선택할 수 있고, 10MB 초과 사진은 자동으로 줄여 업로드합니다.
-                        </Text>
+                        <Text style={styles.composeAlbumDescription}>최대 5장까지 선택 가능해요</Text>
                       </View>
                       <AnimatedPressable
                         accessibilityRole="button"
@@ -2178,11 +2188,6 @@ const styles = StyleSheet.create({
     height: '100%',
     overflow: 'hidden',
     backgroundColor: '#0D0D0F',
-  },
-  postImageBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.36,
-    transform: [{scale: 1.08}],
   },
   postImage: {
     width: '100%',

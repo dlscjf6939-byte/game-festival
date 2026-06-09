@@ -168,6 +168,10 @@ function toUniqueSortedDates(dates: string[]): string[] {
   return Array.from(new Set(dates)).sort();
 }
 
+function getNormalizedAttendDate(value: string, fallbackDateKey: string): string {
+  return toDateKeyFromValue(value) ?? fallbackDateKey;
+}
+
 function getAttendanceStorageKey(employeeKey: string): string {
   return `${ATTENDANCE_STORAGE_PREFIX}:${employeeKey}`;
 }
@@ -321,9 +325,36 @@ export function AttendanceProvider({children}: {children: React.ReactNode}): JSX
       const isSameWeek = stored?.weekStartDate === weekStartDate;
       const baseDates = isSameWeek ? stored?.checkedDates ?? [] : [];
       const normalizedDates = toUniqueSortedDates(baseDates);
+      const hasTodayInStore =
+        normalizedDates.includes(todayKey) || stored?.lastCheckedDate === todayKey;
+
+      if (hasTodayInStore) {
+        const nextCheckedDates = normalizedDates.includes(todayKey)
+          ? normalizedDates
+          : toUniqueSortedDates([...normalizedDates, todayKey]);
+        const totalCheckedCount = stored?.totalCheckedCount ?? nextCheckedDates.length;
+        const nextStore: AttendanceStore = {
+          checkedDates: nextCheckedDates,
+          lastCheckedDate: todayKey,
+          totalCheckedCount,
+          weekStartDate,
+        };
+
+        await AsyncStorage.setItem(storageKey, JSON.stringify(nextStore));
+        setAttendance({
+          checkedDates: nextStore.checkedDates,
+          checkedThisWeekCount: nextStore.checkedDates.length,
+          lastCheckedDate: nextStore.lastCheckedDate,
+          totalCheckedCount,
+          weekStartDate: nextStore.weekStartDate,
+        });
+        setDidCheckInToday(false);
+        return;
+      }
+
       const attendanceResult = await requestAttendanceCheckIn(auth.accessToken, todayKey);
       console.log('[Attendance] attend response', attendanceResult);
-      const checkedDate = attendanceResult.attendDate || todayKey;
+      const checkedDate = getNormalizedAttendDate(attendanceResult.attendDate, todayKey);
       const alreadyCheckedInStore = normalizedDates.includes(checkedDate);
       const nextCheckedDates = alreadyCheckedInStore ? normalizedDates : [...normalizedDates, checkedDate];
       const previousTotalCheckedCount = stored?.totalCheckedCount ?? normalizedDates.length;

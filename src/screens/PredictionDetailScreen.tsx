@@ -32,6 +32,7 @@ import {logo} from '../assets/logo';
 import type {PredictionStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
@@ -238,7 +239,7 @@ export function PredictionDetailScreen(): JSX.Element {
   const routeGameId = route.params?.gameId;
   const routeGameTitle = route.params?.gameTitle;
   const routeMatchId = route.params?.matchId;
-  const profileImageUri = typeof auth?.profile?.profileImageUri === 'string' ? auth.profile.profileImageUri : null;
+  const profileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const myName = auth?.name ?? '이인철';
   const initialSelectedTeam = route.params?.selectedTeamId ?? 'team-red';

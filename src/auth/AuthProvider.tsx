@@ -8,6 +8,7 @@ import React, {
   useState,
 } from 'react';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
 
 export type AuthState = {
   accessToken: string;
@@ -62,31 +63,16 @@ function logProfileEvent(message: string, payload?: unknown): void {
   console.log(`${LOG_PREFIX} ${message}`, payload);
 }
 
-function toProfileImageUri(profileImageUrl: string): string {
-  if (/^(https?:|file:|data:)/i.test(profileImageUrl)) {
-    return profileImageUrl;
-  }
-
-  if (profileImageUrl.startsWith('/')) {
-    return `${API_BASE}${profileImageUrl}`;
-  }
-
-  return profileImageUrl;
-}
-
 function normalizeProfile(profile: Record<string, unknown>): Record<string, unknown> {
-  const profileImageUrl =
-    typeof profile.profileImageUrl === 'string' && profile.profileImageUrl.trim()
-      ? profile.profileImageUrl.trim()
-      : null;
+  const profileImageUri = getProfileImageUriFromRecord(profile);
 
-  if (!profileImageUrl) {
+  if (!profileImageUri) {
     return profile;
   }
 
   return {
     ...profile,
-    profileImageUri: toProfileImageUri(profileImageUrl),
+    profileImageUri,
   };
 }
 

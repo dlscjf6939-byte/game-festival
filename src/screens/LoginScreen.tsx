@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   UIManager,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {BlurView} from '@react-native-community/blur';
@@ -29,8 +30,7 @@ const PASSWORD_KEY_ROWS = [
   ['7', '8', '9'],
   ['clear', '0', 'backspace'],
 ] as const;
-const PASSWORD_SUFFIX = '!a';
-const LOGIN_PASSWORD_PATTERN = /^\d{8,}!a$/;
+const LOGIN_PASSWORD_PATTERN = /^\d{8,}$/;
 const PASSWORD_KEYPAD_HIDDEN_OFFSET = 280;
 const LOGIN_CONTENT_RAISED_OFFSET = -150;
 
@@ -48,6 +48,7 @@ type LoginResponse = {
 
 export function LoginScreen(): JSX.Element {
   const {setAuth} = useAuth();
+  const {height} = useWindowDimensions();
   const [groupwareId, setGroupwareId] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -56,8 +57,10 @@ export function LoginScreen(): JSX.Element {
   const buttonAnim = useRef(new Animated.Value(0)).current;
   const keypadAnim = useRef(new Animated.Value(0)).current;
 
-  const requestPassword = `${password}${PASSWORD_SUFFIX}`;
-  const isEnabled = groupwareId.trim().length > 0 && LOGIN_PASSWORD_PATTERN.test(requestPassword) && !isSubmitting;
+  const isEnabled = groupwareId.trim().length > 0 && LOGIN_PASSWORD_PATTERN.test(password) && !isSubmitting;
+  const isCompactHeight = height < 700;
+  const keypadHiddenOffset = isCompactHeight ? 230 : PASSWORD_KEYPAD_HIDDEN_OFFSET;
+  const loginContentRaisedOffset = isCompactHeight ? -96 : LOGIN_CONTENT_RAISED_OFFSET;
   const hasNativeBlur =
     Platform.OS === 'ios'
       ? Boolean(UIManager.getViewManagerConfig?.('BlurView'))
@@ -116,7 +119,7 @@ export function LoginScreen(): JSX.Element {
         fetch(`${API_BASE}/api/employee/login`, {
           body: JSON.stringify({
             id: groupwareId.trim(),
-            password: requestPassword,
+            password,
           }),
           headers: {
             'Content-Type': 'application/json',
@@ -200,13 +203,13 @@ export function LoginScreen(): JSX.Element {
                 {
                   translateY: keypadAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, LOGIN_CONTENT_RAISED_OFFSET],
+                    outputRange: [0, loginContentRaisedOffset],
                   }),
                 },
               ],
             },
           ]}>
-          <View style={styles.logoBlock}>
+          <View style={[styles.logoBlock, isCompactHeight ? styles.logoBlockCompact : null]}>
             <Image source={image.logo} style={styles.logoImage} resizeMode="contain" />
           </View>
 
@@ -228,7 +231,7 @@ export function LoginScreen(): JSX.Element {
                 onPress={openPasswordKeypad}
                 style={[styles.passwordDisplay, password ? styles.passwordDisplayActive : null]}>
                 <Text style={[styles.passwordDisplayText, password ? styles.passwordDisplayTextActive : null]}>
-                  {password ? '*'.repeat(password.length) : '비밀번호'}
+                  {password ? '*'.repeat(password.length) : '사원번호'}
                 </Text>
               </AnimatedPressable>
             </View>
@@ -272,11 +275,12 @@ export function LoginScreen(): JSX.Element {
                 {
                   translateY: keypadAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [PASSWORD_KEYPAD_HIDDEN_OFFSET, 0],
+                    outputRange: [keypadHiddenOffset, 0],
                   }),
                 },
               ],
             },
+            isCompactHeight ? styles.keypadPanelCompact : null,
           ]}>
           <View style={styles.keypadGrabber} />
           <View style={styles.keypadHeader}>
@@ -289,25 +293,31 @@ export function LoginScreen(): JSX.Element {
             </AnimatedPressable>
           </View>
           <View style={styles.keypad}>
-            {PASSWORD_KEY_ROWS.flatMap(row =>
-              row.map(key => {
-                const label = key === 'clear' ? '초기화' : key === 'backspace' ? '삭제' : key;
-                const isUtilityKey = key === 'clear' || key === 'backspace';
+            {PASSWORD_KEY_ROWS.map(row => (
+              <View key={row.join('-')} style={styles.keypadRow}>
+                {row.map(key => {
+                  const label = key === 'clear' ? '초기화' : key === 'backspace' ? '삭제' : key;
+                  const isUtilityKey = key === 'clear' || key === 'backspace';
 
-                return (
-                  <AnimatedPressable
-                    key={key}
-                    accessibilityLabel={`비밀번호 ${label}`}
-                    accessibilityRole="button"
-                    onPress={() => handlePasswordKeyPress(key)}
-                    style={[styles.keypadButton, isUtilityKey ? styles.keypadUtilityButton : null]}>
-                    <Text style={[styles.keypadButtonText, isUtilityKey ? styles.keypadUtilityButtonText : null]}>
-                      {label}
-                    </Text>
-                  </AnimatedPressable>
-                );
-              }),
-            )}
+                  return (
+                    <AnimatedPressable
+                      key={key}
+                      accessibilityLabel={`사원번호 ${label}`}
+                      accessibilityRole="button"
+                      onPress={() => handlePasswordKeyPress(key)}
+                      style={[
+                        styles.keypadButton,
+                        isCompactHeight ? styles.keypadButtonCompact : null,
+                        isUtilityKey ? styles.keypadUtilityButton : null,
+                      ]}>
+                      <Text style={[styles.keypadButtonText, isUtilityKey ? styles.keypadUtilityButtonText : null]}>
+                        {label}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         </Animated.View>
 
@@ -390,6 +400,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 72,
   },
+  logoBlockCompact: {
+    marginBottom: 42,
+  },
   logoImage: {
     width: '100%',
     height: '100%',
@@ -430,8 +443,11 @@ const styles = StyleSheet.create({
   },
   keypad: {
     width: '100%',
+    gap: 8,
+  },
+  keypadRow: {
+    width: '100%',
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 8,
   },
   keypadPanel: {
@@ -449,6 +465,11 @@ const styles = StyleSheet.create({
     paddingBottom: 26,
     borderTopWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  keypadPanelCompact: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 14,
   },
   keypadGrabber: {
     alignSelf: 'center',
@@ -482,12 +503,15 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   keypadButton: {
-    width: '31.8%',
+    flex: 1,
     height: 48,
     borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  keypadButtonCompact: {
+    height: 44,
   },
   keypadUtilityButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',

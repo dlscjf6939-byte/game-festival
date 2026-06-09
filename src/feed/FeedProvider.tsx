@@ -10,6 +10,7 @@ import {
   type HighlightItem,
 } from '../dummyData/feedDummyData';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const FEED_BOARD_ID = 21;
@@ -74,23 +75,28 @@ type FeedPostApiResponse = {
   success?: boolean;
 };
 
+type FeedMemberApi = {
+  department?: string;
+  employeeId?: number | string;
+  employeeName?: string;
+  profileImageUrl?: string;
+};
+
 type FeedPostItemApi = {
   commentCount?: number;
+  comments?: FeedCommentItemApi[];
   content?: string;
   elapsedTime?: string;
   hashTags?: string[];
   isLiked?: boolean;
   likeCount?: number;
+  likedMembers?: FeedMemberApi[];
   postId?: number;
   title?: string;
   uploadImages?: Array<{
     imageUrl?: string;
   }>;
-  writer?: {
-    department?: string;
-    employeeId?: number | string;
-    employeeName?: string;
-  };
+  writer?: FeedMemberApi;
 };
 
 type FeedHighlightApiResponse = {
@@ -134,8 +140,12 @@ type FeedCommentApiResponse = {
     | FeedCommentItemApi[]
     | {
         comments?: FeedCommentItemApi[];
+        commentCount?: number;
         content?: FeedCommentItemApi[];
         elapsedTime?: string;
+        isLiked?: boolean;
+        likeCount?: number;
+        likedMembers?: FeedMemberApi[];
         postId?: number;
       };
   message?: string;
@@ -151,6 +161,7 @@ type FeedCommentItemApi = {
   elapsedTime?: string;
   employeeId?: number | string;
   employeeName?: string;
+  profileImageUrl?: string;
   id?: number | string;
   isMine?: boolean;
   mine?: boolean;
@@ -162,12 +173,17 @@ type FeedCommentItemApi = {
     memberName?: string;
     name?: string;
     nickname?: string;
+    profileImageUrl?: string;
   };
   writerName?: string;
 };
 
 function getDisplayElapsedTime(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : '방금 전';
+}
+
+function getArrayCount(value: unknown): number | null {
+  return Array.isArray(value) ? value.length : null;
 }
 
 function toFeedPost(post: FeedPostItemApi): FeedPost | null {
@@ -182,17 +198,21 @@ function toFeedPost(post: FeedPostItemApi): FeedPost | null {
 
   const hashtags = (post.hashTags ?? []).map(tag => `#${tag.replace(/^#+/, '').trim()}`).filter(Boolean);
 
+  const profileImageUri = getProfileImageUriFromRecord(post.writer);
+  const likedMemberCount = getArrayCount(post.likedMembers);
+  const commentArrayCount = getArrayCount(post.comments);
+
   return {
-    avatar: image.profile,
+    avatar: profileImageUri ? {uri: profileImageUri} : image.profile,
     caption: (post.content ?? '').trim(),
-    commentCount: typeof post.commentCount === 'number' ? post.commentCount : 0,
+    commentCount: commentArrayCount ?? (typeof post.commentCount === 'number' ? post.commentCount : 0),
     comments: [],
     hashtags,
     id: String(post.postId),
     image: images[0],
     images,
     isLiked: Boolean(post.isLiked),
-    likes: typeof post.likeCount === 'number' ? post.likeCount : 0,
+    likes: likedMemberCount ?? (typeof post.likeCount === 'number' ? post.likeCount : 0),
     role: post.writer?.department?.trim() || '부서 미지정',
     time: getDisplayElapsedTime(post.elapsedTime),
     title: (post.title ?? '제목 없음').trim() || '제목 없음',
@@ -304,6 +324,39 @@ function getPostElapsedTimeFromDetail(data: FeedCommentApiResponse['data']): str
   return elapsedTime === '방금 전' ? null : elapsedTime;
 }
 
+function getPostPatchFromDetail(data: FeedCommentApiResponse['data']): Partial<FeedPost> {
+  if (!data || Array.isArray(data)) {
+    return {};
+  }
+
+  const commentArrayCount = getArrayCount(data.comments);
+  const likedMemberCount = getArrayCount(data.likedMembers);
+  const elapsedTime = getPostElapsedTimeFromDetail(data);
+  const patch: Partial<FeedPost> = {};
+
+  if (commentArrayCount !== null) {
+    patch.commentCount = commentArrayCount;
+  } else if (typeof data.commentCount === 'number') {
+    patch.commentCount = data.commentCount;
+  }
+
+  if (likedMemberCount !== null) {
+    patch.likes = likedMemberCount;
+  } else if (typeof data.likeCount === 'number') {
+    patch.likes = data.likeCount;
+  }
+
+  if (typeof data.isLiked === 'boolean') {
+    patch.isLiked = data.isLiked;
+  }
+
+  if (elapsedTime) {
+    patch.time = elapsedTime;
+  }
+
+  return patch;
+}
+
 function toFeedComment(
   comment: FeedCommentItemApi,
   fallbackIndex: number,
@@ -318,6 +371,7 @@ function toFeedComment(
   }
 
   const writerEmployeeId = comment.writer?.employeeId ?? comment.employeeId;
+  const profileImageUri = getProfileImageUriFromRecord(comment.writer) ?? getProfileImageUriFromRecord(comment);
   const user =
     comment.writer?.employeeName?.trim() ||
     comment.writer?.name?.trim() ||
@@ -330,6 +384,7 @@ function toFeedComment(
     '이름 없음';
 
   return {
+    avatar: profileImageUri ? {uri: profileImageUri} : undefined,
     commentId: typeof commentId === 'number' || typeof commentId === 'string' ? String(commentId) : undefined,
     id:
       typeof commentId === 'number' || typeof commentId === 'string'
@@ -652,6 +707,47 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
     }
   }, [auth?.accessToken, hasMorePosts, isLoading, nextPostPage, requestPostsPage]);
 
+  const fetchPostDetail = useCallback(
+    async (postId: string): Promise<FeedCommentApiResponse> => {
+      if (!auth?.accessToken) {
+        throw new Error('로그인 정보가 필요합니다.');
+      }
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: FeedCommentApiResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as FeedCommentApiResponse;
+      } catch {
+        throw new Error('게시글 상세 응답을 해석하지 못했습니다.');
+      }
+
+      if (!response.ok || responseBody.success === false) {
+        throw new Error(responseBody.message || responseText || '게시글 상세 조회에 실패했습니다.');
+      }
+
+      const detailPatch = getPostPatchFromDetail(responseBody.data);
+      const hasDetailPatch = Object.keys(detailPatch).length > 0;
+
+      if (hasDetailPatch) {
+        setPosts(prevPosts =>
+          prevPosts.map(post => (post.id === postId ? {...post, ...detailPatch} : post)),
+        );
+      }
+
+      return responseBody;
+    },
+    [auth?.accessToken],
+  );
+
   const togglePostLike = useCallback(
     async (postId: string) => {
       if (!auth?.accessToken) {
@@ -668,12 +764,11 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
 
           previousPost = post;
           const nextIsLiked = !post.isLiked;
-          const nextLikes = Math.max(0, post.likes + (nextIsLiked ? 1 : -1));
 
           return {
             ...post,
             isLiked: nextIsLiked,
-            likes: nextLikes,
+            likes: Math.max(0, post.likes + (nextIsLiked ? 1 : -1)),
           };
         }),
       );
@@ -701,6 +796,8 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         if (!response.ok || responseBody?.success === false) {
           throw new Error(responseBody?.message || '좋아요 처리에 실패했습니다.');
         }
+
+        await fetchPostDetail(postId);
       } catch (error) {
         if (previousPost) {
           setPosts(prevPosts => prevPosts.map(post => (post.id === postId ? previousPost! : post)));
@@ -708,7 +805,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         console.log('[FeedProvider] like toggle failed', {error, postId});
       }
     },
-    [auth?.accessToken],
+    [auth?.accessToken, fetchPostDetail],
   );
 
   const createComment = useCallback(
@@ -742,17 +839,6 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         throw new Error(responseBody?.message || responseText || '댓글 등록에 실패했습니다.');
       }
 
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId
-            ? {
-                ...post,
-                commentCount: (post.commentCount ?? post.comments.length) + 1,
-              }
-            : post,
-        ),
-      );
-
       return getCommentIdFromResponse(responseBody);
     },
     [auth?.accessToken],
@@ -764,40 +850,13 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         return [];
       }
 
-      const response = await withMinimumLoadingTime(
-        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}`, {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${auth.accessToken}`,
-          },
-        }),
-      );
-      const responseText = await response.text();
-      let responseBody: FeedCommentApiResponse | null = null;
-
-      try {
-        responseBody = JSON.parse(responseText) as FeedCommentApiResponse;
-      } catch {
-        throw new Error('댓글 응답을 해석하지 못했습니다.');
-      }
-
-      if (!response.ok || responseBody.success === false) {
-        throw new Error(responseBody.message || responseText || '댓글 조회에 실패했습니다.');
-      }
-
-      const detailElapsedTime = getPostElapsedTimeFromDetail(responseBody.data);
-
-      if (detailElapsedTime) {
-        setPosts(prevPosts =>
-          prevPosts.map(post => (post.id === postId ? {...post, time: detailElapsedTime} : post)),
-        );
-      }
+      const responseBody = await fetchPostDetail(postId);
 
       return getCommentsFromResponseData(responseBody.data)
         .map((comment, index) => toFeedComment(comment, index, auth.name, auth.employeeId))
         .filter((comment): comment is FeedComment => Boolean(comment));
     },
-    [auth?.accessToken, auth?.employeeId, auth?.name],
+    [auth?.accessToken, auth?.employeeId, auth?.name, fetchPostDetail],
   );
 
   const updateComment = useCallback(
@@ -863,16 +922,6 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         throw new Error(responseBody?.message || responseText || '댓글 삭제에 실패했습니다.');
       }
 
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId
-            ? {
-                ...post,
-                commentCount: Math.max(0, (post.commentCount ?? post.comments.length) - 1),
-              }
-            : post,
-        ),
-      );
     },
     [auth?.accessToken],
   );

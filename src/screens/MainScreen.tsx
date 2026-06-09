@@ -1,5 +1,10 @@
 import React, {useRef, useState} from 'react';
-import {useFocusEffect, useNavigation, type NavigationProp} from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useNavigation,
+  type CompositeNavigationProp,
+  type NavigationProp,
+} from '@react-navigation/native';
 import {
   Animated,
   Dimensions,
@@ -17,6 +22,7 @@ import {
 } from 'react-native';
 import LottieView from 'lottie-react-native';
 import {useAttendance} from '../attendance/AttendanceProvider';
+import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {useCoin} from '../coin/CoinProvider';
@@ -24,7 +30,8 @@ import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {FONTS} from '../constants/theme';
-import type {MainStackParamList} from '../navigation/types';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
+import type {MainStackParamList, RootStackParamList} from '../navigation/types';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
@@ -35,6 +42,11 @@ const STORY_ITEM_WIDTH = STORY_CARD_WIDTH + STORY_CARD_GAP;
 const STORY_SNAP_INTERVAL = STORY_ITEM_WIDTH;
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
 const checkLottie = require('../assets/lotties/Check.json');
+
+type MainScreenNavigation = CompositeNavigationProp<
+  NavigationProp<MainStackParamList, 'Home'>,
+  NavigationProp<RootStackParamList>
+>;
 
 const storyCards = [
   {
@@ -160,7 +172,7 @@ function toCoinNumber(value: unknown): number | null {
 }
 
 function MainScreen(): JSX.Element {
-  const navigation = useNavigation<NavigationProp<MainStackParamList>>();
+  const navigation = useNavigation<MainScreenNavigation>();
   const {auth} = useAuth();
   const {rankingItems, isRankingLoading} = useCoin();
   const {attendance, checkInNotice, dismissCheckInNotice, isChecking, refreshAttendance} = useAttendance();
@@ -177,20 +189,15 @@ function MainScreen(): JSX.Element {
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
   const profile = auth?.profile;
-  const coinBalance = toCoinNumber(profile?.coinBalance) ?? 0;
+  const coinBalance = toCoinNumber(profile?.holdingCoin) ?? 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
-  const profileImageUri = typeof profile?.profileImageUri === 'string' && profile.profileImageUri.trim()
-    ? profile.profileImageUri.trim()
-    : null;
+  const profileImageUri = getProfileImageUriFromRecord(profile);
   const profileImageSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const name = auth?.name ?? '이인철';
   const greetingPrefix = department || '서비스개발팀';
   const myRankingItem = rankingItems.find(item => item.isMe);
   const accumulatedCoin =
-    myRankingItem?.coins ??
     toCoinNumber(profile?.accumulatedCoin) ??
-    toCoinNumber(profile?.totalCoin) ??
-    toCoinNumber(profile?.totalCoins) ??
     0;
   const rankingText = isRankingLoading ? '집계 중' : myRankingItem ? `${myRankingItem.rank}위` : '미집계';
   const checkedDateSet = new Set(attendance?.checkedDates ?? []);
@@ -282,6 +289,9 @@ function MainScreen(): JSX.Element {
   );
   const handleCoinCardPress = React.useCallback(() => {
     navigation.navigate('Coins');
+  }, [navigation]);
+  const handleProfilePress = React.useCallback(() => {
+    navigation.navigate('ProfileSetup');
   }, [navigation]);
 
   const renderStoryCard = React.useCallback(
@@ -599,23 +609,22 @@ function MainScreen(): JSX.Element {
               </View>
 
               <View style={styles.coinSection}>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    marginBottom: 16,
-                  }}>
+                <AnimatedPressable
+                  accessibilityLabel="프로필 수정"
+                  accessibilityRole="button"
+                  onPress={handleProfilePress}
+                  style={styles.profileSummary}>
                   <Image source={profileImageSource} style={styles.profileImage} />
                   <Text style={styles.greeting}>{`${greetingPrefix} ${name}님`}</Text>
-                </View>
+                </AnimatedPressable>
                 <AnimatedPressable
                   accessibilityLabel="나의 코인현황 상세 보기"
                   accessibilityRole="button"
                   onPress={handleCoinCardPress}
                   style={styles.coinCard}>
                   <View style={styles.coinHeader}>
-                    <Text style={styles.coinHeaderTitle}>나의 코인현황</Text>
-                    <View style={styles.coinChevron} />
+                    <Text style={styles.coinHeaderTitle}>나의 코인 현황</Text>
+                    <Image source={icon.backBtn} style={styles.coinShortcutIcon} resizeMode="contain" />
                   </View>
 
                   <View style={styles.coinSummaryRow}>
@@ -623,7 +632,6 @@ function MainScreen(): JSX.Element {
                       <Text style={styles.coinSummaryLabel}>보유코인</Text>
                       <Text style={styles.coinValue}>{coinBalance}개</Text>
                     </View>
-                    <View style={styles.coinSummaryDivider} />
                     <View style={styles.coinSummaryItem}>
                       <Text style={styles.coinSummaryLabel}>누적코인</Text>
                       <Text style={styles.coinValue}>{accumulatedCoin}개</Text>
@@ -1127,6 +1135,12 @@ const styles = StyleSheet.create({
     marginTop: 32,
     gap: 14,
   },
+  profileSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginBottom: 2,
+  },
   greeting: {
     color: '#FFFFFF',
     ...FONTS.font22M,
@@ -1140,62 +1154,62 @@ const styles = StyleSheet.create({
   coinCard: {
     borderRadius: 20,
     backgroundColor: '#222323',
-    paddingHorizontal: 20,
-    paddingVertical: 28,
+    borderWidth: 1,
+    borderColor: '#303131',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   coinHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
   },
   coinHeaderTitle: {
-    color: '#FFFFFF',
-    ...FONTS.font18B,
+    color: '#D2D4D8',
+    ...FONTS.font14M,
   },
-  coinValueWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  coinShortcutIcon: {
+    width: 18,
+    height: 18,
+    tintColor: '#FFFFFF',
+    transform: [{rotate: '180deg'}],
   },
   coinValue: {
+    marginTop: 5,
     color: '#FFFFFF',
-    ...FONTS.font18B,
+    textAlign: 'center',
+    ...FONTS.font22B,
   },
   coinSummaryRow: {
-    marginTop: 18,
+    marginTop: 12,
     flexDirection: 'row',
-    alignItems: 'stretch',
+    gap: 8,
   },
   coinSummaryItem: {
     flex: 1,
+    alignItems: 'center',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#1C1D1D',
+    borderWidth: 1,
+    borderColor: '#343535',
   },
   coinSummaryLabel: {
-    marginBottom: 8,
-    color: '#B9BBC1',
-    ...FONTS.font12M,
-    lineHeight: 16,
-  },
-  coinSummaryDivider: {
-    width: 1,
-    marginHorizontal: 16,
-    backgroundColor: 'rgba(242,243,245,0.18)',
-  },
-  coinChevron: {
-    width: 8,
-    height: 8,
-    marginLeft: 8,
-    borderRightWidth: 1.6,
-    borderBottomWidth: 1.6,
-    borderColor: '#B3B4B9',
-    transform: [{rotate: '-45deg'}],
+    color: '#A9ABB2',
+    textAlign: 'center',
+    ...FONTS.font13M,
+    lineHeight: 17,
   },
   coinDivider: {
     height: 1,
     backgroundColor: 'rgba(242,243,245,0.3)',
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 12,
+    marginBottom: 12,
   },
   coinRows: {
-    gap: 12,
+    gap: 7,
   },
   coinRow: {
     flexDirection: 'row',

@@ -439,17 +439,13 @@ export function CoinsScreen(): JSX.Element {
   };
 
   const myProfile = auth?.profile;
-  const coinBalance = toCoinNumber(myProfile?.coinBalance) ?? 0;
+  const coinBalance = toCoinNumber(myProfile?.holdingCoin) ?? 0;
   const sortedRankingItems = useMemo(
     () => [...rankingItems].sort((left, right) => left.rank - right.rank).slice(0, 30),
     [rankingItems],
   );
-  const myRankingItem = rankingItems.find(item => item.isMe);
   const accumulatedCoin =
-    myRankingItem?.coins ??
     toCoinNumber(myProfile?.accumulatedCoin) ??
-    toCoinNumber(myProfile?.totalCoin) ??
-    toCoinNumber(myProfile?.totalCoins) ??
     0;
   const topRankingItems = sortedRankingItems.slice(0, 10);
   const restRankingItems = sortedRankingItems.slice(10);
@@ -663,7 +659,9 @@ export function CoinsScreen(): JSX.Element {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>코인 랭킹</Text>
-              <Text style={styles.topRankingBadge}>TOP 10</Text>
+              <View style={styles.topRankingBadge}>
+                <Text style={styles.topRankingBadgeText}>TOP 10</Text>
+              </View>
             </View>
 
             {isRankingLoading ? (
@@ -849,12 +847,16 @@ const styles = StyleSheet.create({
     minWidth: 56,
     height: 24,
     borderRadius: 12,
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E50914',
+    paddingHorizontal: 10,
+  },
+  topRankingBadgeText: {
     color: '#FFFFFF',
     textAlign: 'center',
-    backgroundColor: '#E50914',
     ...FONTS.font11B,
-    lineHeight: 24,
+    lineHeight: 14,
   },
   rankingGroup: {
     marginTop: 4,

@@ -66,9 +66,15 @@ export function RootNavigator(): JSX.Element {
           {auth ? (
             <>
               {isFirstLogin(auth.firstLoginYn) ? (
-                <Stack.Screen component={ProfileSetupScreen} name="ProfileSetup" />
+                <>
+                  <Stack.Screen component={ProfileSetupScreen} name="ProfileSetup" />
+                  <Stack.Screen component={MainNavigator} name="Main" />
+                </>
               ) : (
-                <Stack.Screen component={MainNavigator} name="Main" />
+                <>
+                  <Stack.Screen component={MainNavigator} name="Main" />
+                  <Stack.Screen component={ProfileSetupScreen} name="ProfileSetup" />
+                </>
               )}
               <Stack.Screen
                 component={QrScanScreen}

@@ -18,6 +18,7 @@ export type HighlightGroup = {
 };
 
 export type FeedComment = {
+  avatar?: ImageSourcePropType;
   commentId?: string;
   id: string;
   isMine?: boolean;

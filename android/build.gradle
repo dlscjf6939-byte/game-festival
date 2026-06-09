@@ -29,6 +29,9 @@ subprojects { subproject ->
 
     if (subproject.name == "react-native-image-picker") {
         subproject.afterEvaluate {
+            if (subproject.hasProperty("android")) {
+                subproject.android.compileSdkVersion rootProject.ext.compileSdkVersion
+            }
             subproject.dependencies.add("implementation", "androidx.activity:activity:1.6.0")
         }
     }

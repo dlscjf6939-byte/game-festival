@@ -1,21 +1,27 @@
 import React, {useMemo, useState} from 'react';
+import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {
   Image,
   Platform,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {launchImageLibrary, type Asset as PickerAsset} from 'react-native-image-picker';
 import {useAuth} from '../auth/AuthProvider';
+import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
 import {FONTS} from '../constants/theme';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
+import type {RootStackParamList} from '../navigation/types';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const PROFILE_UPDATE_METHOD = 'PUT';
@@ -67,31 +73,33 @@ function normalizeUploadUri(uri: string): string {
 }
 
 function getProfileImageUri(profile: Record<string, unknown> | undefined, fallbackUri: string | null): string | null {
-  const profileImageUrl = typeof profile?.profileImageUrl === 'string' && profile.profileImageUrl.trim()
-    ? profile.profileImageUrl.trim()
-    : null;
-  const profileImageUri = typeof profile?.profileImageUri === 'string' && profile.profileImageUri.trim()
-    ? profile.profileImageUri.trim()
-    : null;
-
-  return profileImageUrl ?? profileImageUri ?? fallbackUri;
+  return getProfileImageUriFromRecord(profile) ?? fallbackUri;
 }
 
 export function ProfileSetupScreen(): JSX.Element {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const {auth, setAuth} = useAuth();
+  const {height} = useWindowDimensions();
   const [selectedChoice, setSelectedChoice] = useState<ProfileChoice>('default');
   const [selectedImageAsset, setSelectedImageAsset] = useState<PickerAsset | null>(null);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const currentProfileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const selectedProfilePreview = useMemo(() => {
     if (selectedChoice === 'album' && selectedImageUri) {
       return {uri: selectedImageUri};
     }
 
+    if (currentProfileImageUri) {
+      return {uri: currentProfileImageUri};
+    }
+
     return image.profile;
-  }, [selectedChoice, selectedImageUri]);
+  }, [currentProfileImageUri, selectedChoice, selectedImageUri]);
+  const isCompactHeight = height < 720;
+  const canGoBack = navigation.canGoBack();
 
   const openImageLibrary = async () => {
     setErrorMessage(null);
@@ -179,7 +187,10 @@ export function ProfileSetupScreen(): JSX.Element {
       const updatedProfile = selectedChoice === 'album' && selectedImageAsset
         ? await updateProfileImage(selectedImageAsset)
         : null;
-      const nextProfileImageUri = getProfileImageUri(updatedProfile ?? undefined, selectedChoice === 'album' ? selectedImageUri : null);
+      const nextProfileImageUri = getProfileImageUri(
+        updatedProfile ?? undefined,
+        selectedChoice === 'album' ? selectedImageUri : currentProfileImageUri,
+      );
 
       await setAuth({
         ...auth,
@@ -191,11 +202,20 @@ export function ProfileSetupScreen(): JSX.Element {
           profileImageUri: nextProfileImageUri ?? undefined,
         },
       });
+      navigation.navigate('Main');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '프로필 업데이트 중 오류가 발생했습니다.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+  const handleBackPress = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    navigation.navigate('Main');
   };
 
   return (
@@ -210,71 +230,93 @@ export function ProfileSetupScreen(): JSX.Element {
           style={StyleSheet.absoluteFill}
         />
 
-        <View style={styles.header}>
-          <Text style={styles.title}>프로필을 선택해주세요</Text>
-          <Text style={styles.subtitle}>게임대회 앱에서 사용할 프로필이에요.</Text>
-        </View>
+        <ScrollView
+          bounces={false}
+          contentContainerStyle={[styles.content, isCompactHeight ? styles.contentCompact : null]}
+          showsVerticalScrollIndicator={false}>
+          <View style={[styles.header, isCompactHeight ? styles.headerCompact : null]}>
+            {canGoBack ? (
+              <AnimatedPressable
+                accessibilityLabel="뒤로가기"
+                accessibilityRole="button"
+                onPress={handleBackPress}
+                style={styles.backButton}>
+                <Image source={icon.backBtn} style={styles.backIcon} resizeMode="contain" />
+              </AnimatedPressable>
+            ) : null}
+            <Text style={styles.title}>프로필을 선택해주세요</Text>
+            <Text style={styles.subtitle}>게임대회 앱에서 사용할 프로필이에요.</Text>
+          </View>
 
-        <View style={styles.previewCard}>
-          <Image source={selectedProfilePreview} style={styles.previewImage} resizeMode="cover" />
-          <Text style={styles.previewName}>{auth?.name ?? '내 프로필'}</Text>
-          <Text style={styles.previewDescription}>
-            {selectedChoice === 'album' && selectedImageUri
-              ? '사진앨범에서 선택한 프로필'
-              : selectedChoice === 'album'
-                ? '사진앨범에서 프로필을 선택해주세요'
-                : '기본 프로필로 시작합니다'}
-          </Text>
-        </View>
+          <View style={[styles.previewCard, isCompactHeight ? styles.previewCardCompact : null]}>
+            <Image
+              source={selectedProfilePreview}
+              style={[styles.previewImage, isCompactHeight ? styles.previewImageCompact : null]}
+              resizeMode="cover"
+            />
+            <Text style={[styles.previewName, isCompactHeight ? styles.previewNameCompact : null]}>
+              {auth?.name ?? '내 프로필'}
+            </Text>
+            <Text style={styles.previewDescription}>
+              {selectedChoice === 'album' && selectedImageUri
+                ? '사진앨범에서 선택한 프로필'
+                : selectedChoice === 'album'
+                  ? '사진앨범에서 프로필을 선택해주세요'
+                  : '기본 프로필로 시작합니다'}
+            </Text>
+          </View>
 
-        <View style={styles.choiceStack}>
-          <AnimatedPressable
-            accessibilityRole="button"
-            onPress={() => setSelectedChoice('default')}
-            style={[styles.choiceCard, selectedChoice === 'default' && styles.choiceCardSelected]}>
-            <Image source={image.profile} style={styles.choiceAvatar} resizeMode="cover" />
-            <View style={styles.choiceTextBlock}>
-              <Text style={styles.choiceTitle}>기본 프로필</Text>
-              <Text style={styles.choiceSubtitle}>앱에서 제공하는 기본 이미지로 시작</Text>
-            </View>
-            <View style={[styles.radio, selectedChoice === 'default' && styles.radioSelected]}>
-              {selectedChoice === 'default' ? <View style={styles.radioDot} /> : null}
-            </View>
-          </AnimatedPressable>
-
-          <AnimatedPressable
-            accessibilityRole="button"
-            onPress={openImageLibrary}
-            style={[styles.choiceCard, selectedChoice === 'album' && styles.choiceCardSelected]}>
-            {selectedImageUri ? (
-              <Image source={{uri: selectedImageUri}} style={styles.choiceAvatar} resizeMode="cover" />
-            ) : (
-              <View style={styles.albumIcon}>
-                <Text style={styles.albumIconText}>＋</Text>
+          <View style={[styles.choiceStack, isCompactHeight ? styles.choiceStackCompact : null]}>
+            <AnimatedPressable
+              accessibilityRole="button"
+              onPress={() => setSelectedChoice('default')}
+              style={[styles.choiceCard, selectedChoice === 'default' && styles.choiceCardSelected]}>
+              <Image source={image.profile} style={styles.choiceAvatar} resizeMode="cover" />
+              <View style={styles.choiceTextBlock}>
+                <Text style={styles.choiceTitle}>기본 프로필</Text>
+                <Text style={styles.choiceSubtitle}>앱에서 제공하는 기본 이미지로 시작</Text>
               </View>
-            )}
-            <View style={styles.choiceTextBlock}>
-              <Text style={styles.choiceTitle}>사진앨범에서 선택</Text>
-              <Text style={styles.choiceSubtitle}>
-                {selectedImageUri ? '선택한 사진을 프로필로 설정' : '내 사진으로 프로필을 설정'}
-              </Text>
-            </View>
-            <View style={[styles.radio, selectedChoice === 'album' && styles.radioSelected]}>
-              {selectedChoice === 'album' ? <View style={styles.radioDot} /> : null}
-            </View>
-          </AnimatedPressable>
-        </View>
+              <View style={[styles.radio, selectedChoice === 'default' && styles.radioSelected]}>
+                {selectedChoice === 'default' ? <View style={styles.radioDot} /> : null}
+              </View>
+            </AnimatedPressable>
 
-        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-        <Text style={styles.helperText}>사진은 이 기기에서 선택한 이미지로 표시됩니다.</Text>
+            <AnimatedPressable
+              accessibilityRole="button"
+              onPress={openImageLibrary}
+              style={[styles.choiceCard, selectedChoice === 'album' && styles.choiceCardSelected]}>
+              {selectedImageUri ? (
+                <Image source={{uri: selectedImageUri}} style={styles.choiceAvatar} resizeMode="cover" />
+              ) : (
+                <View style={styles.albumIcon}>
+                  <Text style={styles.albumIconText}>＋</Text>
+                </View>
+              )}
+              <View style={styles.choiceTextBlock}>
+                <Text style={styles.choiceTitle}>사진앨범에서 선택</Text>
+                <Text style={styles.choiceSubtitle}>
+                  {selectedImageUri ? '선택한 사진을 프로필로 설정' : '내 사진으로 프로필을 설정'}
+                </Text>
+              </View>
+              <View style={[styles.radio, selectedChoice === 'album' && styles.radioSelected]}>
+                {selectedChoice === 'album' ? <View style={styles.radioDot} /> : null}
+              </View>
+            </AnimatedPressable>
+          </View>
 
-        <AnimatedPressable
-          accessibilityRole="button"
-          disabled={isSubmitting}
-          onPress={completeProfileSetup}
-          style={[styles.nextButton, isSubmitting ? styles.nextButtonDisabled : null]}>
-          <Text style={styles.nextButtonText}>{isSubmitting ? '저장 중...' : '시작하기'}</Text>
-        </AnimatedPressable>
+          <View style={[styles.actionArea, isCompactHeight ? styles.actionAreaCompact : null]}>
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            <Text style={styles.helperText}>사진은 이 기기에서 선택한 이미지로 표시됩니다.</Text>
+
+            <AnimatedPressable
+              accessibilityRole="button"
+              disabled={isSubmitting}
+              onPress={completeProfileSetup}
+              style={[styles.nextButton, isSubmitting ? styles.nextButtonDisabled : null]}>
+              <Text style={styles.nextButtonText}>{isSubmitting ? '저장 중...' : '시작하기'}</Text>
+            </AnimatedPressable>
+          </View>
+        </ScrollView>
 
         {isSubmitting ? (
           <View style={styles.loadingOverlay}>
@@ -293,13 +335,36 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
+    backgroundColor: '#050505',
+  },
+  content: {
+    flexGrow: 1,
     paddingHorizontal: 24,
     paddingTop: 34,
     paddingBottom: 24,
-    backgroundColor: '#050505',
+  },
+  contentCompact: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 18,
   },
   header: {
     marginBottom: 32,
+  },
+  headerCompact: {
+    marginBottom: 22,
+  },
+  backButton: {
+    width: 42,
+    height: 42,
+    marginBottom: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
+    tintColor: '#FFFFFF',
   },
   title: {
     color: '#FFFFFF',
@@ -320,17 +385,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.09)',
   },
+  previewCardCompact: {
+    paddingVertical: 22,
+    borderRadius: 22,
+  },
   previewImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
     backgroundColor: '#1A1A1A',
   },
+  previewImageCompact: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+  },
   previewName: {
     marginTop: 18,
     color: '#FFFFFF',
     ...FONTS.font22B,
     lineHeight: 28,
+  },
+  previewNameCompact: {
+    marginTop: 14,
   },
   previewDescription: {
     marginTop: 7,
@@ -341,6 +418,10 @@ const styles = StyleSheet.create({
   choiceStack: {
     marginTop: 28,
     gap: 12,
+  },
+  choiceStackCompact: {
+    marginTop: 20,
+    gap: 10,
   },
   choiceCard: {
     minHeight: 76,
@@ -408,20 +489,26 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: '#E50914',
   },
+  actionArea: {
+    marginTop: 'auto',
+    paddingTop: 30,
+  },
+  actionAreaCompact: {
+    paddingTop: 24,
+  },
   helperText: {
-    marginTop: 16,
     color: '#777A82',
     ...FONTS.font12R,
     lineHeight: 18,
   },
   errorText: {
-    marginTop: 14,
+    marginBottom: 10,
     color: '#E50914',
     ...FONTS.font13M,
     lineHeight: 18,
   },
   nextButton: {
-    marginTop: 'auto',
+    marginTop: 18,
     height: 56,
     borderRadius: 12,
     alignItems: 'center',
