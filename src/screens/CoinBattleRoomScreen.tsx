@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
+  Alert,
   Animated,
   Image,
   SafeAreaView,
@@ -129,6 +130,28 @@ function getMaxRoundCount(realtimeGameId?: number): number {
   }
 
   return maxRoundCountByGameId[realtimeGameId] ?? 1;
+}
+
+function toCoinNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function getHoldingCoin(profile?: Record<string, unknown>): number {
+  return (
+    toCoinNumber(profile?.holdingCoin) ??
+    toCoinNumber(profile?.coinBalance) ??
+    toCoinNumber(profile?.balance) ??
+    0
+  );
 }
 
 function getProfileImageUriFromRecord(profile?: Record<string, unknown>): string | null {
@@ -1066,6 +1089,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const latestPresentedRoundRef = useRef(0);
   const latestTypingSyncRequestedRoundRef = useRef(0);
   const coinRefreshRoomIdRef = useRef<string | null>(null);
+  const balanceExitRoomRef = useRef<string | null>(null);
   const countdownBackdropOpacity = useRef(new Animated.Value(0)).current;
   const countdownScale = useRef(new Animated.Value(0.72)).current;
   const countdownOpacity = useRef(new Animated.Value(0)).current;
@@ -1078,12 +1102,17 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const myUserId = auth?.employeeId ?? auth?.id;
   const liveRoom = roomDetail ?? realtimeRooms.find(room => room.roomId === roomId);
   const currentRoom = hasGameStarted ? finishedRoomSnapshot ?? gameRoomSnapshot ?? liveRoom : liveRoom;
+  const roomBetAmount = currentRoom?.betAmount ?? 1;
   const myMember = currentRoom?.roomMembers.find(member => {
     return String(member.employeeId) === String(myUserId);
   });
+  const holdingCoin = toCoinNumber(myMember?.coinBalance) ?? getHoldingCoin(auth?.profile);
   const serverMyReady = myMember?.isReady;
   const myReady = optimisticReady ?? serverMyReady ?? ready;
   const roomMembers = currentRoom?.roomMembers ?? [];
+  const isMyMember = roomMembers.some(member => {
+    return String(member.employeeId) === String(myUserId);
+  });
   const currentMemberCount = currentRoom?.currentMemberCount ?? Math.max(roomMembers.length, 1);
   const maxMembers = currentRoom?.maxMembers ?? 2;
   const roomStatus = currentRoom?.roomStatus;
@@ -1174,14 +1203,14 @@ export function CoinBattleRoomScreen(): JSX.Element {
     visibleCompletedTypingRoundCount,
     trackedCompletedTypingRoundCount,
   );
-  const latestCompletedTypingRoundNumber = typingRounds.reduce((latestRoundNumber, round, index) => {
+  const latestCompletedTypingRoundNumber = typingRounds.reduce((latestTypingRoundNumber, round, index) => {
     if (!isTypingRoundCompleted(round)) {
-      return latestRoundNumber;
+      return latestTypingRoundNumber;
     }
 
     const roundNumber = typeof round.roundNumber === 'number' ? round.roundNumber : index + 1;
 
-    return Math.max(latestRoundNumber, roundNumber);
+    return Math.max(latestTypingRoundNumber, roundNumber);
   }, 0);
   const isTypingMatchFinished =
     typingFinalResults.length > 0 ||
@@ -1275,6 +1304,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   useEffect(() => {
     setOptimisticReady(null);
     setReady(false);
+    balanceExitRoomRef.current = null;
   }, [roomId]);
 
   useEffect(() => {
@@ -1288,6 +1318,47 @@ export function CoinBattleRoomScreen(): JSX.Element {
       setOptimisticReady(null);
     }
   }, [optimisticReady, serverMyReady]);
+
+  useEffect(() => {
+    if (
+      !isRealtime ||
+      !currentRoom ||
+      !isMyMember ||
+      shouldShowGame ||
+      currentRoom.roomStatus === 'IN_PROGRESS' ||
+      holdingCoin >= roomBetAmount ||
+      balanceExitRoomRef.current === roomId
+    ) {
+      return;
+    }
+
+    balanceExitRoomRef.current = roomId;
+    leaveRoom(roomId, myUserId);
+
+    Alert.alert(
+      '코인이 부족합니다',
+      `보유코인 ${holdingCoin}개가 베팅 코인 ${roomBetAmount}개보다 부족해 대기방에서 퇴장됩니다.`,
+    );
+
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+    }
+
+    leaveTimerRef.current = setTimeout(() => {
+      navigation.replace('CoinBattleHome');
+    }, 120);
+  }, [
+    currentRoom,
+    holdingCoin,
+    isMyMember,
+    isRealtime,
+    leaveRoom,
+    myUserId,
+    navigation,
+    roomBetAmount,
+    roomId,
+    shouldShowGame,
+  ]);
 
   useEffect(() => {
     if (connectionStatus !== 'connected') {
@@ -1796,7 +1867,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
                         : `라운드 ${isMatchFinished ? '종료' : currentRoundNumber} / ${totalRoundCount}`}
                     </Text>
                     <View style={styles.liveCompactDot} />
-                    <Text style={styles.liveCompactMeta}>코인 {currentRoom?.betAmount ?? 1}</Text>
+                    <Text style={styles.liveCompactMeta}>코인 {roomBetAmount}</Text>
+                    <View style={styles.liveCompactDot} />
+                    <Text style={styles.liveCompactMeta}>보유 {holdingCoin}개</Text>
                   </View>
                   <View style={styles.liveCompactPlayersRow}>
                     <Text numberOfLines={1} style={styles.liveCompactPlayer}>
@@ -1934,8 +2007,14 @@ export function CoinBattleRoomScreen(): JSX.Element {
             ) : (
               <>
                 <View style={styles.hero}>
-                  <View style={styles.statusChip}>
-                    <Text style={styles.statusText}>{roomStatusLabel}</Text>
+                  <View style={styles.heroTopRow}>
+                    <View style={styles.statusChip}>
+                      <Text style={styles.statusText}>{roomStatusLabel}</Text>
+                    </View>
+                    <View style={styles.holdingCoinChip}>
+                      <Text style={styles.holdingCoinLabel}>보유코인</Text>
+                      <Text style={styles.holdingCoinValue}>{holdingCoin}개</Text>
+                    </View>
                   </View>
                   <Text style={styles.title}>{title}</Text>
                   <Text style={styles.subtitle}>방 ID {roomId}</Text>
@@ -1948,7 +2027,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   </View>
                   <View style={styles.infoCard}>
                     <Text style={styles.infoLabel}>베팅 코인</Text>
-                    <Text style={styles.infoValue}>{currentRoom?.betAmount ?? 1}개</Text>
+                    <Text style={styles.infoValue}>{roomBetAmount}개</Text>
                   </View>
                   <View style={styles.infoCard}>
                     <Text style={styles.infoLabel}>라운드</Text>
@@ -2274,17 +2353,43 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#272727',
   },
+  heroTopRow: {
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   statusChip: {
     alignSelf: 'flex-start',
     borderRadius: 4,
     backgroundColor: '#E50914',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    marginBottom: 12,
   },
   statusText: {
     color: '#FFFFFF',
     ...FONTS.font11B,
+  },
+  holdingCoinChip: {
+    minHeight: 29,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#1A1A1A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  holdingCoinLabel: {
+    color: '#8B8E96',
+    ...FONTS.font11B,
+  },
+  holdingCoinValue: {
+    color: '#FFFFFF',
+    ...FONTS.font12B,
   },
   title: {
     color: '#FFFFFF',

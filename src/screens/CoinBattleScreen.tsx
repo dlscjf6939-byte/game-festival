@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
+  Alert,
   Animated,
   Image,
   KeyboardAvoidingView,
@@ -35,6 +36,7 @@ const THUMBNAIL_WIDTH = 143;
 const THUMBNAIL_HEIGHT = 99;
 
 type DisplayRoom = {
+  betAmount: number;
   cropY: number;
   game: string;
   host: string;
@@ -126,6 +128,7 @@ function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
     const statusTone = room.roomStatus === 'WAITING' ? 'waiting' : 'playing';
 
     return {
+      betAmount: room.betAmount ?? MIN_BET_AMOUNT,
       cropY: cropOffsets[index % cropOffsets.length],
       game: getRoomGameTitle(room),
       host: getRoomHost(room),
@@ -153,6 +156,28 @@ function isSameEmployeeId(
 
 function getMaxRoundCount(realtimeGameId: number): number {
   return maxRoundCountByGameId[realtimeGameId] ?? 1;
+}
+
+function toCoinNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function getHoldingCoin(profile?: Record<string, unknown>): number {
+  return (
+    toCoinNumber(profile?.holdingCoin) ??
+    toCoinNumber(profile?.coinBalance) ??
+    toCoinNumber(profile?.balance) ??
+    0
+  );
 }
 
 function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
@@ -208,6 +233,7 @@ export function CoinBattleScreen(): JSX.Element {
     () => mapRealtimeRooms(realtimeRooms),
     [realtimeRooms],
   );
+  const holdingCoin = getHoldingCoin(auth?.profile);
   const maxRoundCount = getMaxRoundCount(realtimeGameId);
   const visibleRoundOptions = useMemo(() => {
     return roundOptions.filter(option => option <= maxRoundCount);
@@ -323,8 +349,21 @@ export function CoinBattleScreen(): JSX.Element {
 
   const handleCreateRoom = () => {
     const clampedRoundCount = Math.min(totalRoundCount, maxRoundCount);
+    const clampedBetAmount = Math.min(
+      MAX_BET_AMOUNT,
+      Math.max(MIN_BET_AMOUNT, betAmount),
+    );
+
+    if (holdingCoin < clampedBetAmount) {
+      Alert.alert(
+        '코인이 부족합니다',
+        `보유코인 ${holdingCoin}개로는 베팅 코인 ${clampedBetAmount}개 방을 만들 수 없습니다.`,
+      );
+      return;
+    }
+
     const created = createRoom({
-      betAmount: Math.min(MAX_BET_AMOUNT, Math.max(MIN_BET_AMOUNT, betAmount)),
+      betAmount: clampedBetAmount,
       realtimeGameId,
       roomName: roomName.trim() || '코인대전 대기방',
       totalRoundCount: clampedRoundCount,
@@ -341,6 +380,14 @@ export function CoinBattleScreen(): JSX.Element {
   };
 
   const handleEnterRoom = (room: DisplayRoom) => {
+    if (holdingCoin < room.betAmount) {
+      Alert.alert(
+        '코인이 부족합니다',
+        `보유코인 ${holdingCoin}개로는 베팅 코인 ${room.betAmount}개 방에 입장할 수 없습니다.`,
+      );
+      return;
+    }
+
     if (room.isRealtime) {
       enterRoom(room.id);
     }
