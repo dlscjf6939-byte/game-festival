@@ -10,6 +10,7 @@ import {
   PanResponder,
   Platform,
   RefreshControl,
+  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -314,7 +315,8 @@ export function FeedScreen(): JSX.Element {
     selectedEmployeeFeedPost?.commentCount ??
     selectedEmployeeFeedPost?.comments.length ??
     0;
-  const selectedEmployeePostIsLiked = selectedEmployeePostInteraction?.isLiked ?? Boolean(selectedEmployeeFeedPost?.isLiked);
+  const selectedEmployeePostIsLiked =
+    selectedEmployeePostInteraction?.isLiked ?? Boolean(selectedEmployeeFeedPost?.isLiked);
   const selectedEmployeePostLikeCount = selectedEmployeePostInteraction?.likes ?? selectedEmployeeFeedPost?.likes ?? 0;
   const employeePostDetailAnimatedStyle = {
     opacity: employeePostDetailProgress,
@@ -350,39 +352,42 @@ export function FeedScreen(): JSX.Element {
     });
   }, [highlightGroups, refreshHighlightPosts]);
 
-  const openComments = useCallback((postId: string) => {
-    setSelectedPostId(postId);
-    bottomSheetRef.current?.snapToIndex(0);
-    setIsLoadingComments(true);
-    fetchComments(postId)
-      .then(comments => {
-        setCommentsByPost(prevComments => ({
-          ...prevComments,
-          [postId]: comments,
-        }));
-        setEmployeePostInteractions(prevInteractions => {
-          const currentInteraction = prevInteractions[postId];
+  const openComments = useCallback(
+    (postId: string) => {
+      setSelectedPostId(postId);
+      bottomSheetRef.current?.snapToIndex(0);
+      setIsLoadingComments(true);
+      fetchComments(postId)
+        .then(comments => {
+          setCommentsByPost(prevComments => ({
+            ...prevComments,
+            [postId]: comments,
+          }));
+          setEmployeePostInteractions(prevInteractions => {
+            const currentInteraction = prevInteractions[postId];
 
-          if (!currentInteraction) {
-            return prevInteractions;
-          }
+            if (!currentInteraction) {
+              return prevInteractions;
+            }
 
-          return {
-            ...prevInteractions,
-            [postId]: {
-              ...currentInteraction,
-              commentCount: comments.length,
-            },
-          };
+            return {
+              ...prevInteractions,
+              [postId]: {
+                ...currentInteraction,
+                commentCount: comments.length,
+              },
+            };
+          });
+        })
+        .catch(error => {
+          console.log('[FeedScreen] fetchComments failed', {error, postId});
+        })
+        .finally(() => {
+          setIsLoadingComments(false);
         });
-      })
-      .catch(error => {
-        console.log('[FeedScreen] fetchComments failed', {error, postId});
-      })
-      .finally(() => {
-        setIsLoadingComments(false);
-      });
-  }, [fetchComments]);
+    },
+    [fetchComments],
+  );
 
   const openHighlight = useCallback(
     (highlightId: string) => {
@@ -899,7 +904,9 @@ export function FeedScreen(): JSX.Element {
           employeeId: post.writerEmployeeId,
           error,
         });
-        setProfileErrorMessage(error instanceof Error && error.message ? error.message : '회원 프로필 조회에 실패했습니다.');
+        setProfileErrorMessage(
+          error instanceof Error && error.message ? error.message : '회원 프로필 조회에 실패했습니다.',
+        );
       } finally {
         setIsProfileLoading(false);
       }
@@ -1079,7 +1086,7 @@ export function FeedScreen(): JSX.Element {
 
   return (
     <TabSceneTransition>
-      <View style={[styles.safeArea, {paddingTop: topSafeArea}]}>
+      <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" hidden={isHighlightVisible} />
 
         <View style={styles.screen}>
@@ -1235,7 +1242,10 @@ export function FeedScreen(): JSX.Element {
                                   {postImages.map((_, index) => (
                                     <View
                                       key={`${post.id}-dot-${index}`}
-                                      style={[styles.postImageDot, index === activeImageIndex && styles.postImageDotActive]}
+                                      style={[
+                                        styles.postImageDot,
+                                        index === activeImageIndex && styles.postImageDotActive,
+                                      ]}
                                     />
                                   ))}
                                 </View>
@@ -1584,7 +1594,9 @@ export function FeedScreen(): JSX.Element {
                   <View style={styles.employeeProfileHeader}>
                     {selectedEmployeePost ? (
                       <AnimatedPressable
-                        accessibilityLabel={isEmployeePostCommentsVisible ? '게시글로 돌아가기' : '회원 게시글 목록으로 돌아가기'}
+                        accessibilityLabel={
+                          isEmployeePostCommentsVisible ? '게시글로 돌아가기' : '회원 게시글 목록으로 돌아가기'
+                        }
                         accessibilityRole="button"
                         onPress={isEmployeePostCommentsVisible ? closeEmployeePostComments : closeEmployeePostDetail}
                         style={styles.employeeProfileHeaderButton}>
@@ -1672,7 +1684,9 @@ export function FeedScreen(): JSX.Element {
                               {selectedEmployeeProfile.employeeName}
                             </Text>
                             <Text numberOfLines={1} style={styles.employeePostDetailHeaderRole}>
-                              {selectedEmployeeProfile.department ?? selectedEmployeeProfile.division ?? '소속 정보 없음'}
+                              {selectedEmployeeProfile.department ??
+                                selectedEmployeeProfile.division ??
+                                '소속 정보 없음'}
                             </Text>
                           </View>
                         </View>
@@ -1721,7 +1735,7 @@ export function FeedScreen(): JSX.Element {
                         </View>
                         <Text style={styles.employeePostDetailLikeText}>
                           좋아요 {formatCount(selectedEmployeePostLikeCount)}개
-                          </Text>
+                        </Text>
                         <Text style={styles.employeePostDetailTitle}>{selectedEmployeePost.title}</Text>
                         <Text style={styles.employeePostDetailMeta}>
                           {selectedEmployeePost.createdAt || '작성일 정보 없음'}
@@ -1742,38 +1756,25 @@ export function FeedScreen(): JSX.Element {
                       showsVerticalScrollIndicator={false}
                       style={styles.employeeProfileScroll}>
                       <View style={styles.employeeProfileHero}>
-                        <Image source={employeeProfileImageSource} style={styles.employeeProfileAvatar} resizeMode="cover" />
+                        <Image
+                          source={employeeProfileImageSource}
+                          style={styles.employeeProfileAvatar}
+                          resizeMode="cover"
+                        />
                         <Text numberOfLines={1} style={styles.employeeProfileName}>
                           {selectedEmployeeProfile.employeeName}
                         </Text>
                         <Text numberOfLines={1} style={styles.employeeProfileSubText}>
-                          {[selectedEmployeeProfile.division, selectedEmployeeProfile.department].filter(Boolean).join(' · ') ||
-                            '소속 정보 없음'}
+                          {[selectedEmployeeProfile.division, selectedEmployeeProfile.department]
+                            .filter(Boolean)
+                            .join(' · ') || '소속 정보 없음'}
                         </Text>
                       </View>
 
                       <View style={styles.employeeInfoList}>
                         <View style={styles.employeeInfoRow}>
-                          <Text style={styles.employeeInfoLabel}>이름</Text>
-                          <Text numberOfLines={1} style={styles.employeeInfoValue}>
-                            {selectedEmployeeProfile.employeeName}
-                          </Text>
-                        </View>
-                        <View style={styles.employeeInfoRow}>
-                          <Text style={styles.employeeInfoLabel}>본부</Text>
-                          <Text numberOfLines={1} style={styles.employeeInfoValue}>
-                            {selectedEmployeeProfile.division ?? '정보 없음'}
-                          </Text>
-                        </View>
-                        <View style={styles.employeeInfoRow}>
-                          <Text style={styles.employeeInfoLabel}>부서</Text>
-                          <Text numberOfLines={1} style={styles.employeeInfoValue}>
-                            {selectedEmployeeProfile.department ?? '정보 없음'}
-                          </Text>
-                        </View>
-                        <View style={styles.employeeInfoRow}>
                           <Text style={styles.employeeInfoLabel}>소개</Text>
-                          <Text numberOfLines={2} style={styles.employeeInfoValue}>
+                          <Text style={styles.employeeInfoValue}>
                             {selectedEmployeeProfile.introduction ?? '소개가 아직 없습니다.'}
                           </Text>
                         </View>
@@ -2013,7 +2014,7 @@ export function FeedScreen(): JSX.Element {
             </KeyboardAvoidingView>
           </Modal>
         </View>
-      </View>
+      </SafeAreaView>
     </TabSceneTransition>
   );
 }
