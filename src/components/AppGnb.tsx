@@ -3,28 +3,16 @@ import {Image, StyleSheet, View} from 'react-native';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {image} from '../assets/images';
 import {AnimatedPressable} from './AnimatedPressable';
-import type {
-  MainStackParamList,
-  RootStackParamList,
-} from '../navigation/types';
+import type {MainStackParamList, RootStackParamList} from '../navigation/types';
 
-function HeaderAction({
-  onPress,
-  variant,
-}: {
-  onPress?: () => void;
-  variant: 'bell' | 'coin';
-}): JSX.Element {
+function HeaderAction({onPress, variant}: {onPress?: () => void; variant: 'bell' | 'coin'}): JSX.Element {
   return (
     <AnimatedPressable
-      accessibilityLabel={variant === 'coin' ? 'QR 스캔' : '알림'}
+      accessibilityLabel={variant === 'coin' ? 'QR 스캔' : '설문'}
       accessibilityRole="button"
       onPress={onPress}
       style={styles.headerAction}>
-      <Image
-        source={variant === 'bell' ? image.noti : image.qrCode}
-        style={styles.headerActionIcon}
-      />
+      <Image source={variant === 'bell' ? image.noti : image.qrCode} style={styles.headerActionIcon} />
     </AnimatedPressable>
   );
 }
@@ -37,21 +25,16 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
   const navigation = useNavigation<NavigationProp<MainStackParamList>>();
 
   const handleQrPress = () => {
-    const parentNavigation =
-      navigation.getParent<NavigationProp<RootStackParamList>>();
+    const parentNavigation = navigation.getParent<NavigationProp<RootStackParamList>>();
 
     parentNavigation?.navigate('QrScan');
   };
 
   return (
     <View style={styles.gnb}>
-      <Image
-        source={image.logo}
-        style={styles.logoImage}
-        resizeMode="contain"
-      />
+      <Image source={image.logo} style={styles.logoImage} resizeMode="contain" />
       <View style={styles.gnbActions}>
-        <HeaderAction variant="bell" />
+        {/* <HeaderAction variant="bell" /> */}
         <HeaderAction onPress={handleQrPress} variant="coin" />
       </View>
     </View>

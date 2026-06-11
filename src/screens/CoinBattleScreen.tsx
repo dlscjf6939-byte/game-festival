@@ -1,8 +1,9 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
   Alert,
+  ActivityIndicator,
   Animated,
   Image,
   KeyboardAvoidingView,
@@ -22,11 +23,8 @@ import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {useAuth} from '../auth/AuthProvider';
-import {
-  useCoinBattleRooms,
-  type CoinBattleRoom,
-  type CoinBattleRoomStatus,
-} from '../hooks/useCoinBattleRooms';
+import {useCoin} from '../coin/CoinProvider';
+import {useCoinBattleRooms, type CoinBattleRoom, type CoinBattleRoomStatus} from '../hooks/useCoinBattleRooms';
 import type {CoinBattleStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 
@@ -43,15 +41,28 @@ type DisplayRoom = {
   hostProfileImageUri?: string;
   id: string;
   isRealtime: boolean;
+  maxMembers: number;
+  memberEmployeeIds: number[];
+  memberNames: string[];
+  memberCount: number;
   ownerEmployeeId?: number;
+  roomStatus?: CoinBattleRoomStatus;
   status: string;
   statusTone: 'playing' | 'waiting';
   title: string;
 };
 
-const filters = ['전체', '대기중', '게임중'];
+const filters = [
+  {id: 'all', label: '전체'},
+  {id: 'waiting', label: '대기중'},
+  {id: 'playing', label: '게임중'},
+] as const;
+
+type RoomFilterId = (typeof filters)[number]['id'];
+
 const quickActions = [
   {id: 'create', label: '방 만들기', iconSource: icon.plusBtn},
+  {id: 'search', label: '방 검색', iconSource: icon.search},
   {id: 'guide', label: '연습', iconSource: icon.howBtn},
 ];
 
@@ -124,8 +135,11 @@ function getRoomHostProfileImageUri(room: CoinBattleRoom): string | undefined {
 
 function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
   return rooms.map((room, index) => {
-    const status = getRoomStatusLabel(room.roomStatus);
-    const statusTone = room.roomStatus === 'WAITING' ? 'waiting' : 'playing';
+    const memberCount = Math.max(room.currentMemberCount, room.roomMembers.length);
+    const isFull = memberCount >= room.maxMembers || room.roomStatus === 'FULL';
+    const roomStatus = isFull && room.roomStatus === 'WAITING' ? 'FULL' : room.roomStatus;
+    const status = getRoomStatusLabel(roomStatus);
+    const statusTone = roomStatus === 'WAITING' ? 'waiting' : 'playing';
 
     return {
       betAmount: room.betAmount ?? MIN_BET_AMOUNT,
@@ -135,7 +149,12 @@ function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
       hostProfileImageUri: getRoomHostProfileImageUri(room),
       id: room.roomId,
       isRealtime: true,
+      maxMembers: room.maxMembers,
+      memberCount,
+      memberEmployeeIds: room.roomMembers.map(member => member.employeeId),
+      memberNames: room.roomMembers.map(member => member.employeeName),
       ownerEmployeeId: room.ownerEmployeeId,
+      roomStatus,
       status,
       statusTone,
       title: room.roomName,
@@ -143,10 +162,7 @@ function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
   });
 }
 
-function isSameEmployeeId(
-  left?: number | string,
-  right?: number | string,
-): boolean {
+function isSameEmployeeId(left?: number | string, right?: number | string): boolean {
   if (left === undefined || right === undefined) {
     return false;
   }
@@ -173,11 +189,46 @@ function toCoinNumber(value: unknown): number | null {
 
 function getHoldingCoin(profile?: Record<string, unknown>): number {
   return (
-    toCoinNumber(profile?.holdingCoin) ??
-    toCoinNumber(profile?.coinBalance) ??
-    toCoinNumber(profile?.balance) ??
-    0
+    toCoinNumber(profile?.holdingCoin) ?? toCoinNumber(profile?.coinBalance) ?? toCoinNumber(profile?.balance) ?? 0
   );
+}
+
+function isCurrentUserRoomMember(room: DisplayRoom, employeeId?: number | string): boolean {
+  return room.memberEmployeeIds.some(memberEmployeeId => isSameEmployeeId(memberEmployeeId, employeeId));
+}
+
+function isRoomEntryBlocked(room: DisplayRoom, employeeId?: number | string): boolean {
+  if (isCurrentUserRoomMember(room, employeeId)) {
+    return false;
+  }
+
+  return room.roomStatus === 'FULL' || room.roomStatus === 'IN_PROGRESS' || room.memberCount >= room.maxMembers;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function matchesRoomSearch(room: DisplayRoom, query: string): boolean {
+  const normalizedQuery = normalizeSearchText(query);
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return [room.title, room.host, ...room.memberNames].join(' ').toLowerCase().includes(normalizedQuery);
+}
+
+function matchesRoomFilter(room: DisplayRoom, filterId: RoomFilterId): boolean {
+  if (filterId === 'waiting') {
+    return room.roomStatus === 'WAITING' || room.roomStatus === undefined;
+  }
+
+  if (filterId === 'playing') {
+    return room.roomStatus === 'IN_PROGRESS';
+  }
+
+  return true;
 }
 
 function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
@@ -195,11 +246,7 @@ function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
           },
         ]}
       /> */}
-      <View
-        style={[
-          styles.statusBadge,
-          isWaiting ? styles.statusWaiting : styles.statusPlaying,
-        ]}>
+      <View style={[styles.statusBadge, isWaiting ? styles.statusWaiting : styles.statusPlaying]}>
         <Text style={styles.statusText}>{room.status}</Text>
       </View>
     </View>
@@ -207,17 +254,24 @@ function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
 }
 
 export function CoinBattleScreen(): JSX.Element {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
   const {auth, refreshProfile} = useAuth();
+  const {holdingCoin: latestHoldingCoin, refreshAllCoins, refreshCoinSummary} = useCoin();
   const scrollY = useRef(new Animated.Value(0)).current;
   const quickActionProgress = useRef(new Animated.Value(0)).current;
   const createModalProgress = useRef(new Animated.Value(0)).current;
   const betAmountScale = useRef(new Animated.Value(1)).current;
   const autoNavigatedRoomIdRef = useRef<string | null>(null);
+  const createRoomPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const createRoomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [quickActionOpen, setQuickActionOpen] = useState(false);
   const [quickActionVisible, setQuickActionVisible] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [pendingCreatedRoomName, setPendingCreatedRoomName] = useState<string | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [activeFilterId, setActiveFilterId] = useState<RoomFilterId>('all');
   const [roomName, setRoomName] = useState('저랑 코인걸고 게임 한판 하실분!!!');
   const [realtimeGameId, setRealtimeGameId] = useState(1);
   const [totalRoundCount, setTotalRoundCount] = useState(1);
@@ -225,27 +279,53 @@ export function CoinBattleScreen(): JSX.Element {
   const {
     createRoom,
     enterRoom,
+    requestRooms,
     rooms: realtimeRooms,
   } = useCoinBattleRooms({
     accessToken: auth?.accessToken,
   });
-  const visibleRooms = useMemo(
-    () => mapRealtimeRooms(realtimeRooms),
-    [realtimeRooms],
+  const visibleRooms = useMemo(() => mapRealtimeRooms(realtimeRooms), [realtimeRooms]);
+  const filteredRooms = useMemo(
+    () =>
+      visibleRooms.filter(room => matchesRoomFilter(room, activeFilterId) && matchesRoomSearch(room, searchKeyword)),
+    [activeFilterId, searchKeyword, visibleRooms],
   );
-  const holdingCoin = getHoldingCoin(auth?.profile);
   const maxRoundCount = getMaxRoundCount(realtimeGameId);
   const visibleRoundOptions = useMemo(() => {
     return roundOptions.filter(option => option <= maxRoundCount);
   }, [maxRoundCount]);
   const ownedRoom = useMemo(() => {
     return visibleRooms.find(room => {
-      return (
-        room.isRealtime &&
-        isSameEmployeeId(room.ownerEmployeeId, auth?.employeeId)
-      );
+      return room.isRealtime && isSameEmployeeId(room.ownerEmployeeId, auth?.employeeId);
     });
   }, [auth?.employeeId, visibleRooms]);
+  const pendingCreatedRoom = useMemo(() => {
+    if (!pendingCreatedRoomName) {
+      return undefined;
+    }
+
+    return visibleRooms.find(room => {
+      return room.title === pendingCreatedRoomName || isSameEmployeeId(room.ownerEmployeeId, auth?.employeeId);
+    });
+  }, [auth?.employeeId, pendingCreatedRoomName, visibleRooms]);
+
+  const clearCreateRoomWaiters = useCallback(() => {
+    if (createRoomPollIntervalRef.current) {
+      clearInterval(createRoomPollIntervalRef.current);
+      createRoomPollIntervalRef.current = null;
+    }
+
+    if (createRoomTimeoutRef.current) {
+      clearTimeout(createRoomTimeoutRef.current);
+      createRoomTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearCreateRoomWaiters();
+    };
+  }, [clearCreateRoomWaiters]);
 
   useEffect(() => {
     setTotalRoundCount(previousCount => {
@@ -308,6 +388,10 @@ export function CoinBattleScreen(): JSX.Element {
   };
 
   const closeCreateModal = () => {
+    if (isCreatingRoom) {
+      return;
+    }
+
     Animated.timing(createModalProgress, {
       toValue: 0,
       duration: 160,
@@ -336,10 +420,7 @@ export function CoinBattleScreen(): JSX.Element {
   };
 
   const updateBetAmount = (nextAmount: number) => {
-    const clampedAmount = Math.min(
-      MAX_BET_AMOUNT,
-      Math.max(MIN_BET_AMOUNT, nextAmount),
-    );
+    const clampedAmount = Math.min(MAX_BET_AMOUNT, Math.max(MIN_BET_AMOUNT, nextAmount));
 
     if (clampedAmount !== betAmount) {
       animateBetAmount();
@@ -347,43 +428,95 @@ export function CoinBattleScreen(): JSX.Element {
     }
   };
 
-  const handleCreateRoom = () => {
-    const clampedRoundCount = Math.min(totalRoundCount, maxRoundCount);
-    const clampedBetAmount = Math.min(
-      MAX_BET_AMOUNT,
-      Math.max(MIN_BET_AMOUNT, betAmount),
-    );
-
-    if (holdingCoin < clampedBetAmount) {
-      Alert.alert(
-        '코인이 부족합니다',
-        `보유코인 ${holdingCoin}개로는 베팅 코인 ${clampedBetAmount}개 방을 만들 수 없습니다.`,
-      );
+  const handleCreateRoom = async () => {
+    if (isCreatingRoom) {
       return;
     }
 
-    const created = createRoom({
-      betAmount: clampedBetAmount,
-      realtimeGameId,
-      roomName: roomName.trim() || '코인대전 대기방',
-      totalRoundCount: clampedRoundCount,
-    });
+    const clampedRoundCount = Math.min(totalRoundCount, maxRoundCount);
+    const clampedBetAmount = Math.min(MAX_BET_AMOUNT, Math.max(MIN_BET_AMOUNT, betAmount));
+    const normalizedRoomName = roomName.trim() || '코인대전 대기방';
 
-    if (created) {
-      refreshProfile().catch(error => {
-        if (__DEV__) {
-          console.log('[CoinBattleScreen] profile refresh after create failed', error);
-        }
+    setIsCreatingRoom(true);
+    setPendingCreatedRoomName(null);
+    clearCreateRoomWaiters();
+
+    try {
+      const latestCoinSummary = await refreshCoinSummary(false);
+      const currentHoldingCoin = latestCoinSummary?.holdingCoin ?? latestHoldingCoin ?? getHoldingCoin(auth?.profile);
+
+      if (currentHoldingCoin < clampedBetAmount) {
+        setIsCreatingRoom(false);
+        Alert.alert(
+          '코인이 부족합니다',
+          `보유코인 ${currentHoldingCoin}개로는 베팅 코인 ${clampedBetAmount}개 방을 만들 수 없습니다.`,
+        );
+        return;
+      }
+
+      const created = createRoom({
+        betAmount: clampedBetAmount,
+        realtimeGameId,
+        roomName: normalizedRoomName,
+        totalRoundCount: clampedRoundCount,
       });
-      closeCreateModal();
+
+      if (!created) {
+        setIsCreatingRoom(false);
+        Alert.alert('방 생성 실패', '소켓 연결 상태를 확인한 뒤 다시 시도해 주세요.');
+        return;
+      }
+
+      setPendingCreatedRoomName(normalizedRoomName);
+      requestRooms();
+      createRoomPollIntervalRef.current = setInterval(() => {
+        requestRooms();
+      }, 1500);
+      createRoomTimeoutRef.current = setTimeout(() => {
+        clearCreateRoomWaiters();
+        setIsCreatingRoom(false);
+        setPendingCreatedRoomName(null);
+        requestRooms();
+        Alert.alert('방 생성 지연', '방 생성 반영이 늦어지고 있습니다. 잠시 후 목록을 다시 확인해 주세요.');
+      }, 10000);
+
+      Promise.allSettled([refreshProfile(), refreshAllCoins()]).then(results => {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected' && __DEV__) {
+            console.log('[CoinBattleScreen] refresh after create failed', {index, reason: result.reason});
+          }
+        });
+      });
+    } catch (error) {
+      clearCreateRoomWaiters();
+      setIsCreatingRoom(false);
+      setPendingCreatedRoomName(null);
+      Alert.alert('방 생성 실패', error instanceof Error ? error.message : '방 생성 중 오류가 발생했습니다.');
     }
   };
 
-  const handleEnterRoom = (room: DisplayRoom) => {
-    if (holdingCoin < room.betAmount) {
+  const handleEnterRoom = async (room: DisplayRoom) => {
+    const isMyRoomMember = isCurrentUserRoomMember(room, auth?.employeeId);
+    const isRoomFull = room.roomStatus === 'FULL' || room.memberCount >= room.maxMembers;
+    const isRoomInProgress = room.roomStatus === 'IN_PROGRESS';
+
+    if (!isMyRoomMember && isRoomFull) {
+      Alert.alert('정원이 가득 찼습니다', '이미 2명이 입장한 방에는 들어갈 수 없습니다.');
+      return;
+    }
+
+    if (!isMyRoomMember && isRoomInProgress) {
+      Alert.alert('게임이 진행 중입니다', '이미 시작된 방에는 입장할 수 없습니다.');
+      return;
+    }
+
+    const latestCoinSummary = await refreshCoinSummary(false);
+    const currentHoldingCoin = latestCoinSummary?.holdingCoin ?? latestHoldingCoin ?? getHoldingCoin(auth?.profile);
+
+    if (currentHoldingCoin < room.betAmount) {
       Alert.alert(
         '코인이 부족합니다',
-        `보유코인 ${holdingCoin}개로는 베팅 코인 ${room.betAmount}개 방에 입장할 수 없습니다.`,
+        `보유코인 ${currentHoldingCoin}개로는 베팅 코인 ${room.betAmount}개 방에 입장할 수 없습니다.`,
       );
       return;
     }
@@ -403,26 +536,33 @@ export function CoinBattleScreen(): JSX.Element {
   };
 
   useEffect(() => {
-    if (!ownedRoom || autoNavigatedRoomIdRef.current === ownedRoom.id) {
+    const nextRoom = pendingCreatedRoom ?? ownedRoom;
+
+    if (!nextRoom || autoNavigatedRoomIdRef.current === nextRoom.id) {
       return;
     }
 
     if (__DEV__) {
       console.log('[CoinBattleScreen] auto navigate owned room', {
-        ownedRoomId: ownedRoom.id,
+        ownedRoomId: nextRoom.id,
       });
     }
 
-    autoNavigatedRoomIdRef.current = ownedRoom.id;
+    clearCreateRoomWaiters();
+    setIsCreatingRoom(false);
+    setPendingCreatedRoomName(null);
+    setCreateModalVisible(false);
+
+    autoNavigatedRoomIdRef.current = nextRoom.id;
     navigation.replace('CoinBattleRoom', {
-      game: ownedRoom.game,
-      host: ownedRoom.host,
-      isRealtime: ownedRoom.isRealtime,
-      roomId: ownedRoom.id,
-      status: ownedRoom.status,
-      title: ownedRoom.title,
+      game: nextRoom.game,
+      host: nextRoom.host,
+      isRealtime: nextRoom.isRealtime,
+      roomId: nextRoom.id,
+      status: nextRoom.status,
+      title: nextRoom.title,
     });
-  }, [navigation, ownedRoom]);
+  }, [clearCreateRoomWaiters, navigation, ownedRoom, pendingCreatedRoom]);
 
   return (
     <TabSceneTransition>
@@ -435,10 +575,7 @@ export function CoinBattleScreen(): JSX.Element {
             bounces={false}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
-            onScroll={Animated.event(
-              [{nativeEvent: {contentOffset: {y: scrollY}}}],
-              {useNativeDriver: true},
-            )}
+            onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
             scrollEventThrottle={16}>
             <View style={styles.titleRow}>
               <Text style={styles.title}>코인대전</Text>
@@ -451,65 +588,98 @@ export function CoinBattleScreen(): JSX.Element {
             </View>
 
             <View style={styles.filterRow}>
-              {filters.map((filter, index) => {
-                const active = index === 0;
+              {filters.map(filter => {
+                const active = activeFilterId === filter.id;
 
                 return (
-                  <View
-                    key={filter}
-                    style={[
-                      styles.filterChip,
-                      active && styles.filterChipActive,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.filterText,
-                        active && styles.filterTextActive,
-                      ]}>
-                      {filter}
-                    </Text>
-                  </View>
+                  <AnimatedPressable
+                    key={filter.id}
+                    accessibilityRole="button"
+                    onPress={() => setActiveFilterId(filter.id)}
+                    style={[styles.filterChip, active && styles.filterChipActive]}>
+                    <Text style={[styles.filterText, active && styles.filterTextActive]}>{filter.label}</Text>
+                  </AnimatedPressable>
                 );
               })}
             </View>
+
+            {isSearchOpen ? (
+              <View style={styles.searchBar}>
+                <Image source={icon.search} style={styles.searchIcon} resizeMode="contain" />
+                <TextInput
+                  autoFocus
+                  onChangeText={setSearchKeyword}
+                  placeholder="방 제목, 사용자 이름 검색"
+                  placeholderTextColor="#777A82"
+                  selectionColor="#E50914"
+                  style={styles.searchInput}
+                  value={searchKeyword}
+                />
+                <AnimatedPressable
+                  accessibilityLabel="검색 닫기"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setSearchKeyword('');
+                    setIsSearchOpen(false);
+                  }}
+                  style={styles.searchClearButton}>
+                  <Image source={icon.closeBtn} style={styles.searchClearIcon} resizeMode="contain" />
+                </AnimatedPressable>
+              </View>
+            ) : null}
 
             {visibleRooms.length === 0 ? (
               <View style={styles.emptyRoomState}>
                 <Text style={styles.emptyRoomText}>방이 없습니다.</Text>
               </View>
+            ) : filteredRooms.length === 0 ? (
+              <View style={styles.emptyRoomState}>
+                <Text style={styles.emptyRoomText}>
+                  {searchKeyword.trim() ? '검색 결과가 없습니다.' : '조건에 맞는 방이 없습니다.'}
+                </Text>
+              </View>
             ) : (
               <View style={styles.roomList}>
-                {visibleRooms.map(room => (
-                  <AnimatedPressable
-                    key={room.id}
-                    onPress={() => handleEnterRoom(room)}
-                    style={styles.roomRow}>
-                    <Thumbnail room={room} />
+                {filteredRooms.map(room => {
+                  const isEntryBlocked = isRoomEntryBlocked(room, auth?.employeeId);
 
-                    <View style={styles.roomInfo}>
-                      <Text numberOfLines={2} style={styles.roomTitle}>
-                        {room.title}
-                      </Text>
+                  return (
+                    <AnimatedPressable
+                      key={room.id}
+                      disabled={isEntryBlocked}
+                      onPress={() => handleEnterRoom(room)}
+                      style={[styles.roomRow, isEntryBlocked && styles.roomRowDisabled]}>
+                      <Thumbnail room={room} />
 
-                      <View style={styles.hostRow}>
-                        <Image
-                          resizeMode="cover"
-                          source={room.hostProfileImageUri ? {uri: room.hostProfileImageUri} : image.profile}
-                          style={styles.hostDot}
-                        />
-                        <Text numberOfLines={1} style={styles.hostName}>
-                          {room.host}
+                      <View style={styles.roomInfo}>
+                        <Text numberOfLines={2} style={styles.roomTitle}>
+                          {room.title}
+                        </Text>
+
+                        <View style={styles.hostRow}>
+                          <Image
+                            resizeMode="cover"
+                            source={room.hostProfileImageUri ? {uri: room.hostProfileImageUri} : image.profile}
+                            style={styles.hostDot}
+                          />
+                          <Text numberOfLines={1} style={styles.hostName}>
+                            {room.host}
+                          </Text>
+                        </View>
+
+                        <View style={styles.gameChip}>
+                          <Text numberOfLines={1} style={styles.gameChipText}>
+                            {room.game}
+                          </Text>
+                        </View>
+
+                        <Text style={styles.memberCountText}>
+                          {room.memberCount}/{room.maxMembers}
                         </Text>
                       </View>
-
-                      <View style={styles.gameChip}>
-                        <Text numberOfLines={1} style={styles.gameChipText}>
-                          {room.game}
-                        </Text>
-                      </View>
-                    </View>
-                  </AnimatedPressable>
-                ))}
+                    </AnimatedPressable>
+                  );
+                })}
               </View>
             )}
           </Animated.ScrollView>
@@ -542,7 +712,20 @@ export function CoinBattleScreen(): JSX.Element {
                       accessibilityRole="button"
                       onPress={() => {
                         if (action.id === 'create') {
+                          setQuickActionOpen(false);
                           openCreateModal();
+                          return;
+                        }
+
+                        if (action.id === 'search') {
+                          setQuickActionOpen(false);
+                          setIsSearchOpen(current => {
+                            if (current) {
+                              setSearchKeyword('');
+                            }
+
+                            return !current;
+                          });
                           return;
                         }
 
@@ -564,10 +747,7 @@ export function CoinBattleScreen(): JSX.Element {
             accessibilityLabel={quickActionOpen ? '목록 닫기' : '목록 열기'}
             accessibilityRole="button"
             onPress={() => setQuickActionOpen(current => !current)}
-            style={[
-              styles.fab,
-              quickActionOpen ? styles.fabOpen : styles.fabClosed,
-            ]}>
+            style={[styles.fab, quickActionOpen ? styles.fabOpen : styles.fabClosed]}>
             <Animated.Image
               resizeMode="contain"
               source={icon.plusBtn}
@@ -580,23 +760,10 @@ export function CoinBattleScreen(): JSX.Element {
             />
           </AnimatedPressable>
 
-          <Modal
-            animationType="none"
-            onRequestClose={closeCreateModal}
-            transparent
-            visible={createModalVisible}>
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              style={styles.modalOverlay}>
-              <Pressable
-                style={styles.modalBackdropButton}
-                onPress={closeCreateModal}>
-                <Animated.View
-                  style={[
-                    styles.modalBackdrop,
-                    {opacity: modalBackdropOpacity},
-                  ]}
-                />
+          <Modal animationType="none" onRequestClose={closeCreateModal} transparent visible={createModalVisible}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+              <Pressable disabled={isCreatingRoom} style={styles.modalBackdropButton} onPress={closeCreateModal}>
+                <Animated.View style={[styles.modalBackdrop, {opacity: modalBackdropOpacity}]} />
               </Pressable>
               <Animated.View
                 style={[
@@ -610,6 +777,7 @@ export function CoinBattleScreen(): JSX.Element {
 
                 <Text style={styles.createLabel}>방 제목</Text>
                 <TextInput
+                  editable={!isCreatingRoom}
                   onChangeText={setRoomName}
                   placeholder="방 제목을 입력하세요"
                   placeholderTextColor="#777777"
@@ -626,23 +794,15 @@ export function CoinBattleScreen(): JSX.Element {
                     return (
                       <AnimatedPressable
                         key={option.id}
+                        disabled={isCreatingRoom}
                         onPress={() => {
                           setRealtimeGameId(option.id);
                           setTotalRoundCount(previousCount => {
                             return Math.min(previousCount, getMaxRoundCount(option.id));
                           });
                         }}
-                        style={[
-                          styles.optionChip,
-                          active && styles.optionChipActive,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.optionText,
-                            active && styles.optionTextActive,
-                          ]}>
-                          {option.label}
-                        </Text>
+                        style={[styles.optionChip, active && styles.optionChipActive]}>
+                        <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
                       </AnimatedPressable>
                     );
                   })}
@@ -656,18 +816,10 @@ export function CoinBattleScreen(): JSX.Element {
                     return (
                       <AnimatedPressable
                         key={option}
+                        disabled={isCreatingRoom}
                         onPress={() => setTotalRoundCount(option)}
-                        style={[
-                          styles.roundChip,
-                          active && styles.optionChipActive,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.optionText,
-                            active && styles.optionTextActive,
-                          ]}>
-                          {option}
-                        </Text>
+                        style={[styles.roundChip, active && styles.optionChipActive]}>
+                        <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
                       </AnimatedPressable>
                     );
                   })}
@@ -677,6 +829,7 @@ export function CoinBattleScreen(): JSX.Element {
                 <View style={styles.stepper}>
                   {betAmount > MIN_BET_AMOUNT ? (
                     <AnimatedPressable
+                      disabled={isCreatingRoom}
                       onPress={() => updateBetAmount(betAmount - 1)}
                       style={styles.stepperButton}>
                       <Text style={styles.stepperButtonText}>−</Text>
@@ -684,15 +837,12 @@ export function CoinBattleScreen(): JSX.Element {
                   ) : (
                     <View style={styles.stepperButton} />
                   )}
-                  <Animated.Text
-                    style={[
-                      styles.stepperValue,
-                      {transform: [{scale: betAmountScale}]},
-                    ]}>
+                  <Animated.Text style={[styles.stepperValue, {transform: [{scale: betAmountScale}]}]}>
                     {betAmount}
                   </Animated.Text>
                   {betAmount < MAX_BET_AMOUNT ? (
                     <AnimatedPressable
+                      disabled={isCreatingRoom}
                       onPress={() => updateBetAmount(betAmount + 1)}
                       style={styles.stepperButton}>
                       <Text style={styles.stepperButtonText}>＋</Text>
@@ -704,14 +854,19 @@ export function CoinBattleScreen(): JSX.Element {
 
                 <View style={styles.createActions}>
                   <AnimatedPressable
+                    disabled={isCreatingRoom}
                     onPress={closeCreateModal}
-                    style={styles.cancelButton}>
+                    style={[styles.cancelButton, isCreatingRoom && styles.cancelButtonDisabled]}>
                     <Text style={styles.cancelButtonText}>취소</Text>
                   </AnimatedPressable>
                   <AnimatedPressable
+                    disabled={isCreatingRoom}
                     onPress={handleCreateRoom}
-                    style={styles.submitButton}>
-                    <Text style={styles.submitButtonText}>등록</Text>
+                    style={[styles.submitButton, isCreatingRoom && styles.submitButtonDisabled]}>
+                    {isCreatingRoom ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" style={styles.submitSpinner} />
+                    ) : null}
+                    <Text style={styles.submitButtonText}>{isCreatingRoom ? '생성 중...' : '등록'}</Text>
                   </AnimatedPressable>
                 </View>
               </Animated.View>
@@ -735,7 +890,7 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 138,
   },
   title: {
@@ -744,6 +899,7 @@ const styles = StyleSheet.create({
     lineHeight: 29,
   },
   titleRow: {
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -754,7 +910,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E50914',
-    backgroundColor : '#E50914',
+    backgroundColor: '#E50914',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
@@ -768,21 +924,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 28,
+    marginTop: 0,
   },
   filterChip: {
     minWidth: 71,
     height: 34,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: '#2D2D2D',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: '#111114',
   },
   filterChipActive: {
-    backgroundColor: '#5E5252',
-    borderColor: '#5E5252',
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
   },
   filterText: {
     color: '#FFFFFF',
@@ -792,8 +948,42 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: '#FFFFFF',
   },
+  searchBar: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2B2B2F',
+    backgroundColor: '#0B0B0D',
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    width: 18,
+    height: 18,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    padding: 0,
+    color: '#FFFFFF',
+    ...FONTS.font14M,
+  },
+  searchClearButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchClearIcon: {
+    width: 16,
+    height: 16,
+    tintColor: '#8A8D95',
+  },
   roomList: {
-    marginTop: 20,
+    marginTop: 18,
   },
   emptyRoomState: {
     flex: 1,
@@ -808,15 +998,27 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   roomRow: {
-    minHeight: THUMBNAIL_HEIGHT,
+    minHeight: THUMBNAIL_HEIGHT + 20,
     flexDirection: 'row',
-    marginBottom: 16,
+    alignItems: 'center',
+    marginBottom: 14,
+    borderRadius: 24,
+    padding: 10,
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#252525',
+  },
+  roomRowDisabled: {
+    opacity: 0.48,
   },
   thumbnail: {
     width: THUMBNAIL_WIDTH,
     height: THUMBNAIL_HEIGHT,
     overflow: 'hidden',
-    backgroundColor: '#AFC0FF',
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#252525',
+    borderRadius: 8,
   },
   thumbnailImage: {
     position: 'absolute',
@@ -825,8 +1027,8 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     position: 'absolute',
-    top: 5,
-    left: 5,
+    top: 8,
+    left: 8,
     minWidth: 44,
     height: 20,
     borderRadius: 4,
@@ -838,7 +1040,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E50914',
   },
   statusWaiting: {
-    backgroundColor: '#7A844F',
+    backgroundColor: '#272727',
   },
   statusText: {
     color: '#FFFFFF',
@@ -847,8 +1049,7 @@ const styles = StyleSheet.create({
   },
   roomInfo: {
     flex: 1,
-    paddingLeft: 14,
-    paddingTop: 1,
+    paddingLeft: 12,
   },
   roomTitle: {
     color: '#FFFFFF',
@@ -864,13 +1065,13 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#242428',
     marginRight: 5,
     overflow: 'hidden',
   },
   hostName: {
     flex: 1,
-    color: '#E0E0E0',
+    color: '#D6D8DE',
     ...FONTS.font12M,
     lineHeight: 16,
   },
@@ -879,14 +1080,21 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#171717',
     paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 6,
   },
   gameChipText: {
-    color: '#FFFFFF',
+    color: '#D6D8DE',
+    ...FONTS.font11M,
+    lineHeight: 15,
+  },
+  memberCountText: {
+    marginTop: 5,
+    color: '#8A8D95',
     ...FONTS.font11M,
     lineHeight: 15,
   },
@@ -942,32 +1150,32 @@ const styles = StyleSheet.create({
   createPanel: {
     paddingHorizontal: 20,
     paddingTop: 22,
-    paddingBottom: 34,
+    paddingBottom: 24,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: '#151515',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#252525',
   },
   createTitle: {
     color: '#FFFFFF',
     ...FONTS.font20B,
     lineHeight: 26,
-    marginBottom: 18,
+    marginBottom: 16,
   },
   createLabel: {
-    color: '#B7B9C0',
+    color: '#A9ABB2',
     ...FONTS.font13B,
     lineHeight: 18,
     marginBottom: 8,
     marginTop: 12,
   },
   createInput: {
-    height: 46,
+    height: 44,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#333333',
-    backgroundColor: '#0A0A0A',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#0B0B0D',
     color: '#FFFFFF',
     ...FONTS.font14M,
     paddingHorizontal: 12,
@@ -982,7 +1190,7 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#373737',
+    borderColor: '#2D2D2D',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
@@ -992,7 +1200,7 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#373737',
+    borderColor: '#2D2D2D',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1001,7 +1209,7 @@ const styles = StyleSheet.create({
     borderColor: '#E50914',
   },
   optionText: {
-    color: '#D9D9D9',
+    color: '#A9ABB2',
     ...FONTS.font13B,
   },
   optionTextActive: {
@@ -1012,7 +1220,7 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#373737',
+    borderColor: '#2D2D2D',
     flexDirection: 'row',
     alignItems: 'center',
     overflow: 'hidden',
@@ -1037,28 +1245,38 @@ const styles = StyleSheet.create({
   createActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 22,
+    marginTop: 18,
   },
   cancelButton: {
     flex: 1,
-    height: 46,
-    borderRadius: 8,
+    height: 48,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#383838',
+    borderColor: '#2D2D2D',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  cancelButtonDisabled: {
+    opacity: 0.5,
+  },
   cancelButtonText: {
-    color: '#D7D7D7',
+    color: '#A9ABB2',
     ...FONTS.font14B,
   },
   submitButton: {
     flex: 1,
-    height: 46,
-    borderRadius: 8,
+    height: 48,
+    borderRadius: 14,
     backgroundColor: '#E50914',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#2A2A2A',
+  },
+  submitSpinner: {
+    marginRight: 8,
   },
   submitButtonText: {
     color: '#FFFFFF',

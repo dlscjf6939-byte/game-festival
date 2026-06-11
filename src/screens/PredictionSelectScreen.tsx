@@ -275,7 +275,8 @@ const styles = StyleSheet.create({
   },
   backRow: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    height: 56,
+    justifyContent: 'center',
   },
   backButton: {
     width: 28,
@@ -293,7 +294,7 @@ const styles = StyleSheet.create({
   },
   heroBlock: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 8,
     paddingBottom: 24,
   },
   heroTitle: {
@@ -309,7 +310,7 @@ const styles = StyleSheet.create({
   },
   matchList: {
     marginHorizontal: 20,
-    gap: 10,
+    gap: 12,
   },
   errorText: {
     marginHorizontal: 20,
@@ -319,12 +320,12 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   matchCard: {
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#282A30',
-    backgroundColor: '#111114',
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderColor: '#252525',
+    backgroundColor: '#171717',
+    paddingHorizontal: 16,
+    paddingVertical: 15,
   },
   matchCardSelected: {
     borderColor: '#E50914',
@@ -342,7 +343,7 @@ const styles = StyleSheet.create({
   },
   matchStatusBadge: {
     minHeight: 24,
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 9,
     alignItems: 'center',
     justifyContent: 'center',
@@ -398,10 +399,10 @@ const styles = StyleSheet.create({
   },
   teamCard: {
     minHeight: 116,
-    borderRadius: 18,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#282A30',
-    backgroundColor: '#111114',
+    borderColor: '#252525',
+    backgroundColor: '#171717',
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -432,7 +433,7 @@ const styles = StyleSheet.create({
   selectBadge: {
     minWidth: 58,
     height: 30,
-    borderRadius: 15,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#2A2B31',
@@ -458,8 +459,8 @@ const styles = StyleSheet.create({
     borderTopColor: '#1F2025',
   },
   nextButton: {
-    height: 56,
-    borderRadius: 12,
+    height: 54,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E50914',

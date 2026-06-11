@@ -47,9 +47,9 @@ const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 24,
     padding: 24,
-    backgroundColor: '#111111',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#1F1F1F',
+    borderColor: '#252525',
     marginBottom: 20,
   },
   heroEyebrow: {
@@ -72,9 +72,9 @@ const styles = StyleSheet.create({
   coinCard: {
     borderRadius: 24,
     padding: 20,
-    backgroundColor: '#161616',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#262626',
+    borderColor: '#252525',
     marginBottom: 20,
   },
   coinLabel: {
@@ -117,9 +117,9 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'flex-end',
     padding: 16,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#262626',
+    borderColor: '#252525',
     overflow: 'hidden',
   },
   posterImage: {

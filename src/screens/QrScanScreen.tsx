@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   closeButton: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 8,
     backgroundColor: '#171717',
     alignItems: 'center',
     justifyContent: 'center',
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   scanFrame: {
     width: 244,
     height: 244,
-    borderRadius: 18,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -339,8 +339,8 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: 'rgba(15, 15, 15, 0.88)',
+    borderRadius: 24,
+    backgroundColor: 'rgba(23, 23, 23, 0.92)',
   },
   resultLabel: {
     color: '#E50914',
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
     paddingHorizontal: 18,
     paddingVertical: 12,
-    borderRadius: 999,
+    borderRadius: 14,
     backgroundColor: '#E50914',
     alignItems: 'center',
   },

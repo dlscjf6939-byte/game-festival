@@ -54,7 +54,7 @@ const storyCards = [
     posterImage: image.poster1,
     title: 'CRAZY ARCADE',
     subtitle: '크레이지 아케이드',
-    accent: '#0e5ac5',
+    accent: '#8A8D95',
     tag: 'LIVE BRACKET',
   },
   {
@@ -62,7 +62,7 @@ const storyCards = [
     posterImage: image.poster2,
     title: 'TEKKEN',
     subtitle: '철권',
-    accent: '#E11319',
+    accent: '#E50914',
     tag: 'MAIN EVENT',
   },
   {
@@ -70,7 +70,7 @@ const storyCards = [
     posterImage: image.poster3,
     title: 'STARCRAFT',
     subtitle: '스타크래프트',
-    accent: '#F7CE45',
+    accent: '#A9ABB2',
     tag: 'RISING PICK',
   },
 ];
@@ -173,32 +173,36 @@ function toCoinNumber(value: unknown): number | null {
 
 function MainScreen(): JSX.Element {
   const navigation = useNavigation<MainScreenNavigation>();
-  const {auth} = useAuth();
-  const {rankingItems, isRankingLoading} = useCoin();
+  const {auth, refreshProfile} = useAuth();
+  const {
+    accumulatedCoin: latestAccumulatedCoin,
+    holdingCoin: latestHoldingCoin,
+    rankingItems,
+    isRankingLoading,
+    refreshAllCoins,
+  } = useCoin();
   const {attendance, checkInNotice, dismissCheckInNotice, isChecking, refreshAttendance} = useAttendance();
   const scrollX = useRef(new Animated.Value(STORY_SNAP_INTERVAL)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
+  const refreshProfileRef = useRef(refreshProfile);
+  const refreshAllCoinsRef = useRef(refreshAllCoins);
+  const refreshAttendanceRef = useRef(refreshAttendance);
   const bracketFlipValues = useRef(
-    storyCards.reduce(
-      (acc, card) => {
-        acc[card.id] = new Animated.Value(0);
-        return acc;
-      },
-      {} as Record<(typeof storyCards)[number]['id'], Animated.Value>,
-    ),
+    storyCards.reduce((acc, card) => {
+      acc[card.id] = new Animated.Value(0);
+      return acc;
+    }, {} as Record<(typeof storyCards)[number]['id'], Animated.Value>),
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
   const profile = auth?.profile;
-  const coinBalance = toCoinNumber(profile?.holdingCoin) ?? 0;
+  const coinBalance = latestHoldingCoin ?? toCoinNumber(profile?.holdingCoin) ?? 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
   const profileImageUri = getProfileImageUriFromRecord(profile);
   const profileImageSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const name = auth?.name ?? '이인철';
   const greetingPrefix = department || '서비스개발팀';
   const myRankingItem = rankingItems.find(item => item.isMe);
-  const accumulatedCoin =
-    toCoinNumber(profile?.accumulatedCoin) ??
-    0;
+  const accumulatedCoin = latestAccumulatedCoin ?? toCoinNumber(profile?.accumulatedCoin) ?? 0;
   const rankingText = isRankingLoading ? '집계 중' : myRankingItem ? `${myRankingItem.rank}위` : '미집계';
   const checkedDateSet = new Set(attendance?.checkedDates ?? []);
   const todayKey = toDateKey(new Date());
@@ -224,10 +228,29 @@ function MainScreen(): JSX.Element {
   const attendanceCountText = attendance ? `${attendance.checkedThisWeekCount}/7` : '-/7';
   const modalWeeklyCount = attendance?.checkedThisWeekCount ?? checkInNotice?.checkedThisWeekCount ?? 0;
 
+  React.useEffect(() => {
+    refreshProfileRef.current = refreshProfile;
+    refreshAllCoinsRef.current = refreshAllCoins;
+    refreshAttendanceRef.current = refreshAttendance;
+  }, [refreshAllCoins, refreshAttendance, refreshProfile]);
+
   useFocusEffect(
     React.useCallback(() => {
-      void refreshAttendance();
-    }, [refreshAttendance]),
+      Promise.allSettled([
+        refreshProfileRef.current(),
+        refreshAllCoinsRef.current(),
+        refreshAttendanceRef.current(),
+      ]).then(results => {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            console.log('[MainScreen] focus refresh failed', {
+              index,
+              reason: result.reason,
+            });
+          }
+        });
+      });
+    }, []),
   );
 
   const animateFlip = React.useCallback(
@@ -510,40 +533,34 @@ function MainScreen(): JSX.Element {
                 (index + 1) * STORY_SNAP_INTERVAL,
               ];
 
-              const topOpacity = scrollX.interpolate({
+              const posterOpacity = scrollX.interpolate({
                 inputRange,
-                outputRange: [0, 0.18, 0],
+                outputRange: [0, 0.34, 0],
                 extrapolate: 'clamp',
               });
-              const bottomOpacity = scrollX.interpolate({
+              const posterScale = scrollX.interpolate({
                 inputRange,
-                outputRange: [0, 0.1, 0],
+                outputRange: [1.08, 1, 1.08],
                 extrapolate: 'clamp',
               });
 
               return (
-                <React.Fragment key={card.id}>
-                  <Animated.View
-                    style={[
-                      styles.screenAccentTop,
-                      {
-                        backgroundColor: card.accent,
-                        opacity: Animated.multiply(topOpacity, 1),
-                      },
-                    ]}
-                  />
-                  <Animated.View
-                    style={[
-                      styles.screenAccentBottom,
-                      {
-                        backgroundColor: card.accent,
-                        opacity: bottomOpacity,
-                      },
-                    ]}
-                  />
-                </React.Fragment>
+                <Animated.Image
+                  key={card.id}
+                  blurRadius={32}
+                  resizeMode="cover"
+                  source={card.posterImage}
+                  style={[
+                    styles.screenPosterBackground,
+                    {
+                      opacity: posterOpacity,
+                      transform: [{scale: posterScale}],
+                    },
+                  ]}
+                />
               );
             })}
+            <View style={styles.screenPosterScrim} />
             <View style={styles.screenVignette} />
           </View>
 
@@ -616,6 +633,7 @@ function MainScreen(): JSX.Element {
                   style={styles.profileSummary}>
                   <Image source={profileImageSource} style={styles.profileImage} />
                   <Text style={styles.greeting}>{`${greetingPrefix} ${name}님`}</Text>
+                  <Image source={icon.pencil} style={styles.profileEditIcon} resizeMode="contain" />
                 </AnimatedPressable>
                 <AnimatedPressable
                   accessibilityLabel="나의 코인현황 상세 보기"
@@ -706,7 +724,12 @@ function MainScreen(): JSX.Element {
                   <Text style={styles.attendanceModalDayLabel}>{day.label}</Text>
                   <View style={[styles.attendanceModalDayDot, day.isChecked && styles.attendanceModalDayDotChecked]}>
                     {day.isChecked ? (
-                      <LottieView autoPlay loop={false} source={checkLottie} style={styles.attendanceModalDayDotLottie} />
+                      <LottieView
+                        autoPlay
+                        loop={false}
+                        source={checkLottie}
+                        style={styles.attendanceModalDayDotLottie}
+                      />
                     ) : day.isMissed ? (
                       <Text
                         style={[
@@ -737,7 +760,6 @@ function MainScreen(): JSX.Element {
           </View>
         </View>
       </Modal>
-
     </TabSceneTransition>
   );
 }
@@ -754,25 +776,20 @@ const styles = StyleSheet.create({
   screenBackgroundLayer: {
     ...StyleSheet.absoluteFillObject,
   },
-  screenAccentTop: {
+  screenPosterBackground: {
     position: 'absolute',
-    top: -180,
-    left: -120,
-    right: -120,
-    height: 460,
-    borderRadius: 260,
+    top: -70,
+    bottom: -70,
+    left: -70,
+    right: -70,
   },
-  screenAccentBottom: {
-    position: 'absolute',
-    bottom: -240,
-    left: -160,
-    right: -160,
-    height: 520,
-    borderRadius: 320,
+  screenPosterScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.58)',
   },
   screenVignette: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
   mainArea: {
     flex: 1,
@@ -801,7 +818,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E11319',
+    backgroundColor: '#E50914',
   },
   coinRing: {
     width: 18,
@@ -815,7 +832,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#E11319',
+    backgroundColor: '#E50914',
   },
   content: {
     paddingBottom: 36,
@@ -835,8 +852,8 @@ const styles = StyleSheet.create({
   storyCard: {
     width: STORY_CARD_WIDTH,
     height: STORY_CARD_HEIGHT,
-    borderRadius: 23,
-    backgroundColor: '#101010',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -1145,6 +1162,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font22M,
   },
+  profileEditIcon: {
+    width: 36,
+    height: 36,
+    // marginLeft: 8,
+    // tintColor: '#A9ABB2',
+  },
   profileImage: {
     width: 40,
     height: 40,
@@ -1152,10 +1175,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   coinCard: {
-    borderRadius: 20,
-    backgroundColor: '#222323',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#303131',
+    borderColor: '#252525',
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -1189,12 +1212,12 @@ const styles = StyleSheet.create({
   coinSummaryItem: {
     flex: 1,
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: '#1C1D1D',
+    backgroundColor: '#1C1C1C',
     borderWidth: 1,
-    borderColor: '#343535',
+    borderColor: '#2D2D2D',
   },
   coinSummaryLabel: {
     color: '#A9ABB2',
@@ -1204,7 +1227,7 @@ const styles = StyleSheet.create({
   },
   coinDivider: {
     height: 1,
-    backgroundColor: 'rgba(242,243,245,0.3)',
+    backgroundColor: '#252525',
     marginTop: 12,
     marginBottom: 12,
   },
@@ -1225,10 +1248,10 @@ const styles = StyleSheet.create({
     ...FONTS.font14M,
   },
   attendanceCard: {
-    borderRadius: 20,
-    backgroundColor: '#161616',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#252525',
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
@@ -1299,9 +1322,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     borderRadius: 24,
-    backgroundColor: '#1C1D24',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#2C2D36',
+    borderColor: '#252525',
     paddingHorizontal: 22,
     paddingTop: 34,
     paddingBottom: 20,
@@ -1322,9 +1345,9 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 22,
     borderRadius: 16,
-    backgroundColor: '#121319',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#25262E',
+    borderColor: '#242428',
     paddingHorizontal: 10,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -1370,9 +1393,9 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 18,
     borderRadius: 16,
-    backgroundColor: '#252731',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#343746',
+    borderColor: '#242428',
     paddingHorizontal: 16,
     paddingVertical: 14,
   },

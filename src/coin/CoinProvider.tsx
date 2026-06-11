@@ -12,10 +12,51 @@ type RankingResponse = {
   success?: boolean;
 };
 
+export type CoinHistory = {
+  amount: number;
+  description: string;
+  id: string;
+  title: string;
+};
+
+type CoinHistorySummary = {
+  accumulatedCoin?: number;
+  holdingCoin?: number;
+};
+
+type CoinHistoryResponse = {
+  code?: string;
+  data?: unknown;
+  message?: string;
+  success?: boolean;
+};
+
+type CoinHistoryApiData = {
+  accumulatedCoin?: number | string;
+  historyList?: unknown;
+  holdingCoin?: number | string;
+};
+
+type CoinHistoryApiItem = {
+  amount?: number | string;
+  createdAt?: string;
+  description?: string;
+  transactionId?: number | string;
+  transactionType?: string;
+};
+
 type CoinContextValue = {
+  accumulatedCoin: number | null;
+  coinHistories: CoinHistory[];
+  coinHistoriesError: string | null;
+  holdingCoin: number | null;
+  isCoinHistoriesLoading: boolean;
   isRankingLoading: boolean;
   rankingError: string | null;
   rankingItems: CoinRanking[];
+  refreshAllCoins: () => Promise<void>;
+  refreshCoinHistory: (showLoading?: boolean) => Promise<CoinHistorySummary | null>;
+  refreshCoinSummary: (showLoading?: boolean) => Promise<CoinHistorySummary | null>;
   refreshRanking: () => Promise<void>;
 };
 
@@ -41,6 +82,62 @@ function toNumberValue(value: unknown): number | null {
   }
 
   return null;
+}
+
+function formatCoinHistoryCreatedAt(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '일시 정보 없음';
+  }
+
+  const matched = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+
+  if (!matched) {
+    return value.trim() || '일시 정보 없음';
+  }
+
+  return `${matched[1]}.${matched[2]}.${matched[3]} ${matched[4]}:${matched[5]}`;
+}
+
+function getCoinHistoryData(responseBody: CoinHistoryResponse): CoinHistoryApiData | null {
+  if (!responseBody.data || typeof responseBody.data !== 'object') {
+    return null;
+  }
+
+  return responseBody.data as CoinHistoryApiData;
+}
+
+function getCoinHistoryItemsFromData(data: CoinHistoryApiData | null): unknown[] {
+  if (!data || !Array.isArray(data.historyList)) {
+    return [];
+  }
+
+  return data.historyList;
+}
+
+function normalizeCoinHistory(item: unknown): CoinHistory | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as CoinHistoryApiItem;
+  const transactionId = toNumberValue(record.transactionId);
+  const rawAmount = toNumberValue(record.amount);
+  const description = toNonEmptyString(record.description);
+  const transactionType = toNonEmptyString(record.transactionType)?.toUpperCase() ?? '';
+
+  if (transactionId === null || rawAmount === null) {
+    return null;
+  }
+
+  const absoluteAmount = Math.abs(rawAmount);
+  const signedAmount = transactionType === 'DECREASE' ? -absoluteAmount : absoluteAmount;
+
+  return {
+    amount: signedAmount,
+    description: formatCoinHistoryCreatedAt(record.createdAt),
+    id: String(transactionId),
+    title: description ?? (signedAmount < 0 ? '코인 사용' : '코인 적립'),
+  };
 }
 
 function getRankingRows(payload: unknown): unknown[] {
@@ -129,9 +226,83 @@ function normalizeRanking(
 
 export function CoinProvider({children}: {children: React.ReactNode}): JSX.Element {
   const {auth} = useAuth();
+  const [coinHistories, setCoinHistories] = useState<CoinHistory[]>([]);
+  const [coinHistorySummary, setCoinHistorySummary] = useState<CoinHistorySummary | null>(null);
+  const [isCoinHistoriesLoading, setIsCoinHistoriesLoading] = useState(false);
+  const [coinHistoriesError, setCoinHistoriesError] = useState<string | null>(null);
   const [rankingItems, setRankingItems] = useState<CoinRanking[]>([]);
   const [isRankingLoading, setIsRankingLoading] = useState(true);
   const [rankingError, setRankingError] = useState<string | null>(null);
+
+  const refreshCoinHistory = useCallback(
+    async (showLoading = true) => {
+      if (!auth?.accessToken) {
+        setCoinHistories([]);
+        setCoinHistorySummary(null);
+        setIsCoinHistoriesLoading(false);
+        return null;
+      }
+
+      if (showLoading) {
+        setIsCoinHistoriesLoading(true);
+      }
+
+      setCoinHistoriesError(null);
+
+      try {
+        const response = await fetch(`${API_BASE}/api/coin/history`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        });
+        const responseText = await response.text();
+        let responseBody: CoinHistoryResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as CoinHistoryResponse;
+        } catch {
+          throw new Error('코인 내역 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || '코인 내역 조회에 실패했습니다.');
+        }
+
+        const data = getCoinHistoryData(responseBody);
+        const histories = getCoinHistoryItemsFromData(data)
+          .map(normalizeCoinHistory)
+          .filter((history): history is CoinHistory => Boolean(history));
+
+        setCoinHistories(histories);
+        const nextSummary = {
+          accumulatedCoin: toNumberValue(data?.accumulatedCoin) ?? undefined,
+          holdingCoin: toNumberValue(data?.holdingCoin) ?? undefined,
+        };
+
+        setCoinHistorySummary(nextSummary);
+        return nextSummary;
+      } catch (error) {
+        setCoinHistories([]);
+        setCoinHistorySummary(null);
+        setCoinHistoriesError(error instanceof Error ? error.message : '코인 내역 조회 중 오류가 발생했습니다.');
+        console.log('[CoinProvider] coin history request failed', error);
+        return null;
+      } finally {
+        if (showLoading) {
+          setIsCoinHistoriesLoading(false);
+        }
+      }
+    },
+    [auth?.accessToken],
+  );
+
+  const refreshCoinSummary = useCallback(
+    async (showLoading = false) => {
+      return refreshCoinHistory(showLoading);
+    },
+    [refreshCoinHistory],
+  );
 
   const refreshRanking = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -188,17 +359,50 @@ export function CoinProvider({children}: {children: React.ReactNode}): JSX.Eleme
   }, [auth?.accessToken, auth?.employeeId, auth?.name]);
 
   useEffect(() => {
-    void refreshRanking();
+    refreshRanking().catch(error => {
+      console.log('[CoinProvider] ranking effect failed', error);
+    });
   }, [refreshRanking]);
+
+  useEffect(() => {
+    refreshCoinHistory().catch(error => {
+      console.log('[CoinProvider] coin history effect failed', error);
+    });
+  }, [refreshCoinHistory]);
+
+  const refreshAllCoins = useCallback(async () => {
+    await Promise.all([refreshCoinHistory(false), refreshRanking()]);
+  }, [refreshCoinHistory, refreshRanking]);
 
   const value = useMemo(
     () => ({
+      accumulatedCoin: coinHistorySummary?.accumulatedCoin ?? null,
+      coinHistories,
+      coinHistoriesError,
+      holdingCoin: coinHistorySummary?.holdingCoin ?? null,
+      isCoinHistoriesLoading,
       isRankingLoading,
       rankingError,
       rankingItems,
+      refreshAllCoins,
+      refreshCoinHistory,
+      refreshCoinSummary,
       refreshRanking,
     }),
-    [isRankingLoading, rankingError, rankingItems, refreshRanking],
+    [
+      coinHistories,
+      coinHistoriesError,
+      coinHistorySummary?.accumulatedCoin,
+      coinHistorySummary?.holdingCoin,
+      isCoinHistoriesLoading,
+      isRankingLoading,
+      rankingError,
+      rankingItems,
+      refreshAllCoins,
+      refreshCoinHistory,
+      refreshCoinSummary,
+      refreshRanking,
+    ],
   );
 
   return <CoinContext.Provider value={value}>{children}</CoinContext.Provider>;

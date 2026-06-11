@@ -12,10 +12,12 @@ type IconMap = {
   heartOutline: ImageSourcePropType;
   home: ImageSourcePropType;
   howBtn: ImageSourcePropType;
+  pencil: ImageSourcePropType;
   plusBtn: ImageSourcePropType;
   rank1: ImageSourcePropType;
   rank2: ImageSourcePropType;
   rank3: ImageSourcePropType;
+  search: ImageSourcePropType;
   vs: ImageSourcePropType;
 };
 
@@ -31,9 +33,11 @@ export const icon: IconMap = {
   heartOutline: require('./heart_outline_icon.png'),
   home: require('./home.png'),
   howBtn: require('./how_btn.png'),
+  pencil: require('./pencil.png'),
   plusBtn: require('./plus_btn.png'),
   rank1: require('./rank_1.png'),
   rank2: require('./rank_2.png'),
   rank3: require('./rank_3.png'),
+  search: require('./search.png'),
   vs: require('./vs.png'),
 };

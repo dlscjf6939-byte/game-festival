@@ -533,24 +533,27 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   tabChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    minWidth: 71,
+    height: 34,
+    paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-    backgroundColor: 'transparent',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabChipActive: {
-    backgroundColor: '#5E5252',
-    borderColor: '#5E5252',
+    backgroundColor: '#E50914',
+    borderColor: '#E50914',
   },
   tabChipText: {
-    color: 'rgba(255,255,255,0.8)',
-    ...FONTS.font14M,
+    color: '#FFFFFF',
+    ...FONTS.font14B,
     lineHeight: 18,
   },
   tabChipTextActive: {
-    color: 'rgba(255,255,255,0.8)',
+    color: '#FFFFFF',
   },
   cardStack: {
     paddingHorizontal: 20,
@@ -573,12 +576,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   card: {
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#252525',
+    borderRadius: 24,
     overflow: 'hidden',
     paddingBottom: 16,
-    backgroundColor: '#000000',
+    backgroundColor: '#171717',
   },
   cardDisabled: {
     opacity: 0.62,
@@ -586,7 +589,7 @@ const styles = StyleSheet.create({
   cardImage: {
     width: '100%',
     height: 200,
-    backgroundColor: '#545454',
+    backgroundColor: '#252525',
   },
   cardContent: {
     paddingHorizontal: 16,
@@ -634,7 +637,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   participatedCardLift: {
-    borderRadius: 22,
+    borderRadius: 24,
   },
   participatedCardLiftActive: {
     zIndex: 3,
@@ -645,11 +648,11 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   participatedCard: {
-    borderRadius: 18,
+    borderRadius: 24,
     padding: 16,
-    backgroundColor: '#111114',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#242428',
+    borderColor: '#252525',
   },
   participatedCardActive: {
     borderWidth: 1,
@@ -719,7 +722,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E50914',
   },
   participatedGraphBlack: {
-    backgroundColor: '#4B5568',
+    backgroundColor: '#8A8D95',
   },
   participatedRatioRow: {
     marginTop: 8,

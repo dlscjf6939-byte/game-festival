@@ -57,10 +57,11 @@ export function RootNavigator(): JSX.Element {
     inputRange: [0, 1],
     outputRange: [1.04, 1],
   });
+  const shouldRenderNavigator = !isRestoring && !splashVisible;
 
   return (
     <View style={styles.root}>
-      {!isRestoring ? (
+      {shouldRenderNavigator ? (
         <Stack.Navigator
           screenOptions={{headerShown: false, animation: 'fade'}}>
           {auth ? (

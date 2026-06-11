@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {
   Image,
@@ -8,6 +8,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -76,17 +77,26 @@ function getProfileImageUri(profile: Record<string, unknown> | undefined, fallba
   return getProfileImageUriFromRecord(profile) ?? fallbackUri;
 }
 
+function getProfileIntroduction(profile: Record<string, unknown> | undefined): string {
+  return typeof profile?.introduction === 'string' ? profile.introduction : '';
+}
+
 export function ProfileSetupScreen(): JSX.Element {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const {auth, setAuth} = useAuth();
   const {height} = useWindowDimensions();
-  const [selectedChoice, setSelectedChoice] = useState<ProfileChoice>('default');
+  const currentProfileImageUri = getProfileImageUriFromRecord(auth?.profile);
+  const [selectedChoice, setSelectedChoice] = useState<ProfileChoice>(() =>
+    currentProfileImageUri ? 'album' : 'default',
+  );
   const [selectedImageAsset, setSelectedImageAsset] = useState<PickerAsset | null>(null);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
+  const [introduction, setIntroduction] = useState(() => getProfileIntroduction(auth?.profile));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const currentProfileImageUri = getProfileImageUriFromRecord(auth?.profile);
+  const hasCustomProfileImage = Boolean(currentProfileImageUri);
+  const trimmedIntroduction = introduction.trim();
   const selectedProfilePreview = useMemo(() => {
     if (selectedChoice === 'album' && selectedImageUri) {
       return {uri: selectedImageUri};
@@ -100,6 +110,12 @@ export function ProfileSetupScreen(): JSX.Element {
   }, [currentProfileImageUri, selectedChoice, selectedImageUri]);
   const isCompactHeight = height < 720;
   const canGoBack = navigation.canGoBack();
+
+  useEffect(() => {
+    if (hasCustomProfileImage && selectedChoice === 'default') {
+      setSelectedChoice('album');
+    }
+  }, [hasCustomProfileImage, selectedChoice]);
 
   const openImageLibrary = async () => {
     setErrorMessage(null);
@@ -131,18 +147,22 @@ export function ProfileSetupScreen(): JSX.Element {
     setSelectedChoice('album');
   };
 
-  const updateProfileImage = async (asset: PickerAsset): Promise<Record<string, unknown> | null> => {
-    if (!auth?.accessToken || !asset.uri) {
+  const updateProfile = async (asset: PickerAsset | null): Promise<Record<string, unknown> | null> => {
+    if (!auth?.accessToken) {
       throw new Error('프로필을 업데이트할 수 없습니다.');
     }
 
-    const {name, type} = getImageFileInfo(asset);
     const formData = new FormData();
-    formData.append('profileFile', {
-      name,
-      type,
-      uri: normalizeUploadUri(asset.uri),
-    } as any);
+    formData.append('introduction', trimmedIntroduction);
+
+    if (asset?.uri) {
+      const {name, type} = getImageFileInfo(asset);
+      formData.append('profileFile', {
+        name,
+        type,
+        uri: normalizeUploadUri(asset.uri),
+      } as any);
+    }
 
     const response = await withMinimumLoadingTime(
       fetch(`${API_BASE}/api/employee/profile`, {
@@ -180,13 +200,11 @@ export function ProfileSetupScreen(): JSX.Element {
     setIsSubmitting(true);
 
     try {
-      if (selectedChoice === 'album' && !selectedImageAsset?.uri) {
+      if (selectedChoice === 'album' && !selectedImageAsset?.uri && !currentProfileImageUri) {
         throw new Error('프로필 사진을 선택해주세요.');
       }
 
-      const updatedProfile = selectedChoice === 'album' && selectedImageAsset
-        ? await updateProfileImage(selectedImageAsset)
-        : null;
+      const updatedProfile = await updateProfile(selectedChoice === 'album' ? selectedImageAsset : null);
       const nextProfileImageUri = getProfileImageUri(
         updatedProfile ?? undefined,
         selectedChoice === 'album' ? selectedImageUri : currentProfileImageUri,
@@ -198,6 +216,9 @@ export function ProfileSetupScreen(): JSX.Element {
         profile: {
           ...(auth.profile ?? {}),
           ...(updatedProfile ?? {}),
+          introduction: typeof updatedProfile?.introduction === 'string'
+            ? updatedProfile.introduction
+            : trimmedIntroduction,
           profileImageSource: selectedChoice,
           profileImageUri: nextProfileImageUri ?? undefined,
         },
@@ -260,6 +281,8 @@ export function ProfileSetupScreen(): JSX.Element {
             <Text style={styles.previewDescription}>
               {selectedChoice === 'album' && selectedImageUri
                 ? '사진앨범에서 선택한 프로필'
+                : currentProfileImageUri
+                  ? '현재 설정된 프로필'
                 : selectedChoice === 'album'
                   ? '사진앨범에서 프로필을 선택해주세요'
                   : '기본 프로필로 시작합니다'}
@@ -267,19 +290,21 @@ export function ProfileSetupScreen(): JSX.Element {
           </View>
 
           <View style={[styles.choiceStack, isCompactHeight ? styles.choiceStackCompact : null]}>
-            <AnimatedPressable
-              accessibilityRole="button"
-              onPress={() => setSelectedChoice('default')}
-              style={[styles.choiceCard, selectedChoice === 'default' && styles.choiceCardSelected]}>
-              <Image source={image.profile} style={styles.choiceAvatar} resizeMode="cover" />
-              <View style={styles.choiceTextBlock}>
-                <Text style={styles.choiceTitle}>기본 프로필</Text>
-                <Text style={styles.choiceSubtitle}>앱에서 제공하는 기본 이미지로 시작</Text>
-              </View>
-              <View style={[styles.radio, selectedChoice === 'default' && styles.radioSelected]}>
-                {selectedChoice === 'default' ? <View style={styles.radioDot} /> : null}
-              </View>
-            </AnimatedPressable>
+            {!hasCustomProfileImage ? (
+              <AnimatedPressable
+                accessibilityRole="button"
+                onPress={() => setSelectedChoice('default')}
+                style={[styles.choiceCard, selectedChoice === 'default' && styles.choiceCardSelected]}>
+                <Image source={image.profile} style={styles.choiceAvatar} resizeMode="cover" />
+                <View style={styles.choiceTextBlock}>
+                  <Text style={styles.choiceTitle}>기본 프로필</Text>
+                  <Text style={styles.choiceSubtitle}>앱에서 제공하는 기본 이미지로 시작</Text>
+                </View>
+                <View style={[styles.radio, selectedChoice === 'default' && styles.radioSelected]}>
+                  {selectedChoice === 'default' ? <View style={styles.radioDot} /> : null}
+                </View>
+              </AnimatedPressable>
+            ) : null}
 
             <AnimatedPressable
               accessibilityRole="button"
@@ -289,13 +314,17 @@ export function ProfileSetupScreen(): JSX.Element {
                 <Image source={{uri: selectedImageUri}} style={styles.choiceAvatar} resizeMode="cover" />
               ) : (
                 <View style={styles.albumIcon}>
-                  <Text style={styles.albumIconText}>＋</Text>
+                  <Image source={icon.plusBtn} style={styles.albumIconImage} resizeMode="contain" />
                 </View>
               )}
               <View style={styles.choiceTextBlock}>
-                <Text style={styles.choiceTitle}>사진앨범에서 선택</Text>
+                <Text style={styles.choiceTitle}>{currentProfileImageUri ? '사진 변경하기' : '사진앨범에서 선택'}</Text>
                 <Text style={styles.choiceSubtitle}>
-                  {selectedImageUri ? '선택한 사진을 프로필로 설정' : '내 사진으로 프로필을 설정'}
+                  {selectedImageUri
+                    ? '선택한 사진을 프로필로 설정'
+                    : currentProfileImageUri
+                      ? '새 사진으로 프로필을 변경'
+                      : '내 사진으로 프로필을 설정'}
                 </Text>
               </View>
               <View style={[styles.radio, selectedChoice === 'album' && styles.radioSelected]}>
@@ -304,9 +333,25 @@ export function ProfileSetupScreen(): JSX.Element {
             </AnimatedPressable>
           </View>
 
+          <View style={styles.introductionBlock}>
+            <Text style={styles.inputLabel}>자기소개</Text>
+            <TextInput
+              maxLength={80}
+              multiline
+              onChangeText={setIntroduction}
+              placeholder="나를 소개하는 한 줄을 입력해주세요"
+              placeholderTextColor="#777A82"
+              selectionColor="#E50914"
+              style={styles.introductionInput}
+              textAlignVertical="top"
+              value={introduction}
+            />
+            <Text style={styles.inputCount}>{introduction.length}/80</Text>
+          </View>
+
           <View style={[styles.actionArea, isCompactHeight ? styles.actionAreaCompact : null]}>
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-            <Text style={styles.helperText}>사진은 이 기기에서 선택한 이미지로 표시됩니다.</Text>
+            <Text style={styles.helperText}>자기소개와 프로필 사진은 프로필 화면에 표시됩니다.</Text>
 
             <AnimatedPressable
               accessibilityRole="button"
@@ -331,16 +376,16 @@ export function ProfileSetupScreen(): JSX.Element {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#050505',
+    backgroundColor: '#000000',
   },
   screen: {
     flex: 1,
-    backgroundColor: '#050505',
+    backgroundColor: '#000000',
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 34,
+    paddingHorizontal: 20,
+    paddingTop: 24,
     paddingBottom: 24,
   },
   contentCompact: {
@@ -355,8 +400,8 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   backButton: {
-    width: 42,
-    height: 42,
+    width: 40,
+    height: 40,
     marginBottom: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -379,15 +424,15 @@ const styles = StyleSheet.create({
   },
   previewCard: {
     alignItems: 'center',
-    paddingVertical: 30,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    paddingVertical: 28,
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.09)',
+    borderColor: '#252525',
   },
   previewCardCompact: {
     paddingVertical: 22,
-    borderRadius: 22,
+    borderRadius: 24,
   },
   previewImage: {
     width: 112,
@@ -425,13 +470,13 @@ const styles = StyleSheet.create({
   },
   choiceCard: {
     minHeight: 76,
-    borderRadius: 20,
+    borderRadius: 24,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#121214',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#242428',
+    borderColor: '#252525',
   },
   choiceCardSelected: {
     borderColor: '#E50914',
@@ -449,12 +494,12 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#25262B',
+    backgroundColor: '#252525',
   },
-  albumIconText: {
-    color: '#FFFFFF',
-    ...FONTS.font28R,
-    lineHeight: 30,
+  albumIconImage: {
+    width: 24,
+    height: 24,
+    tintColor: '#FFFFFF',
   },
   choiceTextBlock: {
     flex: 1,
@@ -489,9 +534,37 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: '#E50914',
   },
+  introductionBlock: {
+    marginTop: 18,
+  },
+  inputLabel: {
+    marginBottom: 8,
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 20,
+  },
+  introductionInput: {
+    minHeight: 92,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
+    color: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    ...FONTS.font14R,
+    lineHeight: 20,
+  },
+  inputCount: {
+    marginTop: 6,
+    color: '#777A82',
+    textAlign: 'right',
+    ...FONTS.font12R,
+    lineHeight: 16,
+  },
   actionArea: {
     marginTop: 'auto',
-    paddingTop: 30,
+    paddingTop: 24,
   },
   actionAreaCompact: {
     paddingTop: 24,
@@ -509,8 +582,8 @@ const styles = StyleSheet.create({
   },
   nextButton: {
     marginTop: 18,
-    height: 56,
-    borderRadius: 12,
+    height: 54,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E50914',

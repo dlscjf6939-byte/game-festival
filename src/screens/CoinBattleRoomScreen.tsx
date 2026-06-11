@@ -17,14 +17,11 @@ import {BlurView} from '@react-native-community/blur';
 import {useAuth} from '../auth/AuthProvider';
 import {image} from '../assets/images';
 import {icon} from '../assets/icons';
+import {useCoin} from '../coin/CoinProvider';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
-import {
-  normalizeCoinBattleRoom,
-  useCoinBattleRooms,
-  type CoinBattleRoom,
-} from '../hooks/useCoinBattleRooms';
+import {normalizeCoinBattleRoom, useCoinBattleRooms, type CoinBattleRoom} from '../hooks/useCoinBattleRooms';
 import {
   normalizeRpsResult,
   useCoinBattleRpsGame,
@@ -147,10 +144,7 @@ function toCoinNumber(value: unknown): number | null {
 
 function getHoldingCoin(profile?: Record<string, unknown>): number {
   return (
-    toCoinNumber(profile?.holdingCoin) ??
-    toCoinNumber(profile?.coinBalance) ??
-    toCoinNumber(profile?.balance) ??
-    0
+    toCoinNumber(profile?.holdingCoin) ?? toCoinNumber(profile?.coinBalance) ?? toCoinNumber(profile?.balance) ?? 0
   );
 }
 
@@ -545,10 +539,7 @@ function PictureMatchGamePanel({
   const isInitialUnmatchedBoard = pictures.length > 0 && pictures.every(picture => !picture.isMatched);
   const isLocalRevealActive = localRevealBoardKey === boardKey;
   const shouldRunLocalReveal = Boolean(
-    boardKey &&
-      isInitialUnmatchedBoard &&
-      !isFinished &&
-      handledRevealBoardKey !== boardKey,
+    boardKey && isInitialUnmatchedBoard && !isFinished && handledRevealBoardKey !== boardKey,
   );
   const shouldConcealForLocalReveal = shouldRunLocalReveal && !isLocalRevealActive;
   const isPreparingLocalReveal = shouldConcealForLocalReveal || preparingRevealBoardKey === boardKey;
@@ -633,9 +624,10 @@ function PictureMatchGamePanel({
           <View key={`row-${rowIndex}`} style={styles.pictureMatchRow}>
             {row.map((picture, columnIndex) => {
               const pictureIndex = rowIndex * width + columnIndex;
-              const isFaceUp = shouldConcealForLocalReveal || shouldIgnoreServerInitialReveal
-                ? Boolean(picture.isMatched)
-                : Boolean(picture.isFlipped || picture.isMatched);
+              const isFaceUp =
+                shouldConcealForLocalReveal || shouldIgnoreServerInitialReveal
+                  ? Boolean(picture.isMatched)
+                  : Boolean(picture.isFlipped || picture.isMatched);
               const isMine =
                 picture.isMatched &&
                 myUserId !== null &&
@@ -740,10 +732,7 @@ function getTypingRoundWinner(players: TypingPlayer[]): TypingPlayer | undefined
     })[0];
 }
 
-function isTypingRoundCompleted(round?: {
-  judgedAt?: string;
-  typingPlayers?: TypingPlayer[];
-}): boolean {
+function isTypingRoundCompleted(round?: {judgedAt?: string; typingPlayers?: TypingPlayer[]}): boolean {
   if (!round) {
     return false;
   }
@@ -752,10 +741,7 @@ function isTypingRoundCompleted(round?: {
     return true;
   }
 
-  return Boolean(
-    getTypingRoundWinner(round.typingPlayers ?? []) ||
-      round.typingPlayers?.some(isTypingPlayerCompleted),
-  );
+  return Boolean(getTypingRoundWinner(round.typingPlayers ?? []) || round.typingPlayers?.some(isTypingPlayerCompleted));
 }
 
 function getTypingPlayerKey(player: TypingPlayer | TypingFinalResult): string {
@@ -766,10 +752,7 @@ function getTypingPlayerKey(player: TypingPlayer | TypingFinalResult): string {
   return `name:${player.employeeName ?? 'unknown'}`;
 }
 
-function buildTypingRanking(
-  rounds: TypingRound[],
-  finalResults: TypingFinalResult[],
-): TypingRankingItem[] {
+function buildTypingRanking(rounds: TypingRound[], finalResults: TypingFinalResult[]): TypingRankingItem[] {
   if (finalResults.length > 0) {
     return finalResults.map(result => ({
       elapsedSeconds: result.elapsedSeconds,
@@ -799,9 +782,7 @@ function buildTypingRanking(
         employeeId: player.employeeId,
         employeeName: player.employeeName,
         submittedAt: player.submittedAt ?? previous?.submittedAt,
-        winCount:
-          (previous?.winCount ?? 0) +
-          (winner && getTypingPlayerKey(winner) === key ? 1 : 0),
+        winCount: (previous?.winCount ?? 0) + (winner && getTypingPlayerKey(winner) === key ? 1 : 0),
       });
     });
   });
@@ -811,10 +792,8 @@ function buildTypingRanking(
       return right.winCount - left.winCount;
     }
 
-    const leftElapsed =
-      typeof left.elapsedSeconds === 'number' ? left.elapsedSeconds : Number.POSITIVE_INFINITY;
-    const rightElapsed =
-      typeof right.elapsedSeconds === 'number' ? right.elapsedSeconds : Number.POSITIVE_INFINITY;
+    const leftElapsed = typeof left.elapsedSeconds === 'number' ? left.elapsedSeconds : Number.POSITIVE_INFINITY;
+    const rightElapsed = typeof right.elapsedSeconds === 'number' ? right.elapsedSeconds : Number.POSITIVE_INFINITY;
 
     return leftElapsed - rightElapsed;
   });
@@ -854,17 +833,10 @@ function TypingGamePanel({
   const hasMistake = inputValue.length > correctPrefixLength;
   const isComplete = answerSentence.length > 0 && inputValue === answerSentence;
   const progressPercent =
-    answerSentence.length > 0
-      ? Math.min((correctPrefixLength / answerSentence.length) * 100, 100)
-      : 0;
+    answerSentence.length > 0 ? Math.min((correctPrefixLength / answerSentence.length) * 100, 100) : 0;
   const isSubmitPending = submittedRoundKeyRef.current === currentRoundKey;
   const editable =
-    Boolean(answerSentence) &&
-    !disabled &&
-    !isSubmitPending &&
-    !hasSubmitted &&
-    !isJudged &&
-    !isMatchFinished;
+    Boolean(answerSentence) && !disabled && !isSubmitPending && !hasSubmitted && !isJudged && !isMatchFinished;
   const statusMessage = hasSubmitted
     ? roundWinner && isSameTypingPlayer(roundWinner, myUserId, myUserName)
       ? '가장 먼저 입력했어요. 라운드 승리!'
@@ -934,9 +906,7 @@ function TypingGamePanel({
 
       <View style={styles.typingSentenceCard}>
         <Text style={styles.typingSentenceLabel}>출제 문장</Text>
-        <Text style={styles.typingSentence}>
-          {answerSentence || '잠시 후 문장이 표시됩니다.'}
-        </Text>
+        <Text style={styles.typingSentence}>{answerSentence || '잠시 후 문장이 표시됩니다.'}</Text>
       </View>
 
       <View style={styles.typingProgressTrack}>
@@ -944,9 +914,7 @@ function TypingGamePanel({
       </View>
 
       <View style={styles.typingStatusRow}>
-        <Text style={[styles.typingStatusText, hasMistake && styles.typingStatusError]}>
-          {statusMessage}
-        </Text>
+        <Text style={[styles.typingStatusText, hasMistake && styles.typingStatusError]}>{statusMessage}</Text>
         <Text style={styles.typingCountText}>
           {correctPrefixLength}/{answerSentence.length || 0}
         </Text>
@@ -1002,9 +970,7 @@ function TypingGamePanel({
               <View
                 key={`${player.employeeId ?? player.employeeName ?? 'player'}-${index}`}
                 style={[styles.typingPlayerRow, isMine && styles.typingPlayerRowMine]}>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
+                <Text numberOfLines={1} style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
                   {isMine ? '나' : player.employeeName ?? '참가자'}
                 </Text>
                 <Text style={styles.typingPlayerMeta}>
@@ -1029,9 +995,7 @@ function TypingGamePanel({
                 key={`${result.employeeId ?? result.employeeName ?? 'result'}-${index}`}
                 style={[styles.typingPlayerRow, isMine && styles.typingPlayerRowMine]}>
                 <Text style={styles.typingRankText}>{index + 1}</Text>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
+                <Text numberOfLines={1} style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
                   {isMine ? `${result.employeeName ?? '나'} · 내 기록` : result.employeeName ?? '참가자'}
                 </Text>
                 <Text style={styles.typingPlayerMeta}>
@@ -1052,6 +1016,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
   const route = useRoute<RouteProps>();
   const {auth, refreshProfile} = useAuth();
+  const {holdingCoin: latestHoldingCoin, refreshAllCoins} = useCoin();
   const {
     checkPictureMatch,
     chooseRps,
@@ -1106,7 +1071,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const myMember = currentRoom?.roomMembers.find(member => {
     return String(member.employeeId) === String(myUserId);
   });
-  const holdingCoin = toCoinNumber(myMember?.coinBalance) ?? getHoldingCoin(auth?.profile);
+  const holdingCoin = toCoinNumber(myMember?.coinBalance) ?? latestHoldingCoin ?? getHoldingCoin(auth?.profile);
   const serverMyReady = myMember?.isReady;
   const myReady = optimisticReady ?? serverMyReady ?? ready;
   const roomMembers = currentRoom?.roomMembers ?? [];
@@ -1117,10 +1082,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const maxMembers = currentRoom?.maxMembers ?? 2;
   const roomStatus = currentRoom?.roomStatus;
   const roomStatusLabel = roomStatus ? roomStatusLabels[roomStatus] : status;
-  const totalRoundCount = Math.min(
-    currentRoom?.totalRoundCount ?? 1,
-    getMaxRoundCount(currentRoom?.realtimeGameId),
-  );
+  const totalRoundCount = Math.min(currentRoom?.totalRoundCount ?? 1, getMaxRoundCount(currentRoom?.realtimeGameId));
   const emptySlotCount = Math.max(maxMembers - roomMembers.length, 0);
   const isOwner =
     currentRoom?.ownerEmployeeId !== undefined && String(currentRoom.ownerEmployeeId) === String(myUserId);
@@ -1191,18 +1153,13 @@ export function CoinBattleRoomScreen(): JSX.Element {
     typingGameState && Array.isArray(typingGameState.finalResults) ? typingGameState.finalResults : [];
   const typingRounds = typingGameState && Array.isArray(typingGameState.rounds) ? typingGameState.rounds : [];
   const typingTotalRoundCount =
-    typingGameState &&
-    Array.isArray(typingGameState.roundSentences) &&
-    typingGameState.roundSentences.length > 0
+    typingGameState && Array.isArray(typingGameState.roundSentences) && typingGameState.roundSentences.length > 0
       ? typingGameState.roundSentences.length
       : totalRoundCount;
   const visibleCompletedTypingRoundCount = typingRounds.reduce((count, round) => {
     return isTypingRoundCompleted(round) ? count + 1 : count;
   }, 0);
-  const completedTypingRoundCount = Math.max(
-    visibleCompletedTypingRoundCount,
-    trackedCompletedTypingRoundCount,
-  );
+  const completedTypingRoundCount = Math.max(visibleCompletedTypingRoundCount, trackedCompletedTypingRoundCount);
   const latestCompletedTypingRoundNumber = typingRounds.reduce((latestTypingRoundNumber, round, index) => {
     if (!isTypingRoundCompleted(round)) {
       return latestTypingRoundNumber;
@@ -1462,14 +1419,19 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
       if (coinRefreshRoomIdRef.current !== roomId) {
         coinRefreshRoomIdRef.current = roomId;
-        refreshProfile().catch(error => {
-          if (__DEV__) {
-            console.log('[CoinBattleRoomScreen] profile refresh after match failed', error);
-          }
+        Promise.allSettled([refreshProfile(), refreshAllCoins()]).then(results => {
+          results.forEach((result, index) => {
+            if (result.status === 'rejected' && __DEV__) {
+              console.log('[CoinBattleRoomScreen] coin refresh after match failed', {
+                index,
+                reason: result.reason,
+              });
+            }
+          });
         });
       }
     }
-  }, [gameRoomSnapshot, isMatchFinished, liveRoom, refreshProfile, roomId]);
+  }, [gameRoomSnapshot, isMatchFinished, liveRoom, refreshAllCoins, refreshProfile, roomId]);
 
   useEffect(() => {
     if (!canStartCountdown) {
@@ -1621,10 +1583,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
     const completedRoundNumber = latestTypingCompletedRound.roundNumber ?? 0;
 
-    if (
-      completedRoundNumber <= 0 ||
-      completedRoundNumber <= latestTypingSyncRequestedRoundRef.current
-    ) {
+    if (completedRoundNumber <= 0 || completedRoundNumber <= latestTypingSyncRequestedRoundRef.current) {
       return;
     }
 
@@ -2011,13 +1970,8 @@ export function CoinBattleRoomScreen(): JSX.Element {
                     <View style={styles.statusChip}>
                       <Text style={styles.statusText}>{roomStatusLabel}</Text>
                     </View>
-                    <View style={styles.holdingCoinChip}>
-                      <Text style={styles.holdingCoinLabel}>보유코인</Text>
-                      <Text style={styles.holdingCoinValue}>{holdingCoin}개</Text>
-                    </View>
                   </View>
                   <Text style={styles.title}>{title}</Text>
-                  <Text style={styles.subtitle}>방 ID {roomId}</Text>
                 </View>
 
                 <View style={styles.infoGrid}>
@@ -2042,7 +1996,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 </View>
 
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>참가자</Text>
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>참가자</Text>
+                    <View style={styles.sectionHoldingCoin}>
+                      <Text style={styles.holdingCoinLabel}>보유코인 {holdingCoin}개</Text>
+                    </View>
+                  </View>
                   {roomMembers.length > 0 ? (
                     roomMembers.map(member => {
                       const memberIsOwner = currentRoom?.ownerEmployeeId === member.employeeId;
@@ -2116,13 +2075,18 @@ export function CoinBattleRoomScreen(): JSX.Element {
         {stickyTypingSentence ? (
           <View pointerEvents="none" style={styles.typingStickySentence}>
             <Text style={styles.typingStickyLabel}>출제 문장</Text>
-            <Text numberOfLines={3} style={styles.typingStickyText}>{stickyTypingSentence}</Text>
+            <Text numberOfLines={3} style={styles.typingStickyText}>
+              {stickyTypingSentence}
+            </Text>
           </View>
         ) : null}
 
         {shouldShowGame && isMatchFinished && !isReturningToWaitingRoom ? (
           <View style={styles.finishDock}>
-            <AnimatedPressable accessibilityRole="button" onPress={handleReturnToWaitingRoom} style={styles.finishButton}>
+            <AnimatedPressable
+              accessibilityRole="button"
+              onPress={handleReturnToWaitingRoom}
+              style={styles.finishButton}>
               <Text style={styles.finishButtonText}>대기방으로 돌아가기</Text>
             </AnimatedPressable>
           </View>
@@ -2343,15 +2307,15 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 180,
   },
   hero: {
-    borderRadius: 18,
+    borderRadius: 24,
     padding: 18,
-    backgroundColor: '#121212',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#272727',
+    borderColor: '#252525',
   },
   heroTopRow: {
     marginBottom: 12,
@@ -2362,7 +2326,7 @@ const styles = StyleSheet.create({
   },
   statusChip: {
     alignSelf: 'flex-start',
-    borderRadius: 4,
+    borderRadius: 8,
     backgroundColor: '#E50914',
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -2375,21 +2339,21 @@ const styles = StyleSheet.create({
     minHeight: 29,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    backgroundColor: '#1A1A1A',
+    borderColor: '#E50914',
+    // backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   holdingCoinLabel: {
-    color: '#8B8E96',
-    ...FONTS.font11B,
+    color: '#FFFFFF',
+    ...FONTS.font14B,
   },
   holdingCoinValue: {
     color: '#FFFFFF',
-    ...FONTS.font12B,
+    ...FONTS.font11B,
   },
   title: {
     color: '#FFFFFF',
@@ -2483,11 +2447,11 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     width: '48.5%',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
-    backgroundColor: '#101010',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#242424',
+    borderColor: '#252525',
   },
   infoLabel: {
     color: '#8B8E96',
@@ -2500,12 +2464,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   liveCompactHeader: {
-    borderRadius: 16,
+    borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#121212',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#272727',
+    borderColor: '#252525',
   },
   liveCompactTitle: {
     color: '#FFFFFF',
@@ -2553,13 +2517,28 @@ const styles = StyleSheet.create({
     ...FONTS.font18B,
     marginBottom: 6,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionHoldingCoin: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+    backgroundColor: '#252525',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
   memberRow: {
     minHeight: 80,
     marginTop: 10,
-    borderRadius: 14,
-    backgroundColor: '#111111',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#242424',
+    borderColor: '#252525',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
@@ -2602,10 +2581,10 @@ const styles = StyleSheet.create({
   },
   emptySlot: {
     height: 58,
-    borderRadius: 14,
+    borderRadius: 24,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: '#343434',
+    borderColor: '#2D2D2D',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
@@ -2616,11 +2595,11 @@ const styles = StyleSheet.create({
   },
   gameSection: {
     marginTop: 24,
-    borderRadius: 18,
+    borderRadius: 24,
     padding: 18,
-    backgroundColor: '#101010',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#272727',
+    borderColor: '#252525',
   },
   gameHeader: {
     flexDirection: 'row',
@@ -2657,7 +2636,7 @@ const styles = StyleSheet.create({
   },
   latestResultBanner: {
     marginTop: 18,
-    borderRadius: 16,
+    borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
@@ -2686,13 +2665,13 @@ const styles = StyleSheet.create({
   playerCard: {
     flex: 1,
     minHeight: 178,
-    borderRadius: 20,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    backgroundColor: '#161616',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#292929',
+    borderColor: '#252525',
     padding: 12,
   },
   playerCardLocked: {
@@ -2763,10 +2742,10 @@ const styles = StyleSheet.create({
   },
   choiceLockCard: {
     marginTop: 22,
-    borderRadius: 14,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#3A1A1E',
-    backgroundColor: '#161616',
+    borderColor: '#252525',
+    backgroundColor: '#111114',
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
@@ -2800,12 +2779,12 @@ const styles = StyleSheet.create({
   },
   choiceButton: {
     minHeight: 126,
-    borderRadius: 18,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#161616',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#292929',
+    borderColor: '#252525',
   },
   choiceButtonActive: {
     backgroundColor: '#201012',
@@ -2895,10 +2874,10 @@ const styles = StyleSheet.create({
   },
   roundHistory: {
     marginTop: 18,
-    borderRadius: 14,
-    backgroundColor: '#161616',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#292929',
+    borderColor: '#252525',
     padding: 14,
   },
   roundHistoryFinished: {
@@ -2979,12 +2958,12 @@ const styles = StyleSheet.create({
   placeholderGameCard: {
     marginTop: 18,
     minHeight: 96,
-    borderRadius: 14,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#161616',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#292929',
+    borderColor: '#252525',
   },
   placeholderGameText: {
     color: '#FFFFFF',
@@ -3024,12 +3003,12 @@ const styles = StyleSheet.create({
   pictureMatchScoreCard: {
     flex: 1,
     minHeight: 72,
-    borderRadius: 14,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#161616',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#292929',
+    borderColor: '#252525',
   },
   pictureMatchMetaCard: {
     flex: 1,
@@ -3139,10 +3118,10 @@ const styles = StyleSheet.create({
   },
   typingSentenceCard: {
     marginTop: 18,
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#292929',
-    backgroundColor: '#161616',
+    borderColor: '#252525',
+    backgroundColor: '#171717',
     padding: 16,
   },
   typingSentenceLabel: {
@@ -3200,10 +3179,10 @@ const styles = StyleSheet.create({
   typingInput: {
     minHeight: 88,
     marginTop: 12,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#343434',
-    backgroundColor: '#0C0C0C',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
     color: '#FFFFFF',
     paddingHorizontal: 14,
     paddingVertical: 13,
@@ -3276,21 +3255,21 @@ const styles = StyleSheet.create({
   },
   typingPlayersCard: {
     marginTop: 16,
-    borderRadius: 14,
-    backgroundColor: '#161616',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#292929',
+    borderColor: '#252525',
     padding: 14,
   },
   typingPlayerRow: {
     minHeight: 40,
     marginTop: 10,
-    borderRadius: 10,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 10,
-    backgroundColor: '#101010',
+    backgroundColor: '#111114',
   },
   typingPlayerRowMine: {
     backgroundColor: 'rgba(229, 9, 20, 0.15)',
@@ -3324,12 +3303,12 @@ const styles = StyleSheet.create({
   finishButton: {
     height: 54,
     borderRadius: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#E50914',
     alignItems: 'center',
     justifyContent: 'center',
   },
   finishButtonText: {
-    color: '#000000',
+    color: '#FFFFFF',
     ...FONTS.font14B,
   },
   actionRow: {
@@ -3340,8 +3319,10 @@ const styles = StyleSheet.create({
   readyButton: {
     flex: 1,
     height: 48,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3349,7 +3330,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E50914',
   },
   readyButtonText: {
-    color: '#000000',
+    color: '#FFFFFF',
     ...FONTS.font14B,
   },
   readyButtonTextActive: {
@@ -3358,7 +3339,7 @@ const styles = StyleSheet.create({
   leaveButton: {
     width: 92,
     height: 48,
-    borderRadius: 8,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#383838',
     alignItems: 'center',

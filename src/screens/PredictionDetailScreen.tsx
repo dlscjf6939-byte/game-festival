@@ -50,7 +50,7 @@ const teams = [
     imageSource: logo.gwantaekdong,
     members: ['서현택', '김정관', '황동익'],
     name: '관택동',
-    tone: '#4B5568',
+    tone: '#8A8D95',
   },
 ] as const;
 
@@ -66,6 +66,7 @@ type PredictionTeam = {
   members: string[];
   name: string;
   participantId?: number;
+  predictionRate?: number;
   tone: string;
 };
 
@@ -111,8 +112,10 @@ type MatchDetailApiResponse = {
     matchName?: string;
     participants?: Array<{
       logoImageUrl?: string;
+      participantName?: string;
       participantId?: number;
       name?: string;
+      predictionRate?: number;
       participantType?: string;
       participantMembers?: Array<{
         nickname?: string;
@@ -126,6 +129,44 @@ type MatchDetailApiResponse = {
     } | null;
     pickedParticipantId?: number | null;
     roundName?: string;
+  };
+  message?: string;
+  success?: boolean;
+};
+
+type MatchOverviewApiResponse = {
+  data?: {
+    comments?: Array<{
+      comment?: string;
+      elapsedTime?: string;
+      pickedParticipant?: {
+        participantId?: number;
+        participantName?: string;
+      };
+      predictionId?: number;
+      writer?: {
+        department?: string;
+        employeeId?: number;
+        employeeName?: string;
+        profileImageUrl?: string | null;
+      };
+    }>;
+    gameId?: number;
+    gameName?: string;
+    matchId?: number;
+    matchName?: string;
+    matchType?: string;
+    participants?: Array<{
+      logoImageUrl?: string;
+      participantId?: number;
+      participantName?: string;
+      participantType?: string;
+      predictionRate?: number;
+    }>;
+    pickedParticipant?: {
+      participantId?: number;
+      participantName?: string;
+    } | null;
   };
   message?: string;
   success?: boolean;
@@ -146,40 +187,28 @@ type CheerComment = {
   time: string;
 };
 
-const initialVoteCounts: Record<TeamId, number> = {
-  'team-red': 46,
-  'team-black': 39,
-};
-
-const initialCheerComments: CheerComment[] = [
-  {
-    id: 'cheer-1',
-    avatar: image.profile,
-    name: '김소진',
-    teamId: 'team-red',
-    text: '레드팀 오늘 합이 너무 좋아요. 마지막까지 밀어붙입시다!',
-    time: '2분 전',
-  },
-  {
-    id: 'cheer-2',
-    avatar: image.profile,
-    name: '길기환',
-    teamId: 'team-black',
-    text: '블랙팀 역전각 봅니다. 후반 집중력 믿어요.',
-    time: '5분 전',
-  },
-  {
-    id: 'cheer-3',
-    avatar: image.profile,
-    name: '이인철',
-    teamId: 'team-red',
-    text: '현장 분위기는 레드 쪽이 더 뜨겁네요.',
-    time: '8분 전',
-  },
-];
-
 function getTeamName(teamId: TeamId): string {
   return teams.find(team => team.id === teamId)?.name ?? '붕권';
+}
+
+function getTeamIdFromParticipantType(participantType: string | undefined, fallbackIndex = 0): TeamId {
+  if (participantType === 'TEAM_BLUE') {
+    return 'team-black';
+  }
+
+  if (participantType === 'TEAM_RED') {
+    return 'team-red';
+  }
+
+  return fallbackIndex === 1 ? 'team-black' : 'team-red';
+}
+
+function toPredictionRate(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.min(100, value));
 }
 
 function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
@@ -188,9 +217,10 @@ function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
   }
 
   const matches = (data.matches ?? [])
-    .filter((match): match is Required<Pick<GameDetailMatch, 'matchId'>> & Partial<GameDetailMatch> => (
-      typeof match.matchId === 'number'
-    ))
+    .filter(
+      (match): match is Required<Pick<GameDetailMatch, 'matchId'>> & Partial<GameDetailMatch> =>
+        typeof match.matchId === 'number',
+    )
     .map(match => ({
       matchId: match.matchId,
       matchName: match.matchName?.trim() || '경기',
@@ -211,13 +241,14 @@ function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
 
 function toPredictionTeam(
   participant: NonNullable<NonNullable<MatchDetailApiResponse['data']>['participants']>[number],
+  index = 0,
 ): PredictionTeam | null {
   if (typeof participant.participantId !== 'number') {
     return null;
   }
 
-  const isRed = participant.participantType === 'TEAM_RED';
-  const fallbackTeam = isRed ? teams[0] : teams[1];
+  const teamId = getTeamIdFromParticipantType(participant.participantType, index);
+  const fallbackTeam = teamId === 'team-red' ? teams[0] : teams[1];
   const logoImageUrl = participant.logoImageUrl?.trim();
 
   return {
@@ -226,9 +257,43 @@ function toPredictionTeam(
     members: (participant.participantMembers ?? [])
       .map(member => member.nickname?.trim())
       .filter((nickname): nickname is string => Boolean(nickname)),
-    name: participant.name?.trim() || fallbackTeam.name,
+    name: participant.participantName?.trim() || participant.name?.trim() || fallbackTeam.name,
     participantId: participant.participantId,
+    predictionRate: toPredictionRate(participant.predictionRate),
     tone: fallbackTeam.tone,
+  };
+}
+
+function toCheerComment(
+  comment: NonNullable<NonNullable<MatchOverviewApiResponse['data']>['comments']>[number],
+  index: number,
+  predictionTeams: PredictionTeam[],
+  myEmployeeId?: number | string,
+  myName?: string,
+): CheerComment | null {
+  const text = comment.comment?.trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const participantId = comment.pickedParticipant?.participantId;
+  const matchedTeam = predictionTeams.find(team => team.participantId === participantId);
+  const writerName = comment.writer?.employeeName?.trim() || '익명';
+  const writerEmployeeId = comment.writer?.employeeId;
+  const isMineById =
+    writerEmployeeId !== undefined && myEmployeeId !== undefined && String(writerEmployeeId) === String(myEmployeeId);
+  const isMineByName = Boolean(writerName && myName && writerName === myName);
+  const profileImageUrl = comment.writer?.profileImageUrl?.trim();
+
+  return {
+    avatar: profileImageUrl ? {uri: profileImageUrl} : image.profile,
+    id: comment.predictionId !== undefined ? String(comment.predictionId) : `cheer-${index}`,
+    isMine: isMineById || isMineByName,
+    name: writerName,
+    teamId: matchedTeam?.id ?? 'team-red',
+    text,
+    time: comment.elapsedTime?.trim() || '방금 전',
   };
 }
 
@@ -251,6 +316,7 @@ export function PredictionDetailScreen(): JSX.Element {
   const [expandedTeam, setExpandedTeam] = useState<TeamId | null>(isParticipatedDetail ? initialSelectedTeam : null);
   const [matchupStageSize, setMatchupStageSize] = useState({height: 0, width: 0});
   const [cheerDraft, setCheerDraft] = useState('');
+  const [cheerComments, setCheerComments] = useState<CheerComment[]>([]);
   const [gameDetail, setGameDetail] = useState<GameDetail | null>(null);
   const [predictionTeams, setPredictionTeams] = useState<PredictionTeam[]>([]);
   const [isGameDetailLoading, setIsGameDetailLoading] = useState(false);
@@ -279,23 +345,23 @@ export function PredictionDetailScreen(): JSX.Element {
   const teamDetailProgress = useRef(new Animated.Value(isParticipatedDetail ? 1 : 0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? predictionTeams[0] ?? teams[0];
-  const expandedTeamInfo = expandedTeam ? predictionTeams.find(team => team.id === expandedTeam) ?? predictionTeams[0] ?? teams[0] : null;
+  const expandedTeamInfo = expandedTeam
+    ? predictionTeams.find(team => team.id === expandedTeam) ?? predictionTeams[0] ?? teams[0]
+    : null;
   const leftTeamInfo = predictionTeams[0] ?? teams[0];
   const rightTeamInfo = predictionTeams[1] ?? teams[1];
   const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '철권7 결승전';
-
-  const voteCounts = {
-    ...initialVoteCounts,
-    ...(submittedComment
-      ? {
-          [submittedComment.teamId]: initialVoteCounts[submittedComment.teamId] + 1,
-        }
-      : {}),
-  };
-  const totalVotes = voteCounts['team-red'] + voteCounts['team-black'];
-  const redRatio = totalVotes ? Math.round((voteCounts['team-red'] / totalVotes) * 100) : 0;
-  const blackRatio = 100 - redRatio;
-  const cheerComments = submittedComment ? [submittedComment, ...initialCheerComments] : initialCheerComments;
+  const displayTeamName = useCallback(
+    (teamId: TeamId) => predictionTeams.find(team => team.id === teamId)?.name ?? getTeamName(teamId),
+    [predictionTeams],
+  );
+  const redRatio = predictionTeams.find(team => team.id === 'team-red')?.predictionRate ?? 0;
+  const blackRatio = predictionTeams.find(team => team.id === 'team-black')?.predictionRate ?? 0;
+  const voteGraphRedFlex = redRatio > 0 || blackRatio > 0 ? redRatio : 1;
+  const voteGraphBlackFlex = redRatio > 0 || blackRatio > 0 ? blackRatio : 1;
+  const displayCheerComments = submittedComment
+    ? [submittedComment, ...cheerComments.filter(comment => comment.id !== submittedComment.id)]
+    : cheerComments;
   const matchupSplitLineStyle = useMemo(() => {
     const {height, width} = matchupStageSize;
     const lineBleed = 96;
@@ -415,6 +481,70 @@ export function PredictionDetailScreen(): JSX.Element {
     }, [playStageIntro]),
   );
 
+  const fetchMatchOverview = useCallback(async (): Promise<boolean> => {
+    if (!auth?.accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
+      return false;
+    }
+
+    const response = await withMinimumLoadingTime(
+      fetch(
+        `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${routeGameId}/matches/${routeMatchId}/overview`,
+        {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        },
+      ),
+    );
+    const responseText = await response.text();
+    let responseBody: MatchOverviewApiResponse | null = null;
+
+    try {
+      responseBody = JSON.parse(responseText) as MatchOverviewApiResponse;
+    } catch {
+      throw new Error('승부예측 현황 응답을 해석하지 못했습니다.');
+    }
+
+    if (!response.ok || responseBody.success === false) {
+      throw new Error(responseBody.message || '승부예측 현황 조회에 실패했습니다.');
+    }
+
+    const nextTeams = (responseBody.data?.participants ?? [])
+      .map((participant, index) => toPredictionTeam(participant, index))
+      .filter((team): team is PredictionTeam => Boolean(team));
+
+    if (nextTeams.length) {
+      setPredictionTeams(previousTeams =>
+        nextTeams.map(team => {
+          const previousTeam = previousTeams.find(previous => previous.participantId === team.participantId);
+
+          return {
+            ...team,
+            members: team.members.length ? team.members : previousTeam?.members ?? [],
+          };
+        }),
+      );
+    }
+
+    const nextComments = (responseBody.data?.comments ?? [])
+      .map((comment, index) => toCheerComment(comment, index, nextTeams, auth.employeeId, auth.name))
+      .filter((comment): comment is CheerComment => Boolean(comment));
+
+    setCheerComments(nextComments);
+
+    const pickedParticipantId = responseBody.data?.pickedParticipant?.participantId;
+    const pickedTeam = nextTeams.find(team => team.participantId === pickedParticipantId);
+
+    if (pickedTeam) {
+      setSelectedTeam(pickedTeam.id);
+      setExpandedTeam(pickedTeam.id);
+      setStep('result');
+    }
+
+    return true;
+  }, [auth?.accessToken, auth?.employeeId, auth?.name, routeGameId, routeMatchId]);
+
   useEffect(() => {
     const accessToken = auth?.accessToken;
 
@@ -489,15 +619,12 @@ export function PredictionDetailScreen(): JSX.Element {
 
       try {
         const response = await withMinimumLoadingTime(
-          fetch(
-            `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${routeGameId}/matches/${routeMatchId}`,
-            {
-              headers: {
-                Accept: 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-              },
+          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${routeGameId}/matches/${routeMatchId}`, {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessToken}`,
             },
-          ),
+          }),
         );
         const responseText = await response.text();
         let responseBody: MatchDetailApiResponse | null = null;
@@ -543,6 +670,38 @@ export function PredictionDetailScreen(): JSX.Element {
       isMounted = false;
     };
   }, [auth?.accessToken, isParticipatedDetail, routeGameId, routeMatchId]);
+
+  useEffect(() => {
+    if (!auth?.accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
+      return;
+    }
+
+    let isMounted = true;
+
+    async function loadMatchOverview(): Promise<void> {
+      setIsMatchDetailLoading(true);
+
+      try {
+        const didLoad = await fetchMatchOverview();
+
+        if (isMounted && didLoad) {
+          setSubmittedComment(null);
+        }
+      } catch (error) {
+        console.log('[PredictionDetailScreen] match overview request failed', {error, routeGameId, routeMatchId});
+      } finally {
+        if (isMounted) {
+          setIsMatchDetailLoading(false);
+        }
+      }
+    }
+
+    loadMatchOverview();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [auth?.accessToken, fetchMatchOverview, routeGameId, routeMatchId]);
 
   const transitionToStep = useCallback(
     (nextStep: PredictionStep) => {
@@ -707,15 +866,28 @@ export function PredictionDetailScreen(): JSX.Element {
     try {
       await submitPrediction(participantId, trimmedComment);
       await refreshProfile();
-      setSubmittedComment({
-        id: `my-cheer-${Date.now()}`,
-        avatar: myAvatarSource,
-        isMine: true,
-        name: myName,
-        teamId: selectedTeam,
-        text: trimmedComment,
-        time: '방금 전',
-      });
+      let didRefreshOverview = false;
+
+      try {
+        didRefreshOverview = await fetchMatchOverview();
+      } catch (overviewError) {
+        console.log('[PredictionDetailScreen] overview refresh after submit failed', overviewError);
+      }
+
+      if (didRefreshOverview) {
+        setSubmittedComment(null);
+      } else {
+        setSubmittedComment({
+          id: `my-cheer-${Date.now()}`,
+          avatar: myAvatarSource,
+          isMine: true,
+          name: myName,
+          teamId: selectedTeam,
+          text: trimmedComment,
+          time: '방금 전',
+        });
+      }
+
       setIsConfirmVisible(false);
       showSubmitToast();
       transitionToStep('result');
@@ -745,36 +917,36 @@ export function PredictionDetailScreen(): JSX.Element {
           </View>
 
           <Animated.View style={[styles.stepAnimatedShell, stepTransitionStyle]}>
-            {step === 'result' && submittedComment ? (
+            {step === 'result' ? (
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
                 <View style={styles.resultHero}>
                   <Text style={styles.resultEyebrow}>내 선택</Text>
-                  <Text style={styles.resultTitle}>{getTeamName(submittedComment.teamId)}</Text>
+                  <Text style={styles.resultTitle}>{displayTeamName(selectedTeam)}</Text>
                   <Text style={styles.resultSubtitle}>경기 종료 후 결과에 따라 코인을 지급받을 수 있어요</Text>
                 </View>
 
                 <View style={styles.voteCard}>
                   <View style={styles.voteHeader}>
                     <Text style={styles.voteTitle}>투표 현황</Text>
-                    <Text style={styles.voteTotal}>총 {totalVotes}표</Text>
+                    <Text style={styles.voteTotal}>실시간 투표율</Text>
                   </View>
 
                   <View style={styles.voteGraphTrack}>
-                    <View style={[styles.voteGraphRed, {flex: voteCounts['team-red']}]} />
-                    <View style={[styles.voteGraphBlack, {flex: voteCounts['team-black']}]} />
+                    <View style={[styles.voteGraphRed, {flex: voteGraphRedFlex}]} />
+                    <View style={[styles.voteGraphBlack, {flex: voteGraphBlackFlex}]} />
                   </View>
 
                   <View style={styles.voteLegendRow}>
                     <View style={styles.voteLegendItem}>
-                      <View style={[styles.voteDot, {backgroundColor: '#E50914'}]} />
+                      <View style={[styles.voteDot, styles.voteDotRed]} />
                       <Text style={styles.voteLegendText}>
-                        {getTeamName('team-red')} {voteCounts['team-red']}표 · {redRatio}%
+                        {displayTeamName('team-red')} {redRatio}%
                       </Text>
                     </View>
                     <View style={styles.voteLegendItem}>
-                      <View style={[styles.voteDot, {backgroundColor: '#4B5568'}]} />
+                      <View style={[styles.voteDot, styles.voteDotBlack]} />
                       <Text style={styles.voteLegendText}>
-                        {getTeamName('team-black')} {voteCounts['team-black']}표 · {blackRatio}%
+                        {displayTeamName('team-black')} {blackRatio}%
                       </Text>
                     </View>
                   </View>
@@ -782,30 +954,38 @@ export function PredictionDetailScreen(): JSX.Element {
 
                 <View style={styles.commentSectionHeader}>
                   <Text style={styles.commentSectionTitle}>전체 응원댓글</Text>
-                  <Text style={styles.commentSectionCount}>{cheerComments.length}개</Text>
+                  <Text style={styles.commentSectionCount}>{displayCheerComments.length}개</Text>
                 </View>
 
                 <View style={styles.cheerCommentList}>
-                  {cheerComments.map(comment => (
-                    <View key={comment.id} style={[styles.cheerCommentRow, comment.isMine && styles.myCheerCommentRow]}>
-                      <Image source={comment.avatar} style={styles.cheerAvatar} resizeMode="cover" />
-                      <View style={styles.cheerCommentBody}>
-                        <View style={styles.cheerCommentMetaRow}>
-                          <Text style={styles.cheerName}>{comment.name}</Text>
-                          <View
-                            style={[
-                              styles.cheerTeamBadge,
-                              comment.teamId === 'team-red' ? styles.cheerTeamBadgeRed : styles.cheerTeamBadgeBlack,
-                            ]}>
-                            <Text style={styles.cheerTeamBadgeText}>{getTeamName(comment.teamId)}</Text>
+                  {displayCheerComments.length ? (
+                    displayCheerComments.map(comment => (
+                      <View
+                        key={comment.id}
+                        style={[styles.cheerCommentRow, comment.isMine && styles.myCheerCommentRow]}>
+                        <Image source={comment.avatar} style={styles.cheerAvatar} resizeMode="cover" />
+                        <View style={styles.cheerCommentBody}>
+                          <View style={styles.cheerCommentMetaRow}>
+                            <Text style={styles.cheerName}>{comment.name}</Text>
+                            <View
+                              style={[
+                                styles.cheerTeamBadge,
+                                comment.teamId === 'team-red' ? styles.cheerTeamBadgeRed : styles.cheerTeamBadgeBlack,
+                              ]}>
+                              <Text style={styles.cheerTeamBadgeText}>{displayTeamName(comment.teamId)}</Text>
+                            </View>
+                            {comment.isMine ? <Text style={styles.mineLabel}>내 댓글</Text> : null}
                           </View>
-                          {comment.isMine ? <Text style={styles.mineLabel}>내 댓글</Text> : null}
+                          <Text style={styles.cheerText}>{comment.text}</Text>
+                          <Text style={styles.cheerTime}>{comment.time}</Text>
                         </View>
-                        <Text style={styles.cheerText}>{comment.text}</Text>
-                        <Text style={styles.cheerTime}>{comment.time}</Text>
                       </View>
+                    ))
+                  ) : (
+                    <View style={styles.emptyCommentState}>
+                      <Text style={styles.emptyText}>아직 등록된 응원댓글이 없습니다.</Text>
                     </View>
-                  ))}
+                  )}
                 </View>
               </ScrollView>
             ) : step === 'select' ? (
@@ -851,7 +1031,13 @@ export function PredictionDetailScreen(): JSX.Element {
                         <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
                           <View pointerEvents="none" style={styles.vsBadgeCenter}>
                             {isLottieNativeAvailable ? (
-                                <LottieView autoPlay loop={false} speed={0.8} source={compareVsLottie} style={styles.vsLottie} />
+                              <LottieView
+                                autoPlay
+                                loop={false}
+                                speed={0.8}
+                                source={compareVsLottie}
+                                style={styles.vsLottie}
+                              />
                             ) : (
                               <View style={styles.vsFallbackBadge}>
                                 <Text style={styles.vsFallbackText}>VS</Text>
@@ -869,32 +1055,45 @@ export function PredictionDetailScreen(): JSX.Element {
                             style={styles.wallLogoTouchArea}>
                             <Animated.View
                               style={[
-                              styles.wallLogoShell,
-                              styles.wallLogoShellLeft,
-                              selectedTeam === leftTeamInfo.id && styles.wallLogoShellActive,
-                            ]}>
-                              <Image source={leftTeamInfo.imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
+                                styles.wallLogoShell,
+                                styles.wallLogoShellLeft,
+                                selectedTeam === leftTeamInfo.id && styles.wallLogoShellActive,
+                              ]}>
+                              <Image
+                                source={leftTeamInfo.imageSource}
+                                resizeMode="contain"
+                                style={styles.wallTeamLogo}
+                              />
                             </Animated.View>
                           </AnimatedPressable>
                         </Animated.View>
 
                         {predictionTeams.length > 1 ? (
                           <Animated.View
-                            style={[styles.wallLogoPressable, styles.wallLogoRight, rightLogoIntroStyle, matchupIdleStyle]}>
-                          <AnimatedPressable
-                            accessibilityRole="button"
-                            disabled={Boolean(expandedTeam)}
-                            onPress={() => handleTeamLogoPress(rightTeamInfo.id)}
-                            style={styles.wallLogoTouchArea}>
-                            <Animated.View
-                              style={[
-                              styles.wallLogoShell,
-                              styles.wallLogoShellRight,
-                              selectedTeam === rightTeamInfo.id && styles.wallLogoShellActive,
+                            style={[
+                              styles.wallLogoPressable,
+                              styles.wallLogoRight,
+                              rightLogoIntroStyle,
+                              matchupIdleStyle,
                             ]}>
-                              <Image source={rightTeamInfo.imageSource} resizeMode="contain" style={styles.wallTeamLogo} />
-                            </Animated.View>
-                          </AnimatedPressable>
+                            <AnimatedPressable
+                              accessibilityRole="button"
+                              disabled={Boolean(expandedTeam)}
+                              onPress={() => handleTeamLogoPress(rightTeamInfo.id)}
+                              style={styles.wallLogoTouchArea}>
+                              <Animated.View
+                                style={[
+                                  styles.wallLogoShell,
+                                  styles.wallLogoShellRight,
+                                  selectedTeam === rightTeamInfo.id && styles.wallLogoShellActive,
+                                ]}>
+                                <Image
+                                  source={rightTeamInfo.imageSource}
+                                  resizeMode="contain"
+                                  style={styles.wallTeamLogo}
+                                />
+                              </Animated.View>
+                            </AnimatedPressable>
                           </Animated.View>
                         ) : null}
 
@@ -940,7 +1139,8 @@ export function PredictionDetailScreen(): JSX.Element {
                     onPress={handleSelectNext}
                     style={[
                       styles.nextButton,
-                      (!expandedTeam || typeof selectedTeamInfo.participantId !== 'number') && styles.nextButtonDisabled,
+                      (!expandedTeam || typeof selectedTeamInfo.participantId !== 'number') &&
+                        styles.nextButtonDisabled,
                     ]}>
                     <Text
                       style={[
@@ -1047,9 +1247,7 @@ export function PredictionDetailScreen(): JSX.Element {
                       styles.confirmSubmitButton,
                       isSubmittingPrediction && styles.confirmSubmitButtonDisabled,
                     ]}>
-                    <Text style={styles.confirmSubmitText}>
-                      {isSubmittingPrediction ? '등록 중...' : '등록'}
-                    </Text>
+                    <Text style={styles.confirmSubmitText}>{isSubmittingPrediction ? '등록 중...' : '등록'}</Text>
                   </AnimatedPressable>
                 </View>
               </View>
@@ -1103,8 +1301,9 @@ const styles = StyleSheet.create({
     paddingBottom: 112,
   },
   backRow: {
+    height: 56,
     paddingHorizontal: 20,
-    paddingTop: 12,
+    justifyContent: 'center',
   },
   backButton: {
     width: 28,
@@ -1119,8 +1318,8 @@ const styles = StyleSheet.create({
   },
   heroBlock: {
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 30,
+    paddingTop: 8,
+    paddingBottom: 22,
   },
   heroTitle: {
     color: '#FFFFFF',
@@ -1129,7 +1328,7 @@ const styles = StyleSheet.create({
   },
   heroSubtitle: {
     marginTop: 8,
-    color: 'rgba(255,255,255,0.7)',
+    color: '#A9ABB2',
     ...FONTS.font16M,
     lineHeight: 21,
   },
@@ -1148,7 +1347,7 @@ const styles = StyleSheet.create({
   },
   matchupStageWrapper: {
     marginHorizontal: 20,
-    marginTop: 8,
+    marginTop: 0,
     height: 360,
     position: 'relative',
   },
@@ -1186,7 +1385,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: '44%',
     padding: 14,
-    borderRadius: 18,
+    borderRadius: 24,
     backgroundColor: 'rgba(17,17,20,0.9)',
     borderWidth: 1,
     borderColor: '#27292F',
@@ -1291,7 +1490,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#E50914',
     borderWidth: 3,
-    borderColor: '#FFFFFF',
+    borderColor: '#252525',
     shadowColor: '#E50914',
     shadowOpacity: 0.42,
     shadowRadius: 18,
@@ -1388,9 +1587,9 @@ const styles = StyleSheet.create({
     borderRadius: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#171717',
     borderWidth: 3,
-    borderColor: '#000000',
+    borderColor: '#252525',
     shadowColor: '#E50914',
     shadowOpacity: 0.36,
     shadowRadius: 18,
@@ -1479,11 +1678,11 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   selectedTeamHero: {
-    // marginHorizontal: 20,
-    marginTop: 20,
-    minHeight: 260,
-    borderRadius: 28,
-    padding: 24,
+    marginHorizontal: 20,
+    marginTop: 0,
+    minHeight: 248,
+    borderRadius: 24,
+    padding: 20,
     alignItems: 'center',
     justifyContent: 'space-between',
     overflow: 'hidden',
@@ -1520,8 +1719,8 @@ const styles = StyleSheet.create({
   },
   commentOnlyInputBlock: {
     marginHorizontal: 20,
-    // marginTop: 22,
-    borderRadius: 22,
+    marginTop: 14,
+    borderRadius: 24,
     padding: 18,
     backgroundColor: '#111114',
     borderWidth: 1,
@@ -1552,13 +1751,13 @@ const styles = StyleSheet.create({
   },
   confirmCard: {
     width: '100%',
-    borderRadius: 26,
+    borderRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 22,
     paddingBottom: 18,
-    backgroundColor: '#151519',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#2A2B31',
+    borderColor: '#252525',
   },
   confirmEyebrow: {
     color: '#E50914',
@@ -1646,8 +1845,8 @@ const styles = StyleSheet.create({
   },
   cheerInputCard: {
     marginHorizontal: 20,
-    marginTop: 24,
-    borderRadius: 22,
+    marginTop: 20,
+    borderRadius: 24,
     padding: 16,
     flexDirection: 'row',
     backgroundColor: '#111114',
@@ -1709,7 +1908,7 @@ const styles = StyleSheet.create({
   },
   resultContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 8,
     paddingBottom: 42,
   },
   resultHero: {
@@ -1737,7 +1936,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   voteCard: {
-    marginTop: 18,
+    marginTop: 20,
     borderRadius: 24,
     padding: 18,
     backgroundColor: '#111114',
@@ -1771,7 +1970,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E50914',
   },
   voteGraphBlack: {
-    backgroundColor: '#4B5568',
+    backgroundColor: '#8A8D95',
   },
   voteLegendRow: {
     marginTop: 14,
@@ -1787,13 +1986,19 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 7,
   },
+  voteDotRed: {
+    backgroundColor: '#E50914',
+  },
+  voteDotBlack: {
+    backgroundColor: '#8A8D95',
+  },
   voteLegendText: {
     color: '#D6D8DE',
     ...FONTS.font13M,
     lineHeight: 18,
   },
   commentSectionHeader: {
-    marginTop: 26,
+    marginTop: 22,
     marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1812,13 +2017,22 @@ const styles = StyleSheet.create({
   cheerCommentList: {
     gap: 14,
   },
+  emptyCommentState: {
+    minHeight: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 24,
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#252525',
+  },
   cheerCommentRow: {
     flexDirection: 'row',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 14,
-    backgroundColor: '#0B0B0D',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#1B1B1F',
+    borderColor: '#252525',
   },
   myCheerCommentRow: {
     backgroundColor: 'rgba(229,9,20,0.12)',
@@ -1846,17 +2060,22 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   cheerTeamBadge: {
-    height: 22,
-    borderRadius: 11,
+    height: 20,
+    borderRadius: 8,
     paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cheerTeamBadgeRed: {
-    backgroundColor: 'rgba(229,9,20,0.24)',
+    borderWidth: 1,
+    borderColor: 'rgba(229,9,20,0.48)',
   },
   cheerTeamBadgeBlack: {
-    backgroundColor: 'rgba(75,85,104,0.5)',
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cheerTeamBadgeText: {
     color: '#FFFFFF',

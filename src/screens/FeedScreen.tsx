@@ -305,8 +305,11 @@ export function FeedScreen(): JSX.Element {
   const selectedEmployeePostInteraction = selectedEmployeePostId
     ? employeePostInteractions[selectedEmployeePostId]
     : undefined;
+  const selectedEmployeePostLoadedCommentCount = selectedEmployeePostId
+    ? commentsByPost[selectedEmployeePostId]?.length
+    : undefined;
   const selectedEmployeePostCommentCount =
-    (selectedEmployeePostId && commentsByPost[selectedEmployeePostId]?.length) ??
+    selectedEmployeePostLoadedCommentCount ??
     selectedEmployeePostInteraction?.commentCount ??
     selectedEmployeeFeedPost?.commentCount ??
     selectedEmployeeFeedPost?.comments.length ??
@@ -2336,7 +2339,7 @@ const styles = StyleSheet.create({
     paddingTop: 1,
   },
   hashtagText: {
-    color: '#7EA7FF',
+    color: '#E50914',
     ...FONTS.font13M,
     lineHeight: 18,
   },
@@ -2434,7 +2437,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#282828',
-    backgroundColor: '#111111',
+    backgroundColor: '#111114',
   },
   inputAvatar: {
     width: 34,
@@ -2477,11 +2480,11 @@ const styles = StyleSheet.create({
   commentActionSheet: {
     marginHorizontal: 12,
     marginBottom: 18,
-    borderRadius: 18,
-    backgroundColor: '#1B1C20',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     padding: 16,
     borderWidth: 1,
-    borderColor: '#303139',
+    borderColor: '#252525',
   },
   commentActionTitle: {
     color: '#FFFFFF',
@@ -2503,10 +2506,10 @@ const styles = StyleSheet.create({
   commentActionButton: {
     marginTop: 14,
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2A2B31',
+    backgroundColor: '#252525',
   },
   commentActionButtonText: {
     color: '#FFFFFF',
@@ -2535,19 +2538,19 @@ const styles = StyleSheet.create({
   commentEditCard: {
     marginHorizontal: 16,
     marginBottom: 32,
-    borderRadius: 18,
-    backgroundColor: '#1B1C20',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     padding: 16,
     borderWidth: 1,
-    borderColor: '#303139',
+    borderColor: '#252525',
   },
   commentEditInput: {
     marginTop: 14,
     minHeight: 112,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#303139',
-    backgroundColor: '#121317',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
     color: '#FFFFFF',
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -2563,12 +2566,12 @@ const styles = StyleSheet.create({
   commentEditButton: {
     flex: 1,
     minHeight: 46,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   commentEditCancelButton: {
-    backgroundColor: '#2A2B31',
+    backgroundColor: '#252525',
   },
   commentEditSaveButton: {
     backgroundColor: '#E50914',
@@ -2592,10 +2595,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 430,
     maxHeight: '100%',
-    borderRadius: 22,
-    backgroundColor: '#15161A',
+    borderRadius: 24,
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#2B2D34',
+    borderColor: '#252525',
     overflow: 'hidden',
     shadowColor: '#000000',
     shadowOpacity: 0.36,
@@ -2666,8 +2669,8 @@ const styles = StyleSheet.create({
   },
   employeeInfoList: {
     marginTop: 20,
-    borderRadius: 14,
-    backgroundColor: '#1E2026',
+    borderRadius: 24,
+    backgroundColor: '#111114',
     overflow: 'hidden',
   },
   employeeInfoRow: {
@@ -2819,7 +2822,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 14,
+    borderRadius: 24,
     backgroundColor: '#24262B',
   },
   employeePostDetailBackdrop: {
@@ -2962,7 +2965,7 @@ const styles = StyleSheet.create({
   },
   composeScreen: {
     flex: 1,
-    backgroundColor: '#050505',
+    backgroundColor: '#000000',
   },
   composeHeader: {
     minHeight: 74,
@@ -2971,7 +2974,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#050505',
+    backgroundColor: '#000000',
     borderBottomWidth: 1,
     borderBottomColor: '#191919',
   },
@@ -3014,7 +3017,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     position: 'relative',
     overflow: 'hidden',
-    backgroundColor: '#151519',
+    backgroundColor: '#171717',
   },
   composeSelectedCountBadge: {
     position: 'absolute',
@@ -3035,15 +3038,15 @@ const styles = StyleSheet.create({
   composeAlbumBar: {
     marginTop: 18,
     minHeight: 70,
-    borderRadius: 18,
+    borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#111114',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#242428',
+    borderColor: '#252525',
   },
   composeAlbumTitle: {
     color: '#FFFFFF',
@@ -3062,7 +3065,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#25262B',
+    backgroundColor: '#252525',
   },
   composeAlbumButtonText: {
     color: '#FFFFFF',
@@ -3085,7 +3088,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 14,
-    backgroundColor: '#151519',
+    backgroundColor: '#171717',
   },
   composeShareThumbBadge: {
     position: 'absolute',
@@ -3105,10 +3108,10 @@ const styles = StyleSheet.create({
   },
   composeInstagramCaptionInput: {
     minHeight: 132,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2F3036',
-    backgroundColor: '#151519',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
     color: '#FFFFFF',
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -3117,10 +3120,10 @@ const styles = StyleSheet.create({
   },
   composeTitleInput: {
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2F3036',
-    backgroundColor: '#151519',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
     color: '#FFFFFF',
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -3134,18 +3137,18 @@ const styles = StyleSheet.create({
     borderBottomColor: '#242428',
   },
   composeChangeImageText: {
-    color: '#7EA7FF',
+    color: '#E50914',
     ...FONTS.font14M,
     lineHeight: 19,
   },
   composeImagePicker: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 26,
+    borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: '#151519',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#282A30',
+    borderColor: '#252525',
   },
   composePreviewImage: {
     width: '100%',
@@ -3156,7 +3159,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
-    backgroundColor: '#151519',
+    backgroundColor: '#171717',
   },
   composeImagePlus: {
     color: '#FFFFFF',
@@ -3191,28 +3194,28 @@ const styles = StyleSheet.create({
   },
   composeCaptionInput: {
     minHeight: 136,
-    borderRadius: 18,
+    borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#151519',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#282A30',
+    borderColor: '#2D2D2D',
     color: '#FFFFFF',
     ...FONTS.font15R,
     lineHeight: 22,
   },
   composeTagBox: {
     minHeight: 50,
-    borderRadius: 16,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 9,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#151519',
+    backgroundColor: '#111114',
     borderWidth: 1,
-    borderColor: '#282A30',
+    borderColor: '#2D2D2D',
   },
   composeTagChip: {
     minHeight: 32,
@@ -3221,18 +3224,18 @@ const styles = StyleSheet.create({
     paddingRight: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(126,167,255,0.16)',
+    backgroundColor: 'rgba(229,9,20,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(126,167,255,0.42)',
+    borderColor: 'rgba(229,9,20,0.34)',
   },
   composeTagChipText: {
-    color: '#9CB9FF',
+    color: '#FF7A83',
     ...FONTS.font13B,
     lineHeight: 17,
   },
   composeTagChipRemove: {
     marginLeft: 7,
-    color: '#DDE7FF',
+    color: '#FFFFFF',
     ...FONTS.font15B,
     lineHeight: 18,
   },
@@ -3260,7 +3263,7 @@ const styles = StyleSheet.create({
   composeFooter: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: '#050505',
+    backgroundColor: '#000000',
     borderTopWidth: 1,
     borderTopColor: '#191919',
   },

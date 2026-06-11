@@ -334,11 +334,11 @@ export function LoginScreen(): JSX.Element {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#090105',
+    backgroundColor: '#000000',
   },
   screen: {
     flex: 1,
-    backgroundColor: '#090105',
+    backgroundColor: '#000000',
     position: 'relative',
   },
   posterStage: {
@@ -419,11 +419,11 @@ const styles = StyleSheet.create({
   },
   passwordDisplay: {
     width: '100%',
-    height: 52,
-    borderRadius: 8,
+    height: 54,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 18,
@@ -457,14 +457,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 10,
     elevation: 10,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    backgroundColor: '#151214',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: '#171717',
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 26,
     borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: '#252525',
   },
   keypadPanelCompact: {
     paddingHorizontal: 16,
@@ -506,7 +506,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: '#252525',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     height: 44,
   },
   keypadUtilityButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#111114',
   },
   keypadButtonText: {
     color: '#FFFFFF',
@@ -532,8 +532,8 @@ const styles = StyleSheet.create({
   button: {
     position: 'relative',
     width: '100%',
-    height: 52,
-    borderRadius: 8,
+    height: 54,
+    borderRadius: 14,
     backgroundColor: '#E9EAEF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -542,8 +542,8 @@ const styles = StyleSheet.create({
   },
   buttonActiveOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 8,
-    backgroundColor: '#D90B17',
+    borderRadius: 14,
+    backgroundColor: '#E50914',
   },
   buttonText: {
     ...FONTS.font16M,
