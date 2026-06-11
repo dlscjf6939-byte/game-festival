@@ -30,6 +30,7 @@ type AuthContextValue = {
 const AUTH_STORAGE_KEY = 'game_app_auth';
 const API_BASE = 'http://121.254.240.93:8090';
 const LOG_PREFIX = '[AuthProfile]';
+const TOKEN_LOG_PREFIX = '[AuthToken]';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -61,6 +62,11 @@ function logProfileEvent(message: string, payload?: unknown): void {
   }
 
   console.log(`${LOG_PREFIX} ${message}`, payload);
+}
+
+function logAccessTokenForDebug(accessToken: string, source: string): void {
+  // TODO: Remove this temporary token log after Postman debugging.
+  console.log(`${TOKEN_LOG_PREFIX} ${source} Bearer ${accessToken}`);
 }
 
 function normalizeProfile(profile: Record<string, unknown>): Record<string, unknown> {
@@ -147,6 +153,7 @@ export function AuthProvider({
 
         if (!cancelled && storedAuth) {
           const restoredAuth = JSON.parse(storedAuth) as AuthState;
+          logAccessTokenForDebug(restoredAuth.accessToken, 'restored');
 
           try {
             logProfileEvent('Fetching profile after auth restore');
@@ -217,6 +224,7 @@ export function AuthProvider({
       setAuth: async (nextAuth: AuthState) => {
         await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
         setAuthState(nextAuth);
+        logAccessTokenForDebug(nextAuth.accessToken, 'login');
 
         try {
           logProfileEvent('Fetching profile after login');

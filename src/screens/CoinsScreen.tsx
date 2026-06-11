@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Animated, Image, Modal, StyleSheet, Text, View, type ImageSourcePropType} from 'react-native';
 import LottieView from 'lottie-react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
@@ -24,6 +24,7 @@ const coinTabs = [
 type CoinTabId = (typeof coinTabs)[number]['id'];
 type CoinViewMode = 'overview' | 'raffle';
 type RaffleHistory = {
+  applyPrice: number;
   id: string;
   productName: string;
   appliedAt: string;
@@ -41,24 +42,62 @@ type RaffleProductsResponse = {
   message?: string;
   success?: boolean;
 };
+type RaffleApplyResponse = {
+  code?: string;
+  data?: unknown;
+  message?: string;
+  success?: boolean;
+};
+type RaffleHistoryResponse = {
+  code?: string;
+  data?: unknown;
+  message?: string;
+  success?: boolean;
+};
 type RaffleProductApiItem = {
   applyCount?: number | string;
   applyPrice?: number | string;
+  imageUrl?: string;
+  productId?: number | string;
+  productName?: string;
+};
+type RaffleHistoryApiItem = {
+  appliedAt?: string;
+  applyPrice?: number | string;
+  productApplicationId?: number | string;
   productId?: number | string;
   productName?: string;
 };
 
-function formatRaffleAppliedAt(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+function formatRaffleHistoryAppliedAt(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
 
-  return `${year}.${month}.${day} ${hours}:${minutes}`;
+  const matched = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+
+  if (!matched) {
+    return value.trim();
+  }
+
+  return `${matched[1]}.${matched[2]}.${matched[3]} ${matched[4]}:${matched[5]}`;
 }
 
-function getRaffleProductImage() {
+function getRaffleProductImage(imageUrl: unknown): ImageSourcePropType {
+  if (typeof imageUrl === 'string' && imageUrl.trim()) {
+    const trimmedImageUrl = imageUrl.trim();
+
+    if (/^(https?:|file:|data:)/i.test(trimmedImageUrl)) {
+      return {uri: trimmedImageUrl};
+    }
+
+    if (trimmedImageUrl.startsWith('/')) {
+      return {uri: `${API_BASE}${trimmedImageUrl}`};
+    }
+
+    return {uri: `${API_BASE}/${trimmedImageUrl.replace(/^\/+/, '')}`};
+  }
+
   return image.product1;
 }
 
@@ -107,12 +146,39 @@ function toRaffleProduct(item: unknown): RaffleProduct | null {
     applyCount: applyCount ?? 0,
     applyPrice,
     id: productId,
-    image: getRaffleProductImage(),
+    image: getRaffleProductImage(record.imageUrl),
     productName,
   };
 }
 
 function getRaffleProductsFromResponse(responseBody: RaffleProductsResponse): unknown[] {
+  return Array.isArray(responseBody.data) ? responseBody.data : [];
+}
+
+function toRaffleHistory(item: unknown): RaffleHistory | null {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const record = item as RaffleHistoryApiItem;
+  const applicationId = toCoinNumber(record.productApplicationId);
+  const productName = typeof record.productName === 'string' ? record.productName.trim() : '';
+  const applyPrice = toCoinNumber(record.applyPrice);
+  const appliedAt = formatRaffleHistoryAppliedAt(record.appliedAt);
+
+  if (applicationId === null || !productName) {
+    return null;
+  }
+
+  return {
+    applyPrice: applyPrice ?? 0,
+    id: String(applicationId),
+    productName,
+    appliedAt,
+  };
+}
+
+function getRaffleHistoriesFromResponse(responseBody: RaffleHistoryResponse): unknown[] {
   return Array.isArray(responseBody.data) ? responseBody.data : [];
 }
 
@@ -230,6 +296,7 @@ function RaffleHistoryItem({index, item}: {index: number; item: RaffleHistory}):
           <Text numberOfLines={1} style={styles.raffleHistoryTitle}>
             {item.productName}
           </Text>
+          <Text style={styles.raffleHistoryLabel}>응모가격 {item.applyPrice}코인</Text>
         </View>
         <Text style={styles.raffleHistoryTime}>{item.appliedAt}</Text>
       </View>
@@ -301,7 +368,7 @@ function RaffleItemCard({
 }
 
 export function CoinsScreen(): JSX.Element {
-  const {auth} = useAuth();
+  const {auth, refreshProfile} = useAuth();
   const {rankingItems, isRankingLoading, rankingError} = useCoin();
   const [activeTab, setActiveTab] = useState<CoinTabId>('coinHistory');
   const [viewMode, setViewMode] = useState<CoinViewMode>('overview');
@@ -310,7 +377,11 @@ export function CoinsScreen(): JSX.Element {
   const [raffleProducts, setRaffleProducts] = useState<RaffleProduct[]>([]);
   const [isRaffleProductsLoading, setIsRaffleProductsLoading] = useState(true);
   const [raffleProductsError, setRaffleProductsError] = useState<string | null>(null);
+  const [isRaffleApplying, setIsRaffleApplying] = useState(false);
+  const [raffleApplyError, setRaffleApplyError] = useState<string | null>(null);
   const [raffleHistories, setRaffleHistories] = useState<RaffleHistory[]>([]);
+  const [isRaffleHistoriesLoading, setIsRaffleHistoriesLoading] = useState(false);
+  const [raffleHistoriesError, setRaffleHistoriesError] = useState<string | null>(null);
   const viewTransitionProgress = useRef(new Animated.Value(1)).current;
   const tabContentProgress = useRef(new Animated.Value(1)).current;
   const tabContentTranslateY = tabContentProgress.interpolate({
@@ -344,7 +415,7 @@ export function CoinsScreen(): JSX.Element {
 
       try {
         const response = await withMinimumLoadingTime(
-          fetch(`${API_BASE}/api/products/applications`, {
+          fetch(`${API_BASE}/api/products?useApply=true`, {
             headers: {
               Accept: 'application/json',
               Authorization: `Bearer ${accessToken}`,
@@ -403,6 +474,58 @@ export function CoinsScreen(): JSX.Element {
     };
   }, [auth?.accessToken]);
 
+  const fetchRaffleHistories = useCallback(async () => {
+    if (!auth?.accessToken) {
+      setRaffleHistories([]);
+      setIsRaffleHistoriesLoading(false);
+      return;
+    }
+
+    setIsRaffleHistoriesLoading(true);
+    setRaffleHistoriesError(null);
+
+    try {
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/products/apply/history`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: RaffleHistoryResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as RaffleHistoryResponse;
+      } catch {
+        throw new Error('응모내역 응답을 해석하지 못했습니다.');
+      }
+
+      if (!response.ok || responseBody.success === false) {
+        throw new Error(responseBody.message || '응모내역 조회에 실패했습니다.');
+      }
+
+      const histories = getRaffleHistoriesFromResponse(responseBody)
+        .map(toRaffleHistory)
+        .filter((history): history is RaffleHistory => Boolean(history));
+
+      setRaffleHistories(histories);
+    } catch (error) {
+      setRaffleHistories([]);
+      setRaffleHistoriesError(error instanceof Error ? error.message : '응모내역 조회 중 오류가 발생했습니다.');
+      console.log('[CoinsScreen] raffle history request failed', error);
+    } finally {
+      setIsRaffleHistoriesLoading(false);
+    }
+  }, [auth?.accessToken]);
+
+  useEffect(() => {
+    fetchRaffleHistories().catch(error => {
+      console.log('[CoinsScreen] raffle history effect failed', error);
+    });
+  }, [fetchRaffleHistories]);
+
   const switchViewMode = (nextViewMode: CoinViewMode) => {
     Animated.timing(viewTransitionProgress, {
       toValue: 0,
@@ -451,21 +574,78 @@ export function CoinsScreen(): JSX.Element {
   const restRankingItems = sortedRankingItems.slice(10);
 
   const openRaffleConfirm = () => {
+    setRaffleApplyError(null);
     setIsRaffleModalVisible(true);
   };
 
-  const confirmRaffleApply = (item: RaffleProduct) => {
-    setRaffleHistories(currentHistories => [
-      {
-        id: `raffle-history-${Date.now()}`,
-        productName: item.productName,
-        appliedAt: formatRaffleAppliedAt(new Date()),
-      },
-      ...currentHistories,
-    ]);
+  const closeRaffleModal = () => {
+    if (isRaffleApplying) {
+      return;
+    }
+
+    setRaffleApplyError(null);
     setIsRaffleModalVisible(false);
-    setActiveTab('luckyHistory');
-    switchViewMode('overview');
+  };
+
+  const confirmRaffleApply = async (item: RaffleProduct) => {
+    if (!auth?.accessToken || isRaffleApplying) {
+      return;
+    }
+
+    setIsRaffleApplying(true);
+    setRaffleApplyError(null);
+
+    try {
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/products/${item.id}/apply`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+          method: 'POST',
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: RaffleApplyResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as RaffleApplyResponse;
+      } catch {
+        responseBody = null;
+      }
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '응모에 실패했습니다.');
+      }
+
+      await fetchRaffleHistories();
+      setIsRaffleModalVisible(false);
+      setActiveTab('luckyHistory');
+      switchViewMode('overview');
+      refreshProfile().catch(profileError => {
+        console.log('[CoinsScreen] refresh profile after raffle failed', profileError);
+      });
+    } catch (error) {
+      setRaffleApplyError(error instanceof Error ? error.message : '응모 중 오류가 발생했습니다.');
+      console.log('[CoinsScreen] raffle apply failed', error);
+    } finally {
+      setIsRaffleApplying(false);
+    }
+  };
+  const handleRaffleApplyPress = () => {
+    if (selectedRaffleProductId === null) {
+      return;
+    }
+
+    const selectedProduct = raffleProducts.find(item => item.id === selectedRaffleProductId);
+
+    if (!selectedProduct) {
+      return;
+    }
+
+    confirmRaffleApply(selectedProduct).catch(error => {
+      console.log('[CoinsScreen] raffle apply handler failed', error);
+    });
   };
 
   if (viewMode === 'raffle') {
@@ -549,14 +729,14 @@ export function CoinsScreen(): JSX.Element {
 
         <Modal
           animationType="fade"
-          onRequestClose={() => setIsRaffleModalVisible(false)}
+          onRequestClose={closeRaffleModal}
           transparent
           visible={isRaffleModalVisible}>
           <View style={styles.raffleModalOverlay}>
             <AnimatedPressable
               accessibilityLabel="응모 확인 모달 닫기"
               accessibilityRole="button"
-              onPress={() => setIsRaffleModalVisible(false)}
+              onPress={closeRaffleModal}
               style={styles.raffleModalBackdrop}
             />
             <View style={styles.raffleModalCard}>
@@ -567,23 +747,25 @@ export function CoinsScreen(): JSX.Element {
                   ? `${selectedRaffleItem.productName}에 ${selectedRaffleItem.applyPrice}코인을 사용합니다.`
                   : '선택된 상품이 없습니다.'}
               </Text>
+              {raffleApplyError ? <Text style={styles.raffleModalError}>{raffleApplyError}</Text> : null}
               <View style={styles.raffleModalActions}>
                 <AnimatedPressable
                   accessibilityRole="button"
-                  onPress={() => setIsRaffleModalVisible(false)}
+                  disabled={isRaffleApplying}
+                  onPress={closeRaffleModal}
                   style={[styles.raffleModalButton, styles.raffleModalCancelButton]}>
                   <Text style={[styles.raffleModalButtonText, styles.raffleModalCancelButtonText]}>취소</Text>
                 </AnimatedPressable>
                 <AnimatedPressable
                   accessibilityRole="button"
-                  disabled={selectedRaffleItem === null}
-                  onPress={() => {
-                    if (selectedRaffleItem) {
-                      confirmRaffleApply(selectedRaffleItem);
-                    }
-                  }}
-                  style={[styles.raffleModalButton, styles.raffleModalConfirmButton]}>
-                  <Text style={styles.raffleModalButtonText}>응모하기</Text>
+                  disabled={selectedRaffleItem === null || isRaffleApplying}
+                  onPress={handleRaffleApplyPress}
+                  style={[
+                    styles.raffleModalButton,
+                    styles.raffleModalConfirmButton,
+                    isRaffleApplying && styles.raffleModalButtonDisabled,
+                  ]}>
+                  <Text style={styles.raffleModalButtonText}>{isRaffleApplying ? '응모 중...' : '응모하기'}</Text>
                 </AnimatedPressable>
               </View>
             </View>
@@ -707,7 +889,26 @@ export function CoinsScreen(): JSX.Element {
               <Text style={styles.sectionMeta}>총 {raffleHistories.length}건</Text>
             </View>
 
-            {raffleHistories.length ? (
+            {isRaffleHistoriesLoading ? (
+              <View style={styles.loadingCenterState}>
+                <AppLoading label="응모내역을 불러오는 중..." />
+              </View>
+            ) : raffleHistoriesError ? (
+              <View style={styles.raffleHistoryEmpty}>
+                <Text style={styles.raffleHistoryEmptyTitle}>응모내역을 불러오지 못했습니다.</Text>
+                <Text style={styles.raffleHistoryEmptyText}>{raffleHistoriesError}</Text>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    fetchRaffleHistories().catch(error => {
+                      console.log('[CoinsScreen] raffle history retry failed', error);
+                    });
+                  }}
+                  style={styles.raffleHistoryEmptyButton}>
+                  <Text style={styles.raffleHistoryEmptyButtonText}>다시 불러오기</Text>
+                </AnimatedPressable>
+              </View>
+            ) : raffleHistories.length ? (
               raffleHistories.map((item, index) => (
                 <RaffleHistoryItem key={item.id} index={index} item={item} />
               ))
@@ -1204,22 +1405,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font14B,
     lineHeight: 18,
-    textAlign : 'center',
-    marginTop : 8,
+    textAlign: 'center',
+    marginTop: 8,
   },
   raffleItemCost: {
     marginTop: 7,
     color: '#A9ABB2',
     ...FONTS.font12M,
     lineHeight: 16,
-     textAlign : 'center'
+    textAlign: 'center',
   },
   raffleItemCount: {
     marginTop: 3,
     color: '#777A82',
     ...FONTS.font12R,
     lineHeight: 16,
-     textAlign : 'center'
+    textAlign: 'center',
   },
   raffleSummary: {
     minHeight: 86,
@@ -1303,6 +1504,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
   },
+  raffleModalError: {
+    marginTop: 10,
+    color: '#E50914',
+    ...FONTS.font13M,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   raffleModalActions: {
     flexDirection: 'row',
     gap: 10,
@@ -1314,6 +1522,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  raffleModalButtonDisabled: {
+    opacity: 0.62,
   },
   raffleModalCancelButton: {
     backgroundColor: '#25262B',
