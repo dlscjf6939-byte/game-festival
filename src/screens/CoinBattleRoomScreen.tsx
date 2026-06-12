@@ -4,6 +4,7 @@ import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-nav
 import {
   Alert,
   Animated,
+  BackHandler,
   Image,
   SafeAreaView,
   ScrollView,
@@ -1055,6 +1056,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const latestTypingSyncRequestedRoundRef = useRef(0);
   const coinRefreshRoomIdRef = useRef<string | null>(null);
   const balanceExitRoomRef = useRef<string | null>(null);
+  const confirmedLeaveRef = useRef(false);
   const countdownBackdropOpacity = useRef(new Animated.Value(0)).current;
   const countdownScale = useRef(new Animated.Value(0.72)).current;
   const countdownOpacity = useRef(new Animated.Value(0)).current;
@@ -1262,6 +1264,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     setOptimisticReady(null);
     setReady(false);
     balanceExitRoomRef.current = null;
+    confirmedLeaveRef.current = false;
   }, [roomId]);
 
   useEffect(() => {
@@ -1302,6 +1305,13 @@ export function CoinBattleRoomScreen(): JSX.Element {
     }
 
     leaveTimerRef.current = setTimeout(() => {
+      confirmedLeaveRef.current = true;
+
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+        return;
+      }
+
       navigation.replace('CoinBattleHome');
     }, 120);
   }, [
@@ -1677,12 +1687,13 @@ export function CoinBattleRoomScreen(): JSX.Element {
     };
   }, [isMatchFinished, resultBackdropOpacity, resultOpacity, resultScale, roundResultOverlay]);
 
-  const handleLeaveRoom = () => {
+  const leaveCurrentRoom = React.useCallback(() => {
     if (__DEV__) {
-      console.log('[CoinBattleRoomScreen] handleLeaveRoom', {roomId});
+      console.log('[CoinBattleRoomScreen] leaveCurrentRoom', {roomId});
     }
 
     if (!isRealtime) {
+      confirmedLeaveRef.current = true;
       navigation.goBack();
       return;
     }
@@ -1694,9 +1705,57 @@ export function CoinBattleRoomScreen(): JSX.Element {
     }
 
     leaveTimerRef.current = setTimeout(() => {
+      confirmedLeaveRef.current = true;
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+        return;
+      }
+
       navigation.replace('CoinBattleHome');
     }, 120);
-  };
+  }, [isRealtime, leaveRoom, myUserId, navigation, roomId]);
+
+  const handleLeaveRoom = React.useCallback(() => {
+    Alert.alert(
+      '방에서 퇴장하시겠습니까?',
+      '진행 중인 준비 상태와 게임 참여가 취소됩니다.',
+      [
+        {
+          style: 'cancel',
+          text: '취소',
+        },
+        {
+          onPress: leaveCurrentRoom,
+          style: 'destructive',
+          text: '퇴장',
+        },
+      ],
+    );
+  }, [leaveCurrentRoom]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleLeaveRoom();
+      return true;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [handleLeaveRoom]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', event => {
+      if (confirmedLeaveRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      handleLeaveRoom();
+    });
+
+    return unsubscribe;
+  }, [handleLeaveRoom, navigation]);
 
   const handleReady = () => {
     const nextReady = !myReady;
@@ -2311,7 +2370,7 @@ const styles = StyleSheet.create({
     paddingBottom: 180,
   },
   hero: {
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 18,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -2464,7 +2523,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   liveCompactHeader: {
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     backgroundColor: '#171717',
@@ -2535,7 +2594,7 @@ const styles = StyleSheet.create({
   memberRow: {
     minHeight: 80,
     marginTop: 10,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
@@ -2581,7 +2640,7 @@ const styles = StyleSheet.create({
   },
   emptySlot: {
     height: 58,
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: '#2D2D2D',
@@ -2595,7 +2654,7 @@ const styles = StyleSheet.create({
   },
   gameSection: {
     marginTop: 24,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 18,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -2636,7 +2695,7 @@ const styles = StyleSheet.create({
   },
   latestResultBanner: {
     marginTop: 18,
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
@@ -2665,7 +2724,7 @@ const styles = StyleSheet.create({
   playerCard: {
     flex: 1,
     minHeight: 178,
-    borderRadius: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -2742,7 +2801,7 @@ const styles = StyleSheet.create({
   },
   choiceLockCard: {
     marginTop: 22,
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#111114',
@@ -2779,7 +2838,7 @@ const styles = StyleSheet.create({
   },
   choiceButton: {
     minHeight: 126,
-    borderRadius: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#111114',
@@ -2874,7 +2933,7 @@ const styles = StyleSheet.create({
   },
   roundHistory: {
     marginTop: 18,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
@@ -2958,7 +3017,7 @@ const styles = StyleSheet.create({
   placeholderGameCard: {
     marginTop: 18,
     minHeight: 96,
-    borderRadius: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#171717',
@@ -3003,7 +3062,7 @@ const styles = StyleSheet.create({
   pictureMatchScoreCard: {
     flex: 1,
     minHeight: 72,
-    borderRadius: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#171717',
@@ -3118,7 +3177,7 @@ const styles = StyleSheet.create({
   },
   typingSentenceCard: {
     marginTop: 18,
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#171717',
@@ -3255,7 +3314,7 @@ const styles = StyleSheet.create({
   },
   typingPlayersCard: {
     marginTop: 16,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',

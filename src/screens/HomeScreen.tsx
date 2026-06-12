@@ -45,7 +45,7 @@ export function HomeScreen(): JSX.Element {
 
 const styles = StyleSheet.create({
   heroCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 24,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   coinCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 20,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   },
   posterCard: {
     height: 260,
-    borderRadius: 24,
+    borderRadius: 12,
     justifyContent: 'flex-end',
     padding: 16,
     backgroundColor: '#171717',

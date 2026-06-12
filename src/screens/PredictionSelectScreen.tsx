@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   matchCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#171717',
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   },
   teamCard: {
     minHeight: 116,
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#171717',

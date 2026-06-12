@@ -852,7 +852,7 @@ const styles = StyleSheet.create({
   storyCard: {
     width: STORY_CARD_WIDTH,
     height: STORY_CARD_HEIGHT,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     overflow: 'hidden',
@@ -1163,8 +1163,8 @@ const styles = StyleSheet.create({
     ...FONTS.font22M,
   },
   profileEditIcon: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
     // marginLeft: 8,
     // tintColor: '#A9ABB2',
   },
@@ -1175,7 +1175,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   coinCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
@@ -1248,7 +1248,7 @@ const styles = StyleSheet.create({
     ...FONTS.font14M,
   },
   attendanceCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
@@ -1321,7 +1321,7 @@ const styles = StyleSheet.create({
   attendanceModalCard: {
     width: '100%',
     maxWidth: 420,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
@@ -1344,7 +1344,7 @@ const styles = StyleSheet.create({
   attendanceModalWeekWrap: {
     width: '100%',
     marginTop: 22,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: '#111114',
     borderWidth: 1,
     borderColor: '#242428',
@@ -1365,7 +1365,7 @@ const styles = StyleSheet.create({
   attendanceModalDayDot: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#40424D',
     backgroundColor: '#2E303A',
@@ -1392,7 +1392,7 @@ const styles = StyleSheet.create({
   attendanceModalHintCard: {
     width: '100%',
     marginTop: 18,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: '#111114',
     borderWidth: 1,
     borderColor: '#242428',
@@ -1412,7 +1412,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     width: '100%',
     height: 54,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: '#E50914',
     alignItems: 'center',
     justifyContent: 'center',

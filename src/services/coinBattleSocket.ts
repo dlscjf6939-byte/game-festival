@@ -188,6 +188,13 @@ export function createCoinBattleSocketClient({
       }
 
       connectingPromise = new Promise<void>((resolve, reject) => {
+        if (socket) {
+          logSocketEvent('Closing stale WebSocket before reconnect');
+          socket.close();
+          socket = null;
+          subscriptions.clear();
+        }
+
         const socketUrl = createSockJsWebSocketUrl(baseUrl);
         logSocketEvent('Opening WebSocket', {
           hasAccessToken: Boolean(accessToken),

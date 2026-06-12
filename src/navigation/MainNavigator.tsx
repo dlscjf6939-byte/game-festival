@@ -9,6 +9,7 @@ import {
   createBottomTabNavigator,
   type BottomTabBarButtonProps,
 } from '@react-navigation/bottom-tabs';
+import {getFocusedRouteNameFromRoute} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {icon} from '../assets/icons';
 import {CoinProvider} from '../coin/CoinProvider';
@@ -205,6 +206,14 @@ function TabButton({
 
 export function MainNavigator(): JSX.Element {
   const insets = useSafeAreaInsets();
+  const tabBarStyle = {
+    backgroundColor: '#0B0B0B',
+    borderTopColor: '#161616',
+    borderTopWidth: 1,
+    height: 56 + insets.bottom + 10,
+    paddingTop: 10,
+    paddingBottom: Math.max(insets.bottom, 12),
+  };
 
   return (
     <CoinProvider>
@@ -213,14 +222,7 @@ export function MainNavigator(): JSX.Element {
         sceneContainerStyle={styles.sceneContainer}
         screenOptions={{
           headerShown: false,
-          tabBarStyle: {
-            backgroundColor: '#0B0B0B',
-            borderTopColor: '#161616',
-            borderTopWidth: 1,
-            height: 56 + insets.bottom + 10,
-            paddingTop: 10,
-            paddingBottom: Math.max(insets.bottom, 12),
-          },
+          tabBarStyle,
           tabBarActiveTintColor: '#FFFFFF',
           tabBarInactiveTintColor: '#6F7279',
           tabBarShowLabel: false,
@@ -247,7 +249,17 @@ export function MainNavigator(): JSX.Element {
         <Tab.Screen
           component={CoinBattleNavigator}
           name="CoinBattle"
-          options={{tabBarIcon: CoinBattleTabIcon}}
+          options={({route}) => {
+            const focusedRouteName = getFocusedRouteNameFromRoute(route) ?? 'CoinBattleHome';
+            const shouldHideTabBar = focusedRouteName === 'CoinBattleRoom';
+
+            return {
+              tabBarIcon: CoinBattleTabIcon,
+              tabBarStyle: shouldHideTabBar
+                ? {...tabBarStyle, display: 'none'}
+                : tabBarStyle,
+            };
+          }}
         />
         <Tab.Screen
           component={PredictionNavigator}

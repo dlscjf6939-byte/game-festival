@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
   summaryBand: {
     marginTop: 18,
     padding: 18,
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#171717',
@@ -481,7 +481,7 @@ const styles = StyleSheet.create({
   },
   practicePanel: {
     marginTop: 22,
-    borderRadius: 24,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#171717',

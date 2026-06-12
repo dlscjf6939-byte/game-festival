@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {AppState} from 'react-native';
 import {
   createCoinBattleSocketClient,
   type CoinBattleSocketClient,
@@ -206,6 +207,7 @@ export function useCoinBattleRooms({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const unsubscribeRef = useRef<null | (() => void)>(null);
   const pendingCreateRoomNameRef = useRef<string | null>(null);
+  const foregroundReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const client = useMemo(
     () =>
@@ -224,61 +226,66 @@ export function useCoinBattleRooms({
   const clientRef = useRef<CoinBattleSocketClient>(client);
   clientRef.current = client;
 
+  const handleRoomListMessage = useCallback((messageBody: string) => {
+    try {
+      const parsed = JSON.parse(messageBody) as unknown;
+      const nextRooms = normalizeRooms(parsed);
+      logRoomEvent('Received room list', {
+        count: nextRooms.length,
+        rooms: nextRooms,
+      });
+
+      if (pendingCreateRoomNameRef.current) {
+        const createdRoom = nextRooms.find(room => {
+          return room.roomName === pendingCreateRoomNameRef.current;
+        });
+
+        logRoomEvent(
+          createdRoom ? 'Created room found in refreshed list' : 'Created room missing from refreshed list',
+          {
+            expectedRoomName: pendingCreateRoomNameRef.current,
+            rooms: nextRooms,
+          },
+        );
+        pendingCreateRoomNameRef.current = null;
+      }
+
+      setRooms(nextRooms);
+      setConnectionStatus('connected');
+    } catch {
+      logRoomEvent('Failed to parse room list', messageBody);
+      setConnectionStatus('error');
+      setErrorMessage('실시간 목록 메시지 파싱에 실패했습니다.');
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const activeClient = clientRef.current;
 
-    async function connect() {
+    async function connectAndSubscribe(reason: string) {
       try {
+        if (activeClient.isConnected() && unsubscribeRef.current) {
+          activeClient.publish('/pub/rooms', {});
+          logRoomEvent('Requested room list on active socket', {reason});
+          return;
+        }
+
+        unsubscribeRef.current?.();
+        unsubscribeRef.current = null;
         setConnectionStatus('connecting');
         setErrorMessage(null);
-        logRoomEvent('Connecting room socket');
+        logRoomEvent('Connecting room socket', {reason});
         await activeClient.connect();
 
         if (cancelled) {
           return;
         }
 
-        unsubscribeRef.current = activeClient.subscribe(
-          '/sub/rooms',
-          messageBody => {
-            try {
-              const parsed = JSON.parse(messageBody) as unknown;
-              const nextRooms = normalizeRooms(parsed);
-              logRoomEvent('Received room list', {
-                count: nextRooms.length,
-                rooms: nextRooms,
-              });
-
-              if (pendingCreateRoomNameRef.current) {
-                const createdRoom = nextRooms.find(room => {
-                  return room.roomName === pendingCreateRoomNameRef.current;
-                });
-
-                logRoomEvent(
-                  createdRoom
-                    ? 'Created room found in refreshed list'
-                    : 'Created room missing from refreshed list',
-                  {
-                    expectedRoomName: pendingCreateRoomNameRef.current,
-                    rooms: nextRooms,
-                  },
-                );
-                pendingCreateRoomNameRef.current = null;
-              }
-
-              setRooms(nextRooms);
-              setConnectionStatus('connected');
-            } catch {
-              logRoomEvent('Failed to parse room list', messageBody);
-              setConnectionStatus('error');
-              setErrorMessage('실시간 목록 메시지 파싱에 실패했습니다.');
-            }
-          },
-        );
+        unsubscribeRef.current = activeClient.subscribe('/sub/rooms', handleRoomListMessage);
 
         activeClient.publish('/pub/rooms', {});
-        logRoomEvent('Requested initial room list');
+        logRoomEvent('Requested room list after socket connect', {reason});
         setConnectionStatus('connected');
       } catch (error) {
         logRoomEvent('Room socket connection failed', error);
@@ -293,15 +300,59 @@ export function useCoinBattleRooms({
       }
     }
 
-    connect();
+    const reconnectAfterForeground = () => {
+      if (foregroundReconnectTimerRef.current) {
+        clearTimeout(foregroundReconnectTimerRef.current);
+      }
+
+      foregroundReconnectTimerRef.current = setTimeout(() => {
+        foregroundReconnectTimerRef.current = null;
+
+        if (cancelled) {
+          return;
+        }
+
+        if (activeClient.isConnected()) {
+          try {
+            activeClient.publish('/pub/rooms', {});
+            logRoomEvent('Requested room list after foreground');
+            return;
+          } catch (error) {
+            logRoomEvent('Foreground publish failed, reconnecting socket', error);
+            activeClient.disconnect();
+          }
+        }
+
+        connectAndSubscribe('foreground').catch(error => {
+          logRoomEvent('Foreground reconnect failed', error);
+        });
+      }, 250);
+    };
+
+    connectAndSubscribe('initial').catch(error => {
+      logRoomEvent('Initial room socket connect failed', error);
+    });
+
+    const appStateSubscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') {
+        reconnectAfterForeground();
+      }
+    });
 
     return () => {
       cancelled = true;
+      appStateSubscription.remove();
+
+      if (foregroundReconnectTimerRef.current) {
+        clearTimeout(foregroundReconnectTimerRef.current);
+        foregroundReconnectTimerRef.current = null;
+      }
+
       unsubscribeRef.current?.();
       unsubscribeRef.current = null;
       activeClient.disconnect();
     };
-  }, [client]);
+  }, [client, handleRoomListMessage]);
 
   const enterRoom = useCallback((roomId: string) => {
     if (!clientRef.current.isConnected()) {

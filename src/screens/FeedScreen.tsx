@@ -2262,7 +2262,7 @@ const styles = StyleSheet.create({
   textOnlyPostIntro: {
     marginHorizontal: 20,
     marginBottom: 2,
-    borderRadius: 20,
+    borderRadius: 12,
     paddingHorizontal: 18,
     paddingVertical: 18,
   },
@@ -2365,8 +2365,8 @@ const styles = StyleSheet.create({
   },
   sheetBackground: {
     backgroundColor: '#171717',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
   },
   sheetHeader: {
     paddingHorizontal: 20,
@@ -2481,7 +2481,7 @@ const styles = StyleSheet.create({
   commentActionSheet: {
     marginHorizontal: 12,
     marginBottom: 18,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     padding: 16,
     borderWidth: 1,
@@ -2539,7 +2539,7 @@ const styles = StyleSheet.create({
   commentEditCard: {
     marginHorizontal: 16,
     marginBottom: 32,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     padding: 16,
     borderWidth: 1,
@@ -2596,7 +2596,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 430,
     maxHeight: '100%',
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
@@ -2670,7 +2670,7 @@ const styles = StyleSheet.create({
   },
   employeeInfoList: {
     marginTop: 20,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#111114',
     overflow: 'hidden',
   },
@@ -2823,7 +2823,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#24262B',
   },
   employeePostDetailBackdrop: {
@@ -3039,7 +3039,7 @@ const styles = StyleSheet.create({
   composeAlbumBar: {
     marginTop: 18,
     minHeight: 70,
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -3062,7 +3062,7 @@ const styles = StyleSheet.create({
   },
   composeAlbumButton: {
     height: 36,
-    borderRadius: 18,
+    borderRadius: 8,
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3145,7 +3145,7 @@ const styles = StyleSheet.create({
   composeImagePicker: {
     width: '100%',
     aspectRatio: 1,
-    borderRadius: 24,
+    borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -3220,7 +3220,7 @@ const styles = StyleSheet.create({
   },
   composeTagChip: {
     minHeight: 32,
-    borderRadius: 16,
+    borderRadius: 12,
     paddingLeft: 12,
     paddingRight: 10,
     flexDirection: 'row',
@@ -3270,7 +3270,7 @@ const styles = StyleSheet.create({
   },
   composePrimaryButton: {
     height: 54,
-    borderRadius: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E50914',

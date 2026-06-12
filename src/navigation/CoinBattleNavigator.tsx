@@ -12,7 +12,11 @@ export function CoinBattleNavigator(): JSX.Element {
     <Stack.Navigator screenOptions={{headerShown: false, animation: 'fade'}}>
       <Stack.Screen component={CoinBattleScreen} name="CoinBattleHome" />
       <Stack.Screen component={CoinBattleGuideScreen} name="CoinBattleGuide" />
-      <Stack.Screen component={CoinBattleRoomScreen} name="CoinBattleRoom" />
+      <Stack.Screen
+        component={CoinBattleRoomScreen}
+        name="CoinBattleRoom"
+        options={{gestureEnabled: false}}
+      />
     </Stack.Navigator>
   );
 }

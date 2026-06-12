@@ -7,6 +7,7 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
+  type LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
@@ -15,8 +16,10 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {AnimatedPressable} from '../components/AnimatedPressable';
@@ -79,6 +82,10 @@ const maxRoundCountByGameId: Record<number, number> = {
 const roundOptions = [1, 2, 3];
 const MIN_BET_AMOUNT = 1;
 const MAX_BET_AMOUNT = 5;
+const BASE_TAB_BAR_HEIGHT = 66;
+const FAB_BOTTOM = 21;
+const QUICK_ACTION_BOTTOM = 93;
+const CONTENT_BOTTOM_PADDING = 138;
 
 const cropOffsets = [169, 270, 371, 472, 573, 674];
 
@@ -255,6 +262,8 @@ function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
 
 export function CoinBattleScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
+  const insets = useSafeAreaInsets();
+  const {height: windowHeight} = useWindowDimensions();
   const {auth, refreshProfile} = useAuth();
   const {holdingCoin: latestHoldingCoin, refreshAllCoins, refreshCoinSummary} = useCoin();
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -276,6 +285,7 @@ export function CoinBattleScreen(): JSX.Element {
   const [realtimeGameId, setRealtimeGameId] = useState(1);
   const [totalRoundCount, setTotalRoundCount] = useState(1);
   const [betAmount, setBetAmount] = useState(1);
+  const [sceneHeight, setSceneHeight] = useState<number | null>(null);
   const {
     createRoom,
     enterRoom,
@@ -291,6 +301,18 @@ export function CoinBattleScreen(): JSX.Element {
     [activeFilterId, searchKeyword, visibleRooms],
   );
   const maxRoundCount = getMaxRoundCount(realtimeGameId);
+  const visibleTabBarHeight = BASE_TAB_BAR_HEIGHT + insets.bottom;
+  const tabBarOverlaysScene = sceneHeight !== null && windowHeight - sceneHeight < visibleTabBarHeight * 0.5;
+  const bottomOffset = tabBarOverlaysScene ? visibleTabBarHeight : 0;
+  const contentContainerStyle = useMemo(
+    () => [styles.content, {paddingBottom: CONTENT_BOTTOM_PADDING + bottomOffset}],
+    [bottomOffset],
+  );
+  const floatingButtonStyle = useMemo(() => ({bottom: FAB_BOTTOM + bottomOffset}), [bottomOffset]);
+  const quickActionListStyle = useMemo(
+    () => [styles.quickActionList, {bottom: QUICK_ACTION_BOTTOM + bottomOffset}],
+    [bottomOffset],
+  );
   const visibleRoundOptions = useMemo(() => {
     return roundOptions.filter(option => option <= maxRoundCount);
   }, [maxRoundCount]);
@@ -319,6 +341,14 @@ export function CoinBattleScreen(): JSX.Element {
       clearTimeout(createRoomTimeoutRef.current);
       createRoomTimeoutRef.current = null;
     }
+  }, []);
+
+  const handleSafeAreaLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextSceneHeight = Math.round(event.nativeEvent.layout.height);
+
+    setSceneHeight(currentSceneHeight => {
+      return currentSceneHeight === nextSceneHeight ? currentSceneHeight : nextSceneHeight;
+    });
   }, []);
 
   useEffect(() => {
@@ -554,7 +584,7 @@ export function CoinBattleScreen(): JSX.Element {
     setCreateModalVisible(false);
 
     autoNavigatedRoomIdRef.current = nextRoom.id;
-    navigation.replace('CoinBattleRoom', {
+    navigation.navigate('CoinBattleRoom', {
       game: nextRoom.game,
       host: nextRoom.host,
       isRealtime: nextRoom.isRealtime,
@@ -566,14 +596,14 @@ export function CoinBattleScreen(): JSX.Element {
 
   return (
     <TabSceneTransition>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView onLayout={handleSafeAreaLayout} style={styles.safeArea}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
         <AppGnb scrollY={scrollY} />
 
         <View style={styles.screen}>
           <Animated.ScrollView
             bounces={false}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={contentContainerStyle}
             showsVerticalScrollIndicator={false}
             onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
             scrollEventThrottle={16}>
@@ -685,7 +715,7 @@ export function CoinBattleScreen(): JSX.Element {
           </Animated.ScrollView>
 
           {quickActionVisible ? (
-            <View style={styles.quickActionList}>
+            <View style={quickActionListStyle}>
               {quickActions.map((action, index) => {
                 const translateY = quickActionProgress.interpolate({
                   inputRange: [0, 1],
@@ -747,7 +777,7 @@ export function CoinBattleScreen(): JSX.Element {
             accessibilityLabel={quickActionOpen ? '목록 닫기' : '목록 열기'}
             accessibilityRole="button"
             onPress={() => setQuickActionOpen(current => !current)}
-            style={[styles.fab, quickActionOpen ? styles.fabOpen : styles.fabClosed]}>
+            style={[styles.fab, floatingButtonStyle, quickActionOpen ? styles.fabOpen : styles.fabClosed]}>
             <Animated.Image
               resizeMode="contain"
               source={icon.plusBtn}
@@ -891,7 +921,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 0,
-    paddingBottom: 138,
+    paddingBottom: CONTENT_BOTTOM_PADDING,
   },
   title: {
     color: '#FFFFFF',
@@ -1002,7 +1032,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 14,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 10,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -1101,7 +1131,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 20,
-    bottom: 21,
+    bottom: FAB_BOTTOM,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -1121,7 +1151,7 @@ const styles = StyleSheet.create({
   quickActionList: {
     position: 'absolute',
     right: 20,
-    bottom: 93,
+    bottom: QUICK_ACTION_BOTTOM,
     gap: 14,
   },
   quickActionButton: {
@@ -1151,8 +1181,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 22,
     paddingBottom: 24,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',

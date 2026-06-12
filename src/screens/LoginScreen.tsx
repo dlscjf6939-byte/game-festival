@@ -92,7 +92,7 @@ export function LoginScreen(): JSX.Element {
       toValue: isEnabled ? 1 : 0,
       duration: 420,
       easing: Easing.inOut(Easing.ease),
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [buttonAnim, isEnabled]);
 
@@ -225,15 +225,20 @@ export function LoginScreen(): JSX.Element {
                 selectionColor="#222222"
                 value={groupwareId}
               />
-              <AnimatedPressable
-                accessibilityLabel="사원번호 입력"
-                accessibilityRole="button"
-                onPress={openPasswordKeypad}
-                style={[styles.passwordDisplay, password ? styles.passwordDisplayActive : null]}>
-                <Text style={[styles.passwordDisplayText, password ? styles.passwordDisplayTextActive : null]}>
-                  {password ? '*'.repeat(password.length) : '사원번호'}
-                </Text>
-              </AnimatedPressable>
+              <AnimatedField
+                autoCapitalize="none"
+                autoCorrect={false}
+                caretHidden
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                onChangeText={nextPassword => setPassword(nextPassword.replace(/\D/g, ''))}
+                onFocus={openPasswordKeypad}
+                placeholder="사원번호"
+                placeholderTextColor="#B3B4B9"
+                selectionColor="#222222"
+                showSoftInputOnFocus={false}
+                value={password}
+              />
             </View>
 
             <AnimatedPressable accessibilityRole="button" onPress={handleLogin} style={styles.buttonFrame}>
@@ -253,7 +258,7 @@ export function LoginScreen(): JSX.Element {
                     {
                       color: buttonAnim.interpolate({
                         inputRange: [0, 1],
-                        outputRange: ['#B3B4B9', '#FFFFFF'],
+                        outputRange: ['#11111E', '#FFFFFF'],
                       }),
                     },
                   ]}>
@@ -422,8 +427,8 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2D2D2D',
-    backgroundColor: '#111114',
+    borderColor: '#FFFFFF',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 18,
@@ -457,8 +462,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 10,
     elevation: 10,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
     backgroundColor: '#171717',
     paddingHorizontal: 20,
     paddingTop: 10,
@@ -534,7 +539,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 54,
     borderRadius: 14,
-    backgroundColor: '#E9EAEF',
+    backgroundColor: '#e6e3e3',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,

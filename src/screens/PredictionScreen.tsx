@@ -578,7 +578,7 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderColor: '#252525',
-    borderRadius: 24,
+    borderRadius: 12,
     overflow: 'hidden',
     paddingBottom: 16,
     backgroundColor: '#171717',
@@ -637,7 +637,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   participatedCardLift: {
-    borderRadius: 24,
+    borderRadius: 12,
   },
   participatedCardLiftActive: {
     zIndex: 3,
@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   participatedCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 16,
     backgroundColor: '#171717',
     borderWidth: 1,

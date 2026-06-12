@@ -1053,7 +1053,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   balanceCard: {
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 24,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -1118,7 +1118,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   section: {
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 20,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -1156,7 +1156,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   topRankingGroup: {
-    borderRadius: 18,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingTop: 10,
     paddingBottom: 6,
@@ -1287,7 +1287,7 @@ const styles = StyleSheet.create({
   },
   raffleHistorySection: {
     marginTop: 18,
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 4,
@@ -1464,7 +1464,7 @@ const styles = StyleSheet.create({
     minHeight: 240,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 18,
     marginBottom: 14,
     backgroundColor: '#171717',
@@ -1489,7 +1489,7 @@ const styles = StyleSheet.create({
   raffleItemCard: {
     width: '100%',
     minHeight: 150,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -1555,7 +1555,7 @@ const styles = StyleSheet.create({
   },
   raffleSummary: {
     minHeight: 86,
-    borderRadius: 24,
+    borderRadius: 12,
     padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1608,7 +1608,7 @@ const styles = StyleSheet.create({
   },
   raffleModalCard: {
     width: '100%',
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 20,
     paddingTop: 22,
     paddingBottom: 18,

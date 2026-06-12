@@ -425,14 +425,14 @@ const styles = StyleSheet.create({
   previewCard: {
     alignItems: 'center',
     paddingVertical: 28,
-    borderRadius: 24,
+    borderRadius: 12,
     backgroundColor: '#171717',
     borderWidth: 1,
     borderColor: '#252525',
   },
   previewCardCompact: {
     paddingVertical: 22,
-    borderRadius: 24,
+    borderRadius: 12,
   },
   previewImage: {
     width: 112,
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
   },
   choiceCard: {
     minHeight: 76,
-    borderRadius: 24,
+    borderRadius: 12,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
