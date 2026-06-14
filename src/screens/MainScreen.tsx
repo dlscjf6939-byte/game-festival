@@ -187,6 +187,7 @@ function MainScreen(): JSX.Element {
   const refreshProfileRef = useRef(refreshProfile);
   const refreshAllCoinsRef = useRef(refreshAllCoins);
   const refreshAttendanceRef = useRef(refreshAttendance);
+  const attendanceModalProgress = useRef(new Animated.Value(0)).current;
   const bracketFlipValues = useRef(
     storyCards.reduce((acc, card) => {
       acc[card.id] = new Animated.Value(0);
@@ -227,12 +228,50 @@ function MainScreen(): JSX.Element {
   });
   const attendanceCountText = attendance ? `${attendance.checkedThisWeekCount}/7` : '-/7';
   const modalWeeklyCount = attendance?.checkedThisWeekCount ?? checkInNotice?.checkedThisWeekCount ?? 0;
+  const attendanceModalOverlayStyle = {
+    opacity: attendanceModalProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 1],
+    }),
+  };
+  const attendanceModalCardStyle = {
+    opacity: attendanceModalProgress,
+    transform: [
+      {
+        translateY: attendanceModalProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [26, 0],
+        }),
+      },
+      {
+        scale: attendanceModalProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.94, 1],
+        }),
+      },
+    ],
+  };
 
   React.useEffect(() => {
     refreshProfileRef.current = refreshProfile;
     refreshAllCoinsRef.current = refreshAllCoins;
     refreshAttendanceRef.current = refreshAttendance;
   }, [refreshAllCoins, refreshAttendance, refreshProfile]);
+
+  React.useEffect(() => {
+    if (!checkInNotice) {
+      attendanceModalProgress.setValue(0);
+      return;
+    }
+
+    attendanceModalProgress.setValue(0);
+    Animated.spring(attendanceModalProgress, {
+      toValue: 1,
+      friction: 8,
+      tension: 72,
+      useNativeDriver: true,
+    }).start();
+  }, [attendanceModalProgress, checkInNotice]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -711,37 +750,58 @@ function MainScreen(): JSX.Element {
       </SafeAreaView>
 
       <Modal animationType="fade" onRequestClose={dismissCheckInNotice} transparent visible={Boolean(checkInNotice)}>
-        <View style={styles.attendanceModalOverlay}>
-          <View style={styles.attendanceModalCard}>
+        <Animated.View style={[styles.attendanceModalOverlay, attendanceModalOverlayStyle]}>
+          <Animated.View style={[styles.attendanceModalCard, attendanceModalCardStyle]}>
+            <View style={styles.attendanceModalBadge}>
+              <Text style={styles.attendanceModalBadgeText}>출석체크</Text>
+            </View>
             <Text style={styles.attendanceModalCountText}>
               {modalWeeklyCount > 0 ? `이번 주 ${modalWeeklyCount}일 출석` : '출석체크'}
             </Text>
             <Text style={styles.attendanceModalSuccessText}>오늘 출석체크 완료!</Text>
 
             <View style={styles.attendanceModalWeekWrap}>
-              {attendanceBoard.map(day => (
-                <View key={`modal-${day.label}`} style={styles.attendanceModalDayItem}>
-                  <Text style={styles.attendanceModalDayLabel}>{day.label}</Text>
-                  <View style={[styles.attendanceModalDayDot, day.isChecked && styles.attendanceModalDayDotChecked]}>
-                    {day.isChecked ? (
-                      <LottieView
-                        autoPlay
-                        loop={false}
-                        source={checkLottie}
-                        style={styles.attendanceModalDayDotLottie}
-                      />
-                    ) : day.isMissed ? (
-                      <Text
-                        style={[
-                          styles.attendanceModalDayDotText,
-                          day.isChecked && styles.attendanceModalDayDotTextChecked,
-                        ]}>
-                        ✕
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-              ))}
+              {attendanceBoard.map((day, index) => {
+                const dayProgressStart = 0.18 + index * 0.055;
+                const dayAnimatedStyle = {
+                  opacity: attendanceModalProgress.interpolate({
+                    inputRange: [0, dayProgressStart, 1],
+                    outputRange: [0, 0, 1],
+                  }),
+                  transform: [
+                    {
+                      translateY: attendanceModalProgress.interpolate({
+                        inputRange: [0, dayProgressStart, 1],
+                        outputRange: [12, 12, 0],
+                      }),
+                    },
+                  ],
+                };
+
+                return (
+                  <Animated.View key={`modal-${day.label}`} style={[styles.attendanceModalDayItem, dayAnimatedStyle]}>
+                    <Text style={styles.attendanceModalDayLabel}>{day.label}</Text>
+                    <View style={[styles.attendanceModalDayDot, day.isChecked && styles.attendanceModalDayDotChecked]}>
+                      {day.isChecked ? (
+                        <LottieView
+                          autoPlay
+                          loop={false}
+                          source={checkLottie}
+                          style={styles.attendanceModalDayDotLottie}
+                        />
+                      ) : day.isMissed ? (
+                        <Text
+                          style={[
+                            styles.attendanceModalDayDotText,
+                            day.isChecked && styles.attendanceModalDayDotTextChecked,
+                          ]}>
+                          ✕
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Animated.View>
+                );
+              })}
             </View>
 
             <View style={styles.attendanceModalHintCard}>
@@ -757,8 +817,8 @@ function MainScreen(): JSX.Element {
             <AnimatedPressable onPress={dismissCheckInNotice} style={styles.attendanceModalConfirmButton}>
               <Text style={styles.attendanceModalConfirmText}>확인했어요</Text>
             </AnimatedPressable>
-          </View>
-        </View>
+          </Animated.View>
+        </Animated.View>
       </Modal>
     </TabSceneTransition>
   );
@@ -1155,17 +1215,15 @@ const styles = StyleSheet.create({
   profileSummary: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    marginBottom: 2,
+  marginBottom: 4,
   },
   greeting: {
     color: '#FFFFFF',
     ...FONTS.font22M,
   },
   profileEditIcon: {
-    width: 32,
-    height: 32,
-    // marginLeft: 8,
+    width: 28,
+    height: 28,
     // tintColor: '#A9ABB2',
   },
   profileImage: {
@@ -1313,114 +1371,137 @@ const styles = StyleSheet.create({
   },
   attendanceModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.76)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 22,
   },
   attendanceModalCard: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 390,
     borderRadius: 12,
-    backgroundColor: '#171717',
+    backgroundColor: '#121216',
     borderWidth: 1,
-    borderColor: '#252525',
-    paddingHorizontal: 22,
-    paddingTop: 34,
-    paddingBottom: 20,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 18,
+    paddingTop: 22,
+    paddingBottom: 18,
     alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: {width: 0, height: 18},
+    shadowOpacity: 0.36,
+    shadowRadius: 28,
+    elevation: 18,
+  },
+  attendanceModalBadge: {
+    minHeight: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(229,9,20,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(229,9,20,0.28)',
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attendanceModalBadgeText: {
+    color: '#FF7A82',
+    ...FONTS.font11B,
+    lineHeight: 14,
   },
   attendanceModalCountText: {
+    marginTop: 14,
     color: '#FFFFFF',
-    ...FONTS.font40B,
-    lineHeight: 52,
+    ...FONTS.font22B,
+    lineHeight: 28,
   },
   attendanceModalSuccessText: {
-    marginTop: 8,
-    color: '#E9EAF0',
-    ...FONTS.font24M,
-    lineHeight: 32,
+    marginTop: 4,
+    color: '#BFC3CF',
+    ...FONTS.font15M,
+    lineHeight: 20,
   },
   attendanceModalWeekWrap: {
     width: '100%',
-    marginTop: 22,
+    marginTop: 18,
     borderRadius: 12,
-    backgroundColor: '#111114',
+    backgroundColor: '#0B0B0E',
     borderWidth: 1,
-    borderColor: '#242428',
-    paddingHorizontal: 10,
-    paddingVertical: 12,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
   attendanceModalDayItem: {
     alignItems: 'center',
-    width: 38,
+    width: 36,
   },
   attendanceModalDayLabel: {
-    color: '#8F939E',
-    ...FONTS.font13B,
-    marginBottom: 8,
+    color: '#8B909D',
+    ...FONTS.font11B,
+    lineHeight: 14,
+    marginBottom: 7,
   },
   attendanceModalDayDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#40424D',
-    backgroundColor: '#2E303A',
+    borderColor: '#343743',
+    backgroundColor: '#20232C',
     alignItems: 'center',
     justifyContent: 'center',
   },
   attendanceModalDayDotChecked: {
-    backgroundColor: '#E50914',
-    borderColor: '#E50914',
+    backgroundColor: '#F01825',
+    borderColor: '#F01825',
   },
   attendanceModalDayDotText: {
-    color: '#D8DCE7',
-    ...FONTS.font16B,
-    lineHeight: 18,
+    color: '#8E93A2',
+    ...FONTS.font13B,
+    lineHeight: 15,
   },
   attendanceModalDayDotTextChecked: {
     color: '#FFFFFF',
   },
   attendanceModalDayDotLottie: {
-    width: 48,
-    height: 48,
-    transform: [{scale: 1.52}],
+    width: 42,
+    height: 42,
+    transform: [{scale: 1.48}],
   },
   attendanceModalHintCard: {
     width: '100%',
-    marginTop: 18,
+    marginTop: 14,
     borderRadius: 12,
-    backgroundColor: '#111114',
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
-    borderColor: '#242428',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderColor: 'rgba(255,255,255,0.07)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   attendanceModalHintText: {
-    color: '#E1E3EA',
-    ...FONTS.font18M,
-    lineHeight: 26,
+    color: '#D9DCE5',
+    ...FONTS.font14M,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   attendanceModalHintAccent: {
-    color: '#E50914',
-    ...FONTS.font18B,
+    color: '#FF5962',
+    ...FONTS.font14B,
   },
   attendanceModalConfirmButton: {
-    marginTop: 20,
+    marginTop: 16,
     width: '100%',
-    height: 54,
+    height: 48,
     borderRadius: 12,
-    backgroundColor: '#E50914',
+    backgroundColor: '#F01825',
     alignItems: 'center',
     justifyContent: 'center',
   },
   attendanceModalConfirmText: {
     color: '#FFFFFF',
-    ...FONTS.font16B,
-    lineHeight: 21,
+    ...FONTS.font15B,
+    lineHeight: 20,
   },
 });
 

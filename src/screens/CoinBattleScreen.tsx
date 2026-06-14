@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   type LayoutChangeEvent,
   Modal,
@@ -16,6 +17,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -604,6 +606,8 @@ export function CoinBattleScreen(): JSX.Element {
           <Animated.ScrollView
             bounces={false}
             contentContainerStyle={contentContainerStyle}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
             scrollEventThrottle={16}>
@@ -795,26 +799,27 @@ export function CoinBattleScreen(): JSX.Element {
               <Pressable disabled={isCreatingRoom} style={styles.modalBackdropButton} onPress={closeCreateModal}>
                 <Animated.View style={[styles.modalBackdrop, {opacity: modalBackdropOpacity}]} />
               </Pressable>
-              <Animated.View
-                style={[
-                  styles.createPanel,
-                  {
-                    opacity: createPanelOpacity,
-                    transform: [{translateY: createPanelTranslateY}],
-                  },
-                ]}>
-                <Text style={styles.createTitle}>대기방 만들기</Text>
+              <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+                <Animated.View
+                  style={[
+                    styles.createPanel,
+                    {
+                      opacity: createPanelOpacity,
+                      transform: [{translateY: createPanelTranslateY}],
+                    },
+                  ]}>
+                  <Text style={styles.createTitle}>대기방 만들기</Text>
 
-                <Text style={styles.createLabel}>방 제목</Text>
-                <TextInput
-                  editable={!isCreatingRoom}
-                  onChangeText={setRoomName}
-                  placeholder="방 제목을 입력하세요"
-                  placeholderTextColor="#777777"
-                  selectionColor="#E50914"
-                  style={styles.createInput}
-                  value={roomName}
-                />
+                  <Text style={styles.createLabel}>방 제목</Text>
+                  <TextInput
+                    editable={!isCreatingRoom}
+                    onChangeText={setRoomName}
+                    placeholder="방 제목을 입력하세요"
+                    placeholderTextColor="#777777"
+                    selectionColor="#E50914"
+                    style={styles.createInput}
+                    value={roomName}
+                  />
 
                 <Text style={styles.createLabel}>게임</Text>
                 <View style={styles.optionRow}>
@@ -882,24 +887,25 @@ export function CoinBattleScreen(): JSX.Element {
                   )}
                 </View>
 
-                <View style={styles.createActions}>
-                  <AnimatedPressable
-                    disabled={isCreatingRoom}
-                    onPress={closeCreateModal}
-                    style={[styles.cancelButton, isCreatingRoom && styles.cancelButtonDisabled]}>
-                    <Text style={styles.cancelButtonText}>취소</Text>
-                  </AnimatedPressable>
-                  <AnimatedPressable
-                    disabled={isCreatingRoom}
-                    onPress={handleCreateRoom}
-                    style={[styles.submitButton, isCreatingRoom && styles.submitButtonDisabled]}>
-                    {isCreatingRoom ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" style={styles.submitSpinner} />
-                    ) : null}
-                    <Text style={styles.submitButtonText}>{isCreatingRoom ? '생성 중...' : '등록'}</Text>
-                  </AnimatedPressable>
-                </View>
-              </Animated.View>
+                  <View style={styles.createActions}>
+                    <AnimatedPressable
+                      disabled={isCreatingRoom}
+                      onPress={closeCreateModal}
+                      style={[styles.cancelButton, isCreatingRoom && styles.cancelButtonDisabled]}>
+                      <Text style={styles.cancelButtonText}>취소</Text>
+                    </AnimatedPressable>
+                    <AnimatedPressable
+                      disabled={isCreatingRoom}
+                      onPress={handleCreateRoom}
+                      style={[styles.submitButton, isCreatingRoom && styles.submitButtonDisabled]}>
+                      {isCreatingRoom ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" style={styles.submitSpinner} />
+                      ) : null}
+                      <Text style={styles.submitButtonText}>{isCreatingRoom ? '생성 중...' : '등록'}</Text>
+                    </AnimatedPressable>
+                  </View>
+                </Animated.View>
+              </TouchableWithoutFeedback>
             </KeyboardAvoidingView>
           </Modal>
         </View>

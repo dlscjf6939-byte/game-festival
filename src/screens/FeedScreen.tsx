@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -16,10 +17,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
   type ImageSourcePropType,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type StyleProp,
+  type ViewStyle,
   useWindowDimensions,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -91,9 +95,64 @@ type EmployeePostInteraction = {
   likes: number;
 };
 
+type LikeButtonProps = {
+  isLiked: boolean;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+};
+
 const MAX_COMPOSE_IMAGE_COUNT = 5;
 const FEED_API_BASE = 'http://121.254.240.93:8090';
 const FEED_BOARD_ID = 21;
+
+function LikeButton({isLiked, onPress, style}: LikeButtonProps): JSX.Element {
+  const likeEffectProgress = useRef(new Animated.Value(0)).current;
+  const iconScale = likeEffectProgress.interpolate({
+    inputRange: [0, 0.45, 1],
+    outputRange: [1, 1.28, 1],
+  });
+  const burstOpacity = likeEffectProgress.interpolate({
+    inputRange: [0, 0.7, 1],
+    outputRange: [0.4, 0.16, 0],
+  });
+  const burstScale = likeEffectProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.55, 1.65],
+  });
+
+  const handlePress = useCallback(() => {
+    likeEffectProgress.stopAnimation(() => {
+      likeEffectProgress.setValue(0);
+      Animated.timing(likeEffectProgress, {
+        toValue: 1,
+        duration: 360,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    onPress();
+  }, [likeEffectProgress, onPress]);
+
+  return (
+    <AnimatedPressable accessibilityLabel="좋아요" accessibilityRole="button" onPress={handlePress} style={style}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.likeBurst,
+          {
+            opacity: burstOpacity,
+            transform: [{scale: burstScale}],
+          },
+        ]}
+      />
+      <Animated.Image
+        source={isLiked ? icon.heartFilled : icon.heartOutline}
+        style={[styles.actionIconImage, {transform: [{scale: iconScale}]}]}
+        resizeMode="contain"
+      />
+    </AnimatedPressable>
+  );
+}
 
 function formatCount(count: number): string {
   if (count >= 1000) {
@@ -161,12 +220,16 @@ function normalizeEmployeeProfile(data: EmployeeProfileResponse['data']): Employ
 
 export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
+  const feedScrollRef = useRef<ScrollView | null>(null);
+  const feedScrollOffsetYRef = useRef(0);
+  const pendingLikePostIdsRef = useRef<Set<string>>(new Set());
   const prefetchedHighlightIdsRef = useRef<Set<string>>(new Set());
   const {auth} = useAuth();
   const {
     createComment,
     createPost,
     deleteComment,
+    deletePost,
     fetchComments,
     hasMorePosts,
     highlightGroups,
@@ -190,8 +253,10 @@ export function FeedScreen(): JSX.Element {
   const snapPoints = useMemo(() => ['66%'], []);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentActionError, setCommentActionError] = useState<string | null>(null);
+  const [postActionError, setPostActionError] = useState<string | null>(null);
   const [editingCommentDraft, setEditingCommentDraft] = useState('');
   const [selectedCommentForAction, setSelectedCommentForAction] = useState<FeedComment | null>(null);
+  const [selectedPostForAction, setSelectedPostForAction] = useState<FeedPost | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [selectedHighlightIndex, setSelectedHighlightIndex] = useState(0);
@@ -211,6 +276,7 @@ export function FeedScreen(): JSX.Element {
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isEditingComment, setIsEditingComment] = useState(false);
   const [isMutatingComment, setIsMutatingComment] = useState(false);
+  const [isMutatingPost, setIsMutatingPost] = useState(false);
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [activePostImageIndexes, setActivePostImageIndexes] = useState<Record<string, number>>({});
@@ -265,6 +331,7 @@ export function FeedScreen(): JSX.Element {
     [profileImageUri],
   );
   const myName = auth?.name ?? '이인철';
+  const myEmployeeId = auth?.employeeId;
   const isComposeSubmittable = Boolean(composeTitle.trim()) && Boolean(composeCaption.trim()) && !isSubmittingCompose;
   const commentSubmitAnimatedStyle = {
     backgroundColor: commentSubmitProgress.interpolate({
@@ -453,7 +520,18 @@ export function FeedScreen(): JSX.Element {
 
   const toggleLike = useCallback(
     (postId: string) => {
-      void togglePostLike(postId);
+      if (pendingLikePostIdsRef.current.has(postId)) {
+        return;
+      }
+
+      pendingLikePostIdsRef.current.add(postId);
+      togglePostLike(postId)
+        .catch(error => {
+          console.log('[FeedScreen] like toggle failed', {error, postId});
+        })
+        .finally(() => {
+          pendingLikePostIdsRef.current.delete(postId);
+        });
     },
     [togglePostLike],
   );
@@ -528,6 +606,53 @@ export function FeedScreen(): JSX.Element {
     },
     [myName],
   );
+
+  const openPostActions = useCallback(
+    (post: FeedPost) => {
+      const isMyPost =
+        myEmployeeId !== undefined && post.writerEmployeeId !== undefined
+          ? String(myEmployeeId) === String(post.writerEmployeeId)
+          : post.user === myName;
+
+      if (!isMyPost) {
+        return;
+      }
+
+      setPostActionError(null);
+      setSelectedPostForAction(post);
+    },
+    [myEmployeeId, myName],
+  );
+
+  const closePostActions = useCallback(() => {
+    setPostActionError(null);
+    setSelectedPostForAction(null);
+  }, []);
+
+  const handlePostDeleteAction = useCallback(async () => {
+    const post = selectedPostForAction;
+
+    if (!post || isMutatingPost) {
+      return;
+    }
+
+    const restoreScrollY = feedScrollOffsetYRef.current;
+
+    setIsMutatingPost(true);
+    setPostActionError(null);
+
+    try {
+      await deletePost(post.id);
+      closePostActions();
+      requestAnimationFrame(() => {
+        feedScrollRef.current?.scrollTo({animated: false, y: restoreScrollY});
+      });
+    } catch (error) {
+      setPostActionError(error instanceof Error && error.message ? error.message : '게시글 삭제에 실패했습니다.');
+    } finally {
+      setIsMutatingPost(false);
+    }
+  }, [closePostActions, deletePost, isMutatingPost, selectedPostForAction]);
 
   const closeCommentActions = useCallback(() => {
     setCommentActionError(null);
@@ -934,6 +1059,11 @@ export function FeedScreen(): JSX.Element {
       return;
     }
 
+    if (pendingLikePostIdsRef.current.has(selectedEmployeePostId)) {
+      return;
+    }
+
+    pendingLikePostIdsRef.current.add(selectedEmployeePostId);
     const nextIsLiked = !selectedEmployeePostIsLiked;
     const nextLikes = Math.max(0, selectedEmployeePostLikeCount + (nextIsLiked ? 1 : -1));
 
@@ -945,12 +1075,16 @@ export function FeedScreen(): JSX.Element {
         likes: nextLikes,
       },
     }));
-    togglePostLike(selectedEmployeePostId).catch(error => {
-      console.log('[FeedScreen] employee profile like failed', {
-        error,
-        postId: selectedEmployeePostId,
+    togglePostLike(selectedEmployeePostId)
+      .catch(error => {
+        console.log('[FeedScreen] employee profile like failed', {
+          error,
+          postId: selectedEmployeePostId,
+        });
+      })
+      .finally(() => {
+        pendingLikePostIdsRef.current.delete(selectedEmployeePostId);
       });
-    });
   }, [
     selectedEmployeePostCommentCount,
     selectedEmployeePostId,
@@ -1071,6 +1205,7 @@ export function FeedScreen(): JSX.Element {
   const handleFeedScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
+      feedScrollOffsetYRef.current = contentOffset.y;
       const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
 
       if (distanceFromBottom > 520 || !posts.length || !hasMorePosts || isLoading || isLoadingMorePosts) {
@@ -1093,6 +1228,7 @@ export function FeedScreen(): JSX.Element {
           <AppGnb scrollY={scrollY} />
 
           <Animated.ScrollView
+            ref={feedScrollRef}
             bounces
             contentContainerStyle={styles.feedFrame}
             removeClippedSubviews
@@ -1168,6 +1304,10 @@ export function FeedScreen(): JSX.Element {
                     const commentCount = typeof post.commentCount === 'number' ? post.commentCount : 0;
                     const postImages = post.images ?? (post.image ? [post.image] : []);
                     const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
+                    const isMyPost =
+                      myEmployeeId !== undefined && post.writerEmployeeId !== undefined
+                        ? String(myEmployeeId) === String(post.writerEmployeeId)
+                        : post.user === myName;
 
                     return (
                       <View key={post.id} style={styles.postCard}>
@@ -1191,9 +1331,14 @@ export function FeedScreen(): JSX.Element {
                               <Text style={styles.profileRole}>{post.role}</Text>
                             </View>
                           </AnimatedPressable>
-                          <AnimatedPressable accessibilityRole="button" style={styles.moreButton}>
-                            <Text style={styles.moreIcon}>...</Text>
-                          </AnimatedPressable>
+                          {isMyPost ? (
+                            <AnimatedPressable
+                              accessibilityRole="button"
+                              onPress={() => openPostActions(post)}
+                              style={styles.moreButton}>
+                              <Text style={styles.moreIcon}>...</Text>
+                            </AnimatedPressable>
+                          ) : null}
                         </View>
 
                         {postImages.length ? (
@@ -1267,17 +1412,7 @@ export function FeedScreen(): JSX.Element {
 
                         <View style={styles.actionRow}>
                           <View style={styles.leftActions}>
-                            <AnimatedPressable
-                              accessibilityLabel="좋아요"
-                              accessibilityRole="button"
-                              onPress={() => toggleLike(post.id)}
-                              style={styles.iconButton}>
-                              <Image
-                                source={isLiked ? icon.heartFilled : icon.heartOutline}
-                                style={styles.actionIconImage}
-                                resizeMode="contain"
-                              />
-                            </AnimatedPressable>
+                            <LikeButton isLiked={isLiked} onPress={() => toggleLike(post.id)} style={styles.iconButton} />
                             <AnimatedPressable
                               accessibilityLabel="댓글 보기"
                               accessibilityRole="button"
@@ -1364,13 +1499,16 @@ export function FeedScreen(): JSX.Element {
 
             <BottomSheetFlatList
               data={selectedComments}
+              keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
                 isLoadingComments ? (
                   <View style={styles.commentLoadingState}>
                     <AppLoading label="댓글을 불러오는 중..." />
                   </View>
                 ) : (
-                  <Text style={styles.commentEmptyText}>아직 댓글이 없습니다.</Text>
+                  <View style={styles.commentEmptyState}>
+                    <Text style={styles.commentEmptyText}>아직 댓글이 없습니다.</Text>
+                  </View>
                 )
               }
               keyExtractor={item => item.id}
@@ -1378,7 +1516,7 @@ export function FeedScreen(): JSX.Element {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[
                 styles.commentListContent,
-                isLoadingComments && !selectedComments.length && styles.commentListLoadingContent,
+                !selectedComments.length && styles.commentListEmptyContent,
               ]}
             />
 
@@ -1402,6 +1540,34 @@ export function FeedScreen(): JSX.Element {
               </AnimatedPressable>
             </View>
           </BottomSheet>
+
+          <Modal
+            animationType="fade"
+            onRequestClose={closePostActions}
+            transparent
+            visible={Boolean(selectedPostForAction)}>
+            <View style={styles.commentActionOverlay}>
+              <View style={styles.commentActionSheet}>
+                {postActionError ? <Text style={styles.commentActionError}>{postActionError}</Text> : null}
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  disabled={isMutatingPost}
+                  onPress={handlePostDeleteAction}
+                  style={[styles.commentActionButton, styles.commentDeleteButton, styles.postActionDeleteButton]}>
+                  <Text style={[styles.commentActionButtonText, styles.commentDeleteButtonText]}>
+                    {isMutatingPost ? '삭제 중...' : '삭제하기'}
+                  </Text>
+                </AnimatedPressable>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  disabled={isMutatingPost}
+                  onPress={closePostActions}
+                  style={styles.commentCancelButton}>
+                  <Text style={styles.commentCancelButtonText}>취소</Text>
+                </AnimatedPressable>
+              </View>
+            </View>
+          </Modal>
 
           <Modal
             animationType="fade"
@@ -1443,40 +1609,44 @@ export function FeedScreen(): JSX.Element {
           </Modal>
 
           <Modal animationType="fade" onRequestClose={closeCommentEditor} transparent visible={isEditingComment}>
-            <View style={styles.commentActionOverlay}>
-              <View style={styles.commentEditCard}>
-                <Text style={styles.commentActionTitle}>댓글 수정</Text>
-                <TextInput
-                  multiline
-                  placeholder="댓글을 입력하세요"
-                  placeholderTextColor="#777A82"
-                  style={styles.commentEditInput}
-                  value={editingCommentDraft}
-                  onChangeText={setEditingCommentDraft}
-                />
-                {commentActionError ? <Text style={styles.commentActionError}>{commentActionError}</Text> : null}
-                <View style={styles.commentEditButtonRow}>
-                  <AnimatedPressable
-                    accessibilityRole="button"
-                    disabled={isMutatingComment}
-                    onPress={closeCommentEditor}
-                    style={[styles.commentEditButton, styles.commentEditCancelButton]}>
-                    <Text style={styles.commentCancelButtonText}>취소</Text>
-                  </AnimatedPressable>
-                  <AnimatedPressable
-                    accessibilityRole="button"
-                    disabled={isMutatingComment || !editingCommentDraft.trim()}
-                    onPress={handleCommentUpdate}
-                    style={[
-                      styles.commentEditButton,
-                      styles.commentEditSaveButton,
-                      (isMutatingComment || !editingCommentDraft.trim()) && styles.commentEditSaveButtonDisabled,
-                    ]}>
-                    <Text style={styles.commentEditSaveButtonText}>{isMutatingComment ? '저장 중...' : '저장'}</Text>
-                  </AnimatedPressable>
-                </View>
+            <TouchableWithoutFeedback accessible={false} onPress={Keyboard.dismiss}>
+              <View style={styles.commentActionOverlay}>
+                <TouchableWithoutFeedback accessible={false}>
+                  <View style={styles.commentEditCard}>
+                    <Text style={styles.commentActionTitle}>댓글 수정</Text>
+                    <TextInput
+                      multiline
+                      placeholder="댓글을 입력하세요"
+                      placeholderTextColor="#777A82"
+                      style={styles.commentEditInput}
+                      value={editingCommentDraft}
+                      onChangeText={setEditingCommentDraft}
+                    />
+                    {commentActionError ? <Text style={styles.commentActionError}>{commentActionError}</Text> : null}
+                    <View style={styles.commentEditButtonRow}>
+                      <AnimatedPressable
+                        accessibilityRole="button"
+                        disabled={isMutatingComment}
+                        onPress={closeCommentEditor}
+                        style={[styles.commentEditButton, styles.commentEditCancelButton]}>
+                        <Text style={styles.commentCancelButtonText}>취소</Text>
+                      </AnimatedPressable>
+                      <AnimatedPressable
+                        accessibilityRole="button"
+                        disabled={isMutatingComment || !editingCommentDraft.trim()}
+                        onPress={handleCommentUpdate}
+                        style={[
+                          styles.commentEditButton,
+                          styles.commentEditSaveButton,
+                          (isMutatingComment || !editingCommentDraft.trim()) && styles.commentEditSaveButtonDisabled,
+                        ]}>
+                        <Text style={styles.commentEditSaveButtonText}>{isMutatingComment ? '저장 중...' : '저장'}</Text>
+                      </AnimatedPressable>
+                    </View>
+                  </View>
+                </TouchableWithoutFeedback>
               </View>
-            </View>
+            </TouchableWithoutFeedback>
           </Modal>
 
           <Modal animationType="fade" onRequestClose={closeHighlight} transparent visible={isHighlightVisible}>
@@ -1625,6 +1795,7 @@ export function FeedScreen(): JSX.Element {
                             styles.employeePostCommentsContent,
                             !selectedComments.length && styles.employeePostCommentsEmptyContent,
                           ]}
+                          keyboardShouldPersistTaps="handled"
                           showsVerticalScrollIndicator={false}
                           style={styles.employeeProfileScroll}>
                           {isLoadingComments && !selectedComments.length ? (
@@ -1714,17 +1885,11 @@ export function FeedScreen(): JSX.Element {
                           )}
                         </View>
                         <View style={styles.employeePostDetailActionRow}>
-                          <AnimatedPressable
-                            accessibilityLabel="좋아요"
-                            accessibilityRole="button"
+                          <LikeButton
+                            isLiked={selectedEmployeePostIsLiked}
                             onPress={toggleEmployeePostLike}
-                            style={styles.employeePostDetailIconButton}>
-                            <Image
-                              source={selectedEmployeePostIsLiked ? icon.heartFilled : icon.heartOutline}
-                              style={styles.actionIconImage}
-                              resizeMode="contain"
-                            />
-                          </AnimatedPressable>
+                            style={styles.employeePostDetailIconButton}
+                          />
                           <AnimatedPressable
                             accessibilityLabel="댓글 보기"
                             accessibilityRole="button"
@@ -2294,6 +2459,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  likeBurst: {
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(229,9,20,0.28)',
+  },
   actionIconImage: {
     width: 28,
     height: 28,
@@ -2385,17 +2557,21 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
-  commentListLoadingContent: {
+  commentListEmptyContent: {
     flexGrow: 1,
+    justifyContent: 'center',
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   commentLoadingState: {
-    flex: 1,
-    minHeight: 360,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentEmptyState: {
     alignItems: 'center',
     justifyContent: 'center',
   },
   commentEmptyText: {
-    paddingVertical: 28,
     color: '#8A8D95',
     textAlign: 'center',
     ...FONTS.font14R,
@@ -2522,6 +2698,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(229,9,20,0.14)',
     borderWidth: 1,
     borderColor: 'rgba(229,9,20,0.34)',
+  },
+  postActionDeleteButton: {
+    marginTop: 0,
   },
   commentDeleteButtonText: {
     color: '#FF5962',
@@ -2900,16 +3079,20 @@ const styles = StyleSheet.create({
   },
   employeePostCommentsEmptyContent: {
     flexGrow: 1,
+    alignItems: 'center',
     justifyContent: 'center',
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   employeePostCommentsLoading: {
-    minHeight: 240,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
   },
   employeePostCommentsLoadingText: {
     color: '#A7AAB4',
+    textAlign: 'center',
     ...FONTS.font13M,
     lineHeight: 18,
   },

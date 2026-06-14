@@ -82,6 +82,20 @@ function normalizeProfile(profile: Record<string, unknown>): Record<string, unkn
   };
 }
 
+function mergeProfileIntoAuth(auth: AuthState, profile: Record<string, unknown>): AuthState {
+  const normalizedProfile = {
+    ...(auth.profile ?? {}),
+    ...normalizeProfile(profile),
+  };
+  const hasProfileImage = Boolean(getProfileImageUriFromRecord(normalizedProfile));
+
+  return {
+    ...auth,
+    firstLoginYn: hasProfileImage ? 'N' : auth.firstLoginYn,
+    profile: normalizedProfile,
+  };
+}
+
 async function fetchProfile(accessToken: string): Promise<ProfileResponse> {
   const response = await withMinimumLoadingTime(
     fetch(`${API_BASE}/api/employee/profile`, {
@@ -124,13 +138,7 @@ export function AuthProvider({
         return;
       }
 
-      const nextAuth = {
-        ...auth,
-        profile: {
-          ...(auth.profile ?? {}),
-          ...normalizeProfile(profileResponse.data),
-        },
-      };
+      const nextAuth = mergeProfileIntoAuth(auth, profileResponse.data);
 
       await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
       setAuthState(nextAuth);
@@ -163,13 +171,7 @@ export function AuthProvider({
             logProfileEvent('Profile response', profileResponse);
 
             if (!cancelled && profileResponse.data) {
-              const nextAuth = {
-                ...restoredAuth,
-                profile: {
-                  ...(restoredAuth.profile ?? {}),
-                  ...normalizeProfile(profileResponse.data),
-                },
-              };
+              const nextAuth = mergeProfileIntoAuth(restoredAuth, profileResponse.data);
 
               await AsyncStorage.setItem(
                 AUTH_STORAGE_KEY,
@@ -222,8 +224,6 @@ export function AuthProvider({
       isRestoring,
       refreshProfile,
       setAuth: async (nextAuth: AuthState) => {
-        await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
-        setAuthState(nextAuth);
         logAccessTokenForDebug(nextAuth.accessToken, 'login');
 
         try {
@@ -232,23 +232,21 @@ export function AuthProvider({
           logProfileEvent('Profile response', profileResponse);
 
           if (profileResponse.data) {
-            const nextAuthWithProfile = {
-              ...nextAuth,
-              profile: {
-                ...(nextAuth.profile ?? {}),
-                ...normalizeProfile(profileResponse.data),
-              },
-            };
+            const nextAuthWithProfile = mergeProfileIntoAuth(nextAuth, profileResponse.data);
 
             await AsyncStorage.setItem(
               AUTH_STORAGE_KEY,
               JSON.stringify(nextAuthWithProfile),
             );
             setAuthState(nextAuthWithProfile);
+            return;
           }
         } catch (error) {
           logProfileEvent('Profile fetch after login failed', error);
         }
+
+        await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
+        setAuthState(nextAuth);
       },
     }),
     [auth, isRestoring, refreshProfile],

@@ -41,6 +41,15 @@ type FeedContextValue = {
     images: FeedUploadImage[];
     title: string;
   }) => Promise<void>;
+  updatePost: (
+    postId: string,
+    payload: {
+      content: string;
+      hashTags?: string[];
+      title: string;
+    },
+  ) => Promise<void>;
+  deletePost: (postId: string) => Promise<void>;
   isLoading: boolean;
   isLoadingMorePosts: boolean;
   lastError: string | null;
@@ -152,6 +161,15 @@ type FeedCommentApiResponse = {
   success?: boolean;
 };
 
+type FetchPostDetailOptions = {
+  preserveLikeState?: boolean;
+};
+
+type PostLikeOverride = {
+  isLiked: boolean;
+  likes: number;
+};
+
 type FeedCommentItemApi = {
   authorName?: string;
   commentId?: number | string;
@@ -186,7 +204,19 @@ function getArrayCount(value: unknown): number | null {
   return Array.isArray(value) ? value.length : null;
 }
 
-function toFeedPost(post: FeedPostItemApi): FeedPost | null {
+function hasLikedMember(likedMembers: FeedMemberApi[] | undefined, employeeId: number | string | undefined): boolean {
+  if (employeeId === undefined || !Array.isArray(likedMembers)) {
+    return false;
+  }
+
+  return likedMembers.some(member => String(member.employeeId) === String(employeeId));
+}
+
+function applyLikeOverride(post: FeedPost, override: PostLikeOverride | undefined): FeedPost {
+  return override ? {...post, isLiked: override.isLiked, likes: override.likes} : post;
+}
+
+function toFeedPost(post: FeedPostItemApi, myEmployeeId?: number | string): FeedPost | null {
   if (typeof post.postId !== 'number') {
     return null;
   }
@@ -211,7 +241,7 @@ function toFeedPost(post: FeedPostItemApi): FeedPost | null {
     id: String(post.postId),
     image: images[0],
     images,
-    isLiked: Boolean(post.isLiked),
+    isLiked: typeof post.isLiked === 'boolean' ? post.isLiked : hasLikedMember(post.likedMembers, myEmployeeId),
     likes: likedMemberCount ?? (typeof post.likeCount === 'number' ? post.likeCount : 0),
     role: post.writer?.department?.trim() || '부서 미지정',
     time: getDisplayElapsedTime(post.elapsedTime),
@@ -499,6 +529,11 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastResponseBody, setLastResponseBody] = useState<unknown>(null);
   const isLoadingMorePostsRef = useRef(false);
+  const postLikeOverridesRef = useRef<Record<string, PostLikeOverride>>({});
+
+  useEffect(() => {
+    postLikeOverridesRef.current = {};
+  }, [auth?.employeeId]);
 
   const refreshHighlights = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -635,14 +670,15 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
     }
 
     const mappedPosts = (responseBody.data?.content ?? [])
-      .map(toFeedPost)
+      .map(post => toFeedPost(post, auth.employeeId))
       .filter((post): post is FeedPost => Boolean(post));
+    const nextPosts = mappedPosts.map(post => applyLikeOverride(post, postLikeOverridesRef.current[post.id]));
 
     return {
-      hasMore: getHasMorePosts(responseBody, page, mappedPosts.length),
-      posts: mappedPosts,
+      hasMore: getHasMorePosts(responseBody, page, nextPosts.length),
+      posts: nextPosts,
     };
-  }, [auth?.accessToken]);
+  }, [auth?.accessToken, auth?.employeeId]);
 
   const refreshPosts = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -708,7 +744,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
   }, [auth?.accessToken, hasMorePosts, isLoading, nextPostPage, requestPostsPage]);
 
   const fetchPostDetail = useCallback(
-    async (postId: string): Promise<FeedCommentApiResponse> => {
+    async (postId: string, options?: FetchPostDetailOptions): Promise<FeedCommentApiResponse> => {
       if (!auth?.accessToken) {
         throw new Error('로그인 정보가 필요합니다.');
       }
@@ -735,6 +771,12 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       }
 
       const detailPatch = getPostPatchFromDetail(responseBody.data);
+
+      if (options?.preserveLikeState) {
+        delete detailPatch.isLiked;
+        delete detailPatch.likes;
+      }
+
       const hasDetailPatch = Object.keys(detailPatch).length > 0;
 
       if (hasDetailPatch) {
@@ -764,12 +806,17 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
 
           previousPost = post;
           const nextIsLiked = !post.isLiked;
-
-          return {
+          const nextPost = {
             ...post,
             isLiked: nextIsLiked,
             likes: Math.max(0, post.likes + (nextIsLiked ? 1 : -1)),
           };
+          postLikeOverridesRef.current[postId] = {
+            isLiked: nextPost.isLiked,
+            likes: nextPost.likes,
+          };
+
+          return nextPost;
         }),
       );
 
@@ -797,9 +844,13 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
           throw new Error(responseBody?.message || '좋아요 처리에 실패했습니다.');
         }
 
-        await fetchPostDetail(postId);
+        await fetchPostDetail(postId, {preserveLikeState: true});
       } catch (error) {
         if (previousPost) {
+          postLikeOverridesRef.current[postId] = {
+            isLiked: previousPost.isLiked ?? false,
+            likes: previousPost.likes,
+          };
           setPosts(prevPosts => prevPosts.map(post => (post.id === postId ? previousPost! : post)));
         }
         console.log('[FeedProvider] like toggle failed', {error, postId});
@@ -850,7 +901,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         return [];
       }
 
-      const responseBody = await fetchPostDetail(postId);
+      const responseBody = await fetchPostDetail(postId, {preserveLikeState: true});
 
       return getCommentsFromResponseData(responseBody.data)
         .map((comment, index) => toFeedComment(comment, index, auth.name, auth.employeeId))
@@ -924,6 +975,94 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
 
     },
     [auth?.accessToken],
+  );
+
+  const updatePost = useCallback(
+    async (
+      postId: string,
+      payload: {
+        content: string;
+        hashTags?: string[];
+        title: string;
+      },
+    ) => {
+      if (!auth?.accessToken) {
+        throw new Error('로그인 정보가 필요합니다.');
+      }
+
+      const formData = new FormData();
+      formData.append('content', payload.content);
+      formData.append('title', payload.title);
+
+      payload.hashTags?.forEach(tag => {
+        formData.append('hashTags', tag);
+      });
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}`, {
+          method: 'PUT',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+          body: formData,
+        }),
+      );
+
+      const responseText = await response.text();
+      let responseBody: {message?: string; success?: boolean} | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
+      } catch {
+        responseBody = null;
+      }
+
+      setLastResponseBody(responseBody ?? responseText);
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '게시글 수정에 실패했습니다.');
+      }
+
+      await refreshPosts();
+    },
+    [auth?.accessToken, refreshPosts],
+  );
+
+  const deletePost = useCallback(
+    async (postId: string) => {
+      if (!auth?.accessToken) {
+        throw new Error('로그인 정보가 필요합니다.');
+      }
+
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}`, {
+          method: 'DELETE',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+
+      const responseText = await response.text();
+      let responseBody: {message?: string; success?: boolean} | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
+      } catch {
+        responseBody = null;
+      }
+
+      setLastResponseBody(responseBody ?? responseText);
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || responseText || '게시글 삭제에 실패했습니다.');
+      }
+
+      await refreshPosts();
+    },
+    [auth?.accessToken, refreshPosts],
   );
 
   const createPost = useCallback(
@@ -1031,6 +1170,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       createComment,
       createPost,
       deleteComment,
+      deletePost,
       fetchComments,
       hasMorePosts,
       highlightGroups,
@@ -1046,11 +1186,13 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       setPosts,
       togglePostLike,
       updateComment,
+      updatePost,
     }),
     [
       createComment,
       createPost,
       deleteComment,
+      deletePost,
       fetchComments,
       hasMorePosts,
       highlightGroups,
@@ -1065,6 +1207,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       refreshPosts,
       togglePostLike,
       updateComment,
+      updatePost,
     ],
   );
 

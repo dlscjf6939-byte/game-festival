@@ -229,7 +229,7 @@ export function PredictionSelectScreen(): JSX.Element {
                       <Text style={styles.matchName}>{match.matchName}</Text>
                       <View style={styles.matchMetaRow}>
                         <Text style={styles.matchMetaText}>{formatMatchDateTime(match.scheduledAt)}</Text>
-                        <Text style={styles.matchMetaText}>참가 {match.participantCount}팀</Text>
+                        {/* <Text style={styles.matchMetaText}>참가 {match.participantCount}팀</Text> */}
                       </View>
                     </AnimatedPressable>
                   ))}

@@ -9,6 +9,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TouchableWithoutFeedback,
   UIManager,
   useWindowDimensions,
   View,
@@ -56,6 +57,7 @@ export function LoginScreen(): JSX.Element {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const buttonAnim = useRef(new Animated.Value(0)).current;
   const keypadAnim = useRef(new Animated.Value(0)).current;
+  const nativeKeyboardAnim = useRef(new Animated.Value(0)).current;
 
   const isEnabled = groupwareId.trim().length > 0 && LOGIN_PASSWORD_PATTERN.test(password) && !isSubmitting;
   const isCompactHeight = height < 700;
@@ -87,6 +89,11 @@ export function LoginScreen(): JSX.Element {
     setIsPasswordKeypadVisible(true);
   };
 
+  const dismissLoginKeyboard = () => {
+    Keyboard.dismiss();
+    setIsPasswordKeypadVisible(false);
+  };
+
   useEffect(() => {
     Animated.timing(buttonAnim, {
       toValue: isEnabled ? 1 : 0,
@@ -104,6 +111,44 @@ export function LoginScreen(): JSX.Element {
       useNativeDriver: true,
     }).start();
   }, [isPasswordKeypadVisible, keypadAnim]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSubscription = Keyboard.addListener(showEvent, event => {
+      Animated.timing(nativeKeyboardAnim, {
+        toValue: 1,
+        duration: event.duration ?? 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, event => {
+      Animated.timing(nativeKeyboardAnim, {
+        toValue: 0,
+        duration: event.duration ?? 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [nativeKeyboardAnim]);
+
+  const contentTranslateY = Animated.add(
+    keypadAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, loginContentRaisedOffset],
+    }),
+    nativeKeyboardAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, loginContentRaisedOffset],
+    }),
+  );
 
   const handleLogin = async () => {
     if (!isEnabled) {
@@ -152,7 +197,8 @@ export function LoginScreen(): JSX.Element {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#090105" />
 
-      <View style={styles.screen}>
+      <TouchableWithoutFeedback accessible={false} onPress={dismissLoginKeyboard}>
+        <View style={styles.screen}>
         <View pointerEvents="none" style={styles.posterStage}>
           <LinearGradient
             colors={['#020101', '#070203', '#120305', '#030102', '#010101']}
@@ -199,14 +245,7 @@ export function LoginScreen(): JSX.Element {
           style={[
             styles.centerWrap,
             {
-              transform: [
-                {
-                  translateY: keypadAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, loginContentRaisedOffset],
-                  }),
-                },
-              ],
+              transform: [{translateY: contentTranslateY}],
             },
           ]}>
           <View style={[styles.logoBlock, isCompactHeight ? styles.logoBlockCompact : null]}>
@@ -331,7 +370,8 @@ export function LoginScreen(): JSX.Element {
             <AppLoading label="로그인 중..." />
           </View>
         ) : null}
-      </View>
+        </View>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }

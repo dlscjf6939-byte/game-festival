@@ -187,10 +187,6 @@ type CheerComment = {
   time: string;
 };
 
-function getTeamName(teamId: TeamId): string {
-  return teams.find(team => team.id === teamId)?.name ?? '붕권';
-}
-
 function getTeamIdFromParticipantType(participantType: string | undefined, fallbackIndex = 0): TeamId {
   if (participantType === 'TEAM_BLUE') {
     return 'team-black';
@@ -204,11 +200,13 @@ function getTeamIdFromParticipantType(participantType: string | undefined, fallb
 }
 
 function toPredictionRate(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
+  const numericValue = typeof value === 'string' ? Number(value) : value;
+
+  if (typeof numericValue !== 'number' || !Number.isFinite(numericValue)) {
     return undefined;
   }
 
-  return Math.max(0, Math.min(100, value));
+  return Math.max(0, Math.min(100, numericValue));
 }
 
 function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
@@ -257,7 +255,7 @@ function toPredictionTeam(
     members: (participant.participantMembers ?? [])
       .map(member => member.nickname?.trim())
       .filter((nickname): nickname is string => Boolean(nickname)),
-    name: participant.participantName?.trim() || participant.name?.trim() || fallbackTeam.name,
+    name: participant.participantName?.trim() || participant.name?.trim() || `참가팀 ${index + 1}`,
     participantId: participant.participantId,
     predictionRate: toPredictionRate(participant.predictionRate),
     tone: fallbackTeam.tone,
@@ -309,11 +307,9 @@ export function PredictionDetailScreen(): JSX.Element {
   const myName = auth?.name ?? '이인철';
   const initialSelectedTeam = route.params?.selectedTeamId ?? 'team-red';
   const isParticipatedDetail = route.params?.mode === 'participated';
-  const [step, setStep] = useState<PredictionStep>(
-    isParticipatedDetail ? 'result' : route.params?.startStep === 'comment' ? 'comment' : 'select',
-  );
+  const [step, setStep] = useState<PredictionStep>(route.params?.startStep === 'comment' ? 'comment' : 'select');
   const [selectedTeam, setSelectedTeam] = useState<TeamId>(initialSelectedTeam);
-  const [expandedTeam, setExpandedTeam] = useState<TeamId | null>(isParticipatedDetail ? initialSelectedTeam : null);
+  const [expandedTeam, setExpandedTeam] = useState<TeamId | null>(null);
   const [matchupStageSize, setMatchupStageSize] = useState({height: 0, width: 0});
   const [cheerDraft, setCheerDraft] = useState('');
   const [cheerComments, setCheerComments] = useState<CheerComment[]>([]);
@@ -342,17 +338,17 @@ export function PredictionDetailScreen(): JSX.Element {
   });
   const stepTransition = useRef(new Animated.Value(1)).current;
   const stageIntroProgress = useRef(new Animated.Value(0)).current;
-  const teamDetailProgress = useRef(new Animated.Value(isParticipatedDetail ? 1 : 0)).current;
+  const teamDetailProgress = useRef(new Animated.Value(0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
-  const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? predictionTeams[0] ?? teams[0];
+  const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
   const expandedTeamInfo = expandedTeam
-    ? predictionTeams.find(team => team.id === expandedTeam) ?? predictionTeams[0] ?? teams[0]
+    ? predictionTeams.find(team => team.id === expandedTeam) ?? null
     : null;
-  const leftTeamInfo = predictionTeams[0] ?? teams[0];
-  const rightTeamInfo = predictionTeams[1] ?? teams[1];
-  const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '철권7 결승전';
+  const leftTeamInfo = predictionTeams[0] ?? null;
+  const rightTeamInfo = predictionTeams[1] ?? null;
+  const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '경기 정보';
   const displayTeamName = useCallback(
-    (teamId: TeamId) => predictionTeams.find(team => team.id === teamId)?.name ?? getTeamName(teamId),
+    (teamId: TeamId) => predictionTeams.find(team => team.id === teamId)?.name ?? '참가팀',
     [predictionTeams],
   );
   const redRatio = predictionTeams.find(team => team.id === 'team-red')?.predictionRate ?? 0;
@@ -455,7 +451,8 @@ export function PredictionDetailScreen(): JSX.Element {
   };
 
   const playStageIntro = useCallback(() => {
-    if (step !== 'select') {
+    if (step !== 'select' || !predictionTeams.length) {
+      stageIntroProgress.setValue(0);
       return;
     }
 
@@ -469,7 +466,7 @@ export function PredictionDetailScreen(): JSX.Element {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [stageIntroProgress, step]);
+  }, [predictionTeams.length, stageIntroProgress, step]);
 
   useEffect(() => {
     playStageIntro();
@@ -517,11 +514,14 @@ export function PredictionDetailScreen(): JSX.Element {
     if (nextTeams.length) {
       setPredictionTeams(previousTeams =>
         nextTeams.map(team => {
-          const previousTeam = previousTeams.find(previous => previous.participantId === team.participantId);
+          const previousTeam =
+            previousTeams.find(previous => previous.participantId === team.participantId) ??
+            previousTeams.find(previous => previous.id === team.id);
 
           return {
             ...team,
             members: team.members.length ? team.members : previousTeam?.members ?? [],
+            predictionRate: team.predictionRate ?? previousTeam?.predictionRate,
           };
         }),
       );
@@ -538,8 +538,6 @@ export function PredictionDetailScreen(): JSX.Element {
 
     if (pickedTeam) {
       setSelectedTeam(pickedTeam.id);
-      setExpandedTeam(pickedTeam.id);
-      setStep('result');
     }
 
     return true;
@@ -644,7 +642,18 @@ export function PredictionDetailScreen(): JSX.Element {
           .filter((team): team is PredictionTeam => Boolean(team));
 
         if (isMounted && nextTeams.length) {
-          setPredictionTeams(nextTeams);
+          setPredictionTeams(previousTeams =>
+            nextTeams.map(team => {
+              const previousTeam =
+                previousTeams.find(previous => previous.participantId === team.participantId) ??
+                previousTeams.find(previous => previous.id === team.id);
+
+              return {
+                ...team,
+                predictionRate: previousTeam?.predictionRate ?? team.predictionRate,
+              };
+            }),
+          );
 
           const pickedParticipantId =
             responseBody?.data?.pickedParticipantId ?? responseBody?.data?.pickedParticipant?.participantId;
@@ -652,7 +661,6 @@ export function PredictionDetailScreen(): JSX.Element {
 
           if (pickedTeam) {
             setSelectedTeam(pickedTeam.id);
-            setExpandedTeam(pickedTeam.id);
           }
         }
       } catch (error) {
@@ -849,7 +857,7 @@ export function PredictionDetailScreen(): JSX.Element {
 
   const handleConfirmSubmit = async () => {
     const trimmedComment = cheerDraft.trim();
-    const participantId = selectedTeamInfo.participantId;
+    const participantId = selectedTeamInfo?.participantId;
 
     if (!trimmedComment || isSubmittingPrediction) {
       return;
@@ -992,7 +1000,13 @@ export function PredictionDetailScreen(): JSX.Element {
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.voteInputStep}>
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.voteInputContent}>
+                <ScrollView
+                  automaticallyAdjustKeyboardInsets
+                  keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  style={styles.voteInputScroll}
+                  contentContainerStyle={styles.voteInputContent}>
                   <View style={styles.heroBlock}>
                     <Text style={styles.heroTitle}>{displayGameTitle}</Text>
                     <Text style={styles.heroSubtitle}>
@@ -1006,7 +1020,7 @@ export function PredictionDetailScreen(): JSX.Element {
                     <View style={styles.teamStateCenter}>
                       <AppLoading label="참가팀을 불러오는 중..." />
                     </View>
-                  ) : predictionTeams.length ? (
+                  ) : predictionTeams.length && leftTeamInfo ? (
                     <View
                       onLayout={({nativeEvent}) => {
                         const {height, width} = nativeEvent.layout;
@@ -1068,7 +1082,7 @@ export function PredictionDetailScreen(): JSX.Element {
                           </AnimatedPressable>
                         </Animated.View>
 
-                        {predictionTeams.length > 1 ? (
+                        {rightTeamInfo ? (
                           <Animated.View
                             style={[
                               styles.wallLogoPressable,
@@ -1135,19 +1149,19 @@ export function PredictionDetailScreen(): JSX.Element {
                 <View style={styles.bottomActionWrap}>
                   <AnimatedPressable
                     accessibilityRole="button"
-                    disabled={!expandedTeam || typeof selectedTeamInfo.participantId !== 'number'}
+                    disabled={!expandedTeam || !selectedTeamInfo || typeof selectedTeamInfo.participantId !== 'number'}
                     onPress={handleSelectNext}
                     style={[
                       styles.nextButton,
-                      (!expandedTeam || typeof selectedTeamInfo.participantId !== 'number') &&
+                      (!expandedTeam || !selectedTeamInfo || typeof selectedTeamInfo.participantId !== 'number') &&
                         styles.nextButtonDisabled,
                     ]}>
-                    <Text
-                      style={[
-                        styles.nextButtonText,
-                        (!expandedTeam || typeof selectedTeamInfo.participantId !== 'number') &&
-                          styles.nextButtonTextDisabled,
-                      ]}>
+                      <Text
+                        style={[
+                          styles.nextButtonText,
+                          (!expandedTeam || !selectedTeamInfo || typeof selectedTeamInfo.participantId !== 'number') &&
+                            styles.nextButtonTextDisabled,
+                        ]}>
                       다음
                     </Text>
                   </AnimatedPressable>
@@ -1157,29 +1171,42 @@ export function PredictionDetailScreen(): JSX.Element {
               <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={styles.voteInputStep}>
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.voteInputContent}>
-                  <View style={styles.selectedTeamHero}>
-                    <Image
-                      source={selectedTeamInfo.imageSource}
-                      style={styles.selectedTeamImage}
-                      resizeMode="contain"
-                    />
-                    <View style={styles.selectedTeamTextBlock}>
-                      <Text style={styles.selectedTeamEyebrow}>내가 선택한 팀</Text>
-                      <Text adjustsFontSizeToFit numberOfLines={1} style={styles.selectedTeamName}>
-                        {selectedTeamInfo.name}
-                      </Text>
-                      <Text style={styles.selectedTeamMembers}>{selectedTeamInfo.members.join(' / ')}</Text>
-                      {/* <Text style={styles.selectedTeamDescription}>응원댓글을 남기면 투표 결과를 볼 수 있어요.</Text> */}
+                <ScrollView
+                  automaticallyAdjustKeyboardInsets
+                  keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  style={styles.voteInputScroll}
+                  contentContainerStyle={styles.voteInputContent}>
+                  {selectedTeamInfo ? (
+                    <View style={styles.selectedTeamHero}>
+                      <Image
+                        source={selectedTeamInfo.imageSource}
+                        style={styles.selectedTeamImage}
+                        resizeMode="contain"
+                      />
+                      <View style={styles.selectedTeamTextBlock}>
+                        <Text style={styles.selectedTeamEyebrow}>내가 선택한 팀</Text>
+                        <Text adjustsFontSizeToFit numberOfLines={1} style={styles.selectedTeamName}>
+                          {selectedTeamInfo.name}
+                        </Text>
+                        <Text style={styles.selectedTeamMembers}>{selectedTeamInfo.members.join(' / ')}</Text>
+                        {/* <Text style={styles.selectedTeamDescription}>응원댓글을 남기면 투표 결과를 볼 수 있어요.</Text> */}
+                      </View>
                     </View>
-                  </View>
+                  ) : (
+                    <View style={styles.teamStateCenter}>
+                      <Text style={styles.emptyText}>참가팀 정보가 없습니다.</Text>
+                    </View>
+                  )}
 
                   <View style={styles.commentOnlyInputBlock}>
                     <Text style={styles.commentOnlyLabel}>응원댓글</Text>
                     <TextInput
                       multiline
                       autoFocus
-                      placeholder={`${selectedTeamInfo.name} 응원댓글 달기`}
+                      editable={Boolean(selectedTeamInfo)}
+                      placeholder={selectedTeamInfo ? `${selectedTeamInfo.name} 응원댓글 달기` : '참가팀 정보를 불러온 뒤 입력할 수 있습니다.'}
                       placeholderTextColor="#777A82"
                       style={styles.commentOnlyInput}
                       value={cheerDraft}
@@ -1191,10 +1218,14 @@ export function PredictionDetailScreen(): JSX.Element {
                 <View style={styles.bottomActionWrap}>
                   <AnimatedPressable
                     accessibilityRole="button"
-                    disabled={!cheerDraft.trim()}
+                    disabled={!selectedTeamInfo || !cheerDraft.trim()}
                     onPress={openSubmitConfirm}
-                    style={[styles.nextButton, !cheerDraft.trim() && styles.nextButtonDisabled]}>
-                    <Text style={[styles.nextButtonText, !cheerDraft.trim() && styles.nextButtonTextDisabled]}>
+                    style={[styles.nextButton, (!selectedTeamInfo || !cheerDraft.trim()) && styles.nextButtonDisabled]}>
+                    <Text
+                      style={[
+                        styles.nextButtonText,
+                        (!selectedTeamInfo || !cheerDraft.trim()) && styles.nextButtonTextDisabled,
+                      ]}>
                       다음
                     </Text>
                   </AnimatedPressable>
@@ -1223,7 +1254,7 @@ export function PredictionDetailScreen(): JSX.Element {
               <View style={styles.confirmCard}>
                 <Text style={styles.confirmEyebrow}>승부예측 확인</Text>
                 <Text style={styles.confirmTitle}>
-                  {selectedTeamInfo.name}에 투표하고{'\n'}응원댓글을 등록할까요?
+                  {selectedTeamInfo?.name ?? '참가팀'}에 투표하고{'\n'}응원댓글을 등록할까요?
                 </Text>
                 <Text numberOfLines={3} style={styles.confirmCommentPreview}>
                   “{cheerDraft.trim()}”
@@ -1296,9 +1327,12 @@ const styles = StyleSheet.create({
   voteInputStep: {
     flex: 1,
   },
+  voteInputScroll: {
+    flex: 1,
+  },
   voteInputContent: {
     flexGrow: 1,
-    paddingBottom: 112,
+    paddingBottom: 28,
   },
   backRow: {
     height: 56,
@@ -1680,9 +1714,9 @@ const styles = StyleSheet.create({
   selectedTeamHero: {
     marginHorizontal: 20,
     marginTop: 0,
-    minHeight: 248,
+    minHeight: Platform.OS === 'android' ? 188 : 248,
     borderRadius: 12,
-    padding: 20,
+    padding: Platform.OS === 'android' ? 16 : 20,
     alignItems: 'center',
     justifyContent: 'space-between',
     overflow: 'hidden',
@@ -1711,17 +1745,17 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
   selectedTeamImage: {
-    width: '76%',
-    height: 126,
+    width: Platform.OS === 'android' ? '58%' : '76%',
+    height: Platform.OS === 'android' ? 82 : 126,
   },
   selectedTeamTextBlock: {
     width: '100%',
   },
   commentOnlyInputBlock: {
     marginHorizontal: 20,
-    marginTop: 14,
+    marginTop: Platform.OS === 'android' ? 8 : 14,
     borderRadius: 12,
-    padding: 18,
+    padding: Platform.OS === 'android' ? 16 : 18,
     backgroundColor: '#111114',
     borderWidth: 1,
     borderColor: '#242428',
@@ -1732,8 +1766,8 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   commentOnlyInput: {
-    minHeight: 130,
-    marginTop: 14,
+    // minHeight: 130,
+    marginTop: Platform.OS === 'android' ? 8 : 14,
     padding: 0,
     color: '#FFFFFF',
     ...FONTS.font16R,
@@ -1877,10 +1911,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   bottomActionWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 24,

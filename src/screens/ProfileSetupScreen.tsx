@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {
   Image,
+  KeyboardAvoidingView,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -243,7 +244,7 @@ export function ProfileSetupScreen(): JSX.Element {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#050505" />
 
-      <View style={styles.screen}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.screen}>
         <LinearGradient
           colors={['#160307', '#050505', '#050505']}
           start={{x: 0.1, y: 0}}
@@ -252,8 +253,12 @@ export function ProfileSetupScreen(): JSX.Element {
         />
 
         <ScrollView
+          automaticallyAdjustKeyboardInsets
           bounces={false}
           contentContainerStyle={[styles.content, isCompactHeight ? styles.contentCompact : null]}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardShouldPersistTaps="handled"
+          style={styles.scroll}
           showsVerticalScrollIndicator={false}>
           <View style={[styles.header, isCompactHeight ? styles.headerCompact : null]}>
             {canGoBack ? (
@@ -368,7 +373,7 @@ export function ProfileSetupScreen(): JSX.Element {
             <AppLoading label="프로필을 저장하는 중..." />
           </View>
         ) : null}
-      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -381,6 +386,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     flexGrow: 1,
@@ -564,7 +572,6 @@ const styles = StyleSheet.create({
   },
   actionArea: {
     marginTop: 'auto',
-    paddingTop: 24,
   },
   actionAreaCompact: {
     paddingTop: 24,
@@ -573,6 +580,7 @@ const styles = StyleSheet.create({
     color: '#777A82',
     ...FONTS.font12R,
     lineHeight: 18,
+    textAlign: 'center',
   },
   errorText: {
     marginBottom: 10,

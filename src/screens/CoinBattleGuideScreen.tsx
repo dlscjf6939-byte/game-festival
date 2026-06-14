@@ -1,8 +1,10 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
   Image,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -223,7 +225,7 @@ function MatchPractice(): JSX.Element {
   );
 }
 
-function TypingPractice(): JSX.Element {
+function TypingPractice({onInputFocus}: {onInputFocus?: () => void}): JSX.Element {
   const [typedText, setTypedText] = useState('');
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [completedSeconds, setCompletedSeconds] = useState<number | null>(null);
@@ -258,6 +260,7 @@ function TypingPractice(): JSX.Element {
         autoCapitalize="none"
         autoCorrect={false}
         onChangeText={updateText}
+        onFocus={onInputFocus}
         placeholder="문장을 그대로 입력하세요"
         placeholderTextColor="#777777"
         selectionColor="#E50914"
@@ -277,7 +280,13 @@ function TypingPractice(): JSX.Element {
   );
 }
 
-function PracticeContent({gameId}: {gameId: PracticeGameId}): JSX.Element {
+function PracticeContent({
+  gameId,
+  onTypingInputFocus,
+}: {
+  gameId: PracticeGameId;
+  onTypingInputFocus?: () => void;
+}): JSX.Element {
   if (gameId === 1) {
     return <RpsPractice />;
   }
@@ -286,68 +295,86 @@ function PracticeContent({gameId}: {gameId: PracticeGameId}): JSX.Element {
     return <MatchPractice />;
   }
 
-  return <TypingPractice />;
+  return <TypingPractice onInputFocus={onTypingInputFocus} />;
 }
 
 export function CoinBattleGuideScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
+  const scrollViewRef = useRef<ScrollView>(null);
   const [selectedGameId, setSelectedGameId] = useState<PracticeGameId>(1);
   const selectedGame = useMemo(() => {
     return guideGames.find(game => game.id === selectedGameId) ?? guideGames[0];
   }, [selectedGameId]);
+  const scrollToTypingInput = () => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd({animated: true});
+    });
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({animated: true});
+    }, 120);
+  };
 
   return (
     <TabSceneTransition>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
         <AppGnb />
-        <ScrollView bounces={false} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.headerRow}>
-            <AnimatedPressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Image source={icon.backBtn} style={styles.backIcon} />
-            </AnimatedPressable>
-            <View style={styles.headerText}>
-              <Text style={styles.title}>게임 연습</Text>
-              <Text style={styles.subtitle}>규칙을 보고 한 번씩 눌러볼 수 있어요</Text>
-            </View>
-            <View style={styles.backButton} />
-          </View>
-
-          <View style={styles.tabRow}>
-            {guideGames.map(game => {
-              const active = selectedGame.id === game.id;
-
-              return (
-                <AnimatedPressable
-                  key={game.id}
-                  accessibilityRole="button"
-                  onPress={() => setSelectedGameId(game.id)}
-                  style={[styles.tabButton, active && styles.tabButtonActive]}>
-                  <Text style={[styles.tabText, active && styles.tabTextActive]}>{game.title}</Text>
-                </AnimatedPressable>
-              );
-            })}
-          </View>
-
-          <View style={styles.summaryBand}>
-            <Text style={styles.gameTitle}>{selectedGame.title}</Text>
-            <Text style={styles.summaryText}>{selectedGame.summary}</Text>
-            <View style={styles.roundBadge}>
-              <Text style={styles.roundBadgeText}>최대 {selectedGame.maxRoundCount}라운드</Text>
-            </View>
-          </View>
-
-          <View style={styles.ruleList}>
-            {selectedGame.rules.map((rule, index) => (
-              <View key={rule} style={styles.ruleRow}>
-                <Text style={styles.ruleIndex}>{index + 1}.</Text>
-                <Text style={styles.ruleText}>{rule}</Text>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardWrap}>
+          <ScrollView
+            ref={scrollViewRef}
+            bounces={false}
+            contentContainerStyle={styles.content}
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            keyboardShouldPersistTaps="handled"
+            style={styles.scroll}
+            showsVerticalScrollIndicator={false}>
+            <View style={styles.headerRow}>
+              <AnimatedPressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
+                <Image source={icon.backBtn} style={styles.backIcon} />
+              </AnimatedPressable>
+              <View style={styles.headerText}>
+                <Text style={styles.title}>게임 연습</Text>
+                <Text style={styles.subtitle}>규칙을 보고 한 번씩 눌러볼 수 있어요</Text>
               </View>
-            ))}
-          </View>
+              <View style={styles.backButton} />
+            </View>
 
-          <PracticeContent gameId={selectedGame.id} />
-        </ScrollView>
+            <View style={styles.tabRow}>
+              {guideGames.map(game => {
+                const active = selectedGame.id === game.id;
+
+                return (
+                  <AnimatedPressable
+                    key={game.id}
+                    accessibilityRole="button"
+                    onPress={() => setSelectedGameId(game.id)}
+                    style={[styles.tabButton, active && styles.tabButtonActive]}>
+                    <Text style={[styles.tabText, active && styles.tabTextActive]}>{game.title}</Text>
+                  </AnimatedPressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.summaryBand}>
+              <Text style={styles.gameTitle}>{selectedGame.title}</Text>
+              <Text style={styles.summaryText}>{selectedGame.summary}</Text>
+              <View style={styles.roundBadge}>
+                <Text style={styles.roundBadgeText}>최대 {selectedGame.maxRoundCount}라운드</Text>
+              </View>
+            </View>
+
+            <View style={styles.ruleList}>
+              {selectedGame.rules.map((rule, index) => (
+                <View key={rule} style={styles.ruleRow}>
+                  <Text style={styles.ruleIndex}>{index + 1}.</Text>
+                  <Text style={styles.ruleText}>{rule}</Text>
+                </View>
+              ))}
+            </View>
+
+            <PracticeContent gameId={selectedGame.id} onTypingInputFocus={scrollToTypingInput} />
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </TabSceneTransition>
   );
@@ -357,6 +384,12 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  keyboardWrap: {
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
   },
   content: {
     paddingHorizontal: 20,
