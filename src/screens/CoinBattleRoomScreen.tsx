@@ -263,6 +263,20 @@ function BattleSlotCard({
   );
 }
 
+function GamePanelHeader({badgeLabel, title}: {badgeLabel: string; title: string}): JSX.Element {
+  return (
+    <View style={styles.gameHeader}>
+      <View>
+        <Text style={styles.gameEyebrow}>실시간 대전</Text>
+        <Text style={styles.gameTitle}>{title}</Text>
+      </View>
+      <View style={styles.roundBadge}>
+        <Text style={styles.roundBadgeText}>{badgeLabel}</Text>
+      </View>
+    </View>
+  );
+}
+
 function RpsChoiceHandCard({
   active,
   choice,
@@ -598,12 +612,7 @@ function PictureMatchGamePanel({
 
   return (
     <View style={styles.pictureMatchPanel}>
-      <View style={styles.pictureMatchHeader}>
-        <Text style={styles.pictureMatchTitle}>같은 그림 맞추기</Text>
-        <View style={[styles.pictureMatchTurnPill, isMyTurn && styles.pictureMatchTurnPillActive]}>
-          <Text style={styles.pictureMatchTurnText}>{turnLabel}</Text>
-        </View>
-      </View>
+      <GamePanelHeader badgeLabel={isFinished ? 'FINISH' : turnLabel} title="같은그림 맞추기" />
 
       <View style={styles.pictureMatchScoreRow}>
         <View style={styles.pictureMatchScoreCard}>
@@ -712,7 +721,7 @@ function isTypingPlayerCompleted(player: TypingPlayer): boolean {
 }
 
 function getTypingRoundWinner(players: TypingPlayer[]): TypingPlayer | undefined {
-  const resultWinner = players.find(player => player.result === 'WIN');
+  const resultWinner = players.find(player => normalizeRpsResult(player.result) === 'WIN');
 
   if (resultWinner) {
     return resultWinner;
@@ -731,6 +740,34 @@ function getTypingRoundWinner(players: TypingPlayer[]): TypingPlayer | undefined
 
       return String(left.submittedAt).localeCompare(String(right.submittedAt));
     })[0];
+}
+
+function getTypingRoundResultForMe(
+  round: TypingRound | undefined,
+  myUserId?: null | number | string,
+  myUserName?: string,
+): RpsResult | null {
+  const players = round?.typingPlayers ?? [];
+  const myPlayer = players.find(player => isSameTypingPlayer(player, myUserId, myUserName));
+  const serverResult = normalizeRpsResult(myPlayer?.result);
+
+  if (serverResult) {
+    return serverResult;
+  }
+
+  const winner = getTypingRoundWinner(players);
+
+  if (winner) {
+    return isSameTypingPlayer(winner, myUserId, myUserName) ? 'WIN' : 'LOSE';
+  }
+
+  const completedPlayers = players.filter(isTypingPlayerCompleted);
+
+  if (players.length > 1 && completedPlayers.length === players.length) {
+    return 'DRAW';
+  }
+
+  return null;
 }
 
 function isTypingRoundCompleted(round?: {judgedAt?: string; typingPlayers?: TypingPlayer[]}): boolean {
@@ -893,17 +930,10 @@ function TypingGamePanel({
 
   return (
     <View style={styles.typingPanel}>
-      <View style={styles.typingHeader}>
-        <View>
-          <Text style={styles.gameEyebrow}>LIVE MATCH</Text>
-          <Text style={styles.typingTitle}>타자게임</Text>
-        </View>
-        <View style={styles.roundBadge}>
-          <Text style={styles.roundBadgeText}>
-            {isMatchFinished ? 'FINISH' : `ROUND ${currentRound?.roundNumber ?? '-'}`}
-          </Text>
-        </View>
-      </View>
+      <GamePanelHeader
+        badgeLabel={isMatchFinished ? 'FINISH' : `ROUND ${currentRound?.roundNumber ?? '-'}`}
+        title="타자게임"
+      />
 
       <View style={styles.typingSentenceCard}>
         <Text style={styles.typingSentenceLabel}>출제 문장</Text>
@@ -1228,12 +1258,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const latestTypingWinner = latestTypingCompletedRound
     ? getTypingRoundWinner(latestTypingCompletedRound.typingPlayers ?? [])
     : undefined;
-  const latestMyTypingResult =
-    latestTypingWinner && isSameTypingPlayer(latestTypingWinner, myUserId, auth?.name)
-      ? 'WIN'
-      : latestTypingWinner
-      ? 'LOSE'
-      : null;
+  const latestMyTypingResult = getTypingRoundResultForMe(latestTypingCompletedRound, myUserId, auth?.name);
   const displayedMyChoice = selectedRpsChoice;
   const displayedOpponentChoice = opponentRpsChoice;
   const myProfileImageUri = getProfileImageUriFromRecord(auth?.profile);
@@ -1677,7 +1702,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
           }
         });
       },
-      roundResultOverlay.source === 'typing' ? 3000 : isMatchFinished ? 1800 : 1400,
+      isMatchFinished ? 1800 : 1400,
     );
 
     return () => {
@@ -1921,17 +1946,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   ) : (
                     <>
                       {!isMatchFinished ? (
-                        <View style={styles.gameHeader}>
-                          <View>
-                            <Text style={styles.gameEyebrow}>LIVE MATCH</Text>
-                            <Text style={styles.gameTitle}>가위바위보</Text>
-                          </View>
-                          <View style={styles.roundBadge}>
-                            <Text style={styles.roundBadgeText}>
-                              {`ROUND ${currentRoundNumber} / ${totalRoundCount}`}
-                            </Text>
-                          </View>
-                        </View>
+                        <GamePanelHeader
+                          badgeLabel={`ROUND ${currentRoundNumber} / ${totalRoundCount}`}
+                          title="가위바위보"
+                        />
                       ) : null}
 
                       {!isMatchFinished && latestJudgedRound && latestMyRoundResult ? (
@@ -2225,11 +2243,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 {isMatchFinished ? 'FINAL ROUND' : `ROUND ${roundResultOverlay.roundNumber}`}
               </Text>
               <Text style={styles.resultValue}>
-                {roundResultOverlay.source === 'typing' && roundResultOverlay.result === 'WIN'
-                  ? '라운드 승리'
-                  : roundResultOverlay.source === 'typing'
-                  ? '라운드 패배'
-                  : roundResultOverlay.result === 'WIN'
+                {roundResultOverlay.result === 'WIN'
                   ? '승리'
                   : roundResultOverlay.result === 'LOSE'
                   ? '패배'
@@ -2238,6 +2252,8 @@ export function CoinBattleRoomScreen(): JSX.Element {
               <Text style={styles.resultHint}>
                 {roundResultOverlay.source === 'typing' && roundResultOverlay.result === 'WIN'
                   ? '가장 먼저 입력했어요'
+                  : roundResultOverlay.source === 'typing' && roundResultOverlay.result === 'DRAW'
+                  ? '동시에 승부가 멈췄어요'
                   : roundResultOverlay.source === 'typing' && roundResultOverlay.winnerName
                   ? `${roundResultOverlay.winnerName}님이 먼저 입력했어요`
                   : roundResultOverlay.source === 'typing'
