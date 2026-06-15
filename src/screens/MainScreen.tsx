@@ -42,6 +42,13 @@ const STORY_ITEM_WIDTH = STORY_CARD_WIDTH + STORY_CARD_GAP;
 const STORY_SNAP_INTERVAL = STORY_ITEM_WIDTH;
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
 const checkLottie = require('../assets/lotties/Check.json');
+const fanfareLottie = require('../assets/lotties/Fanfare.json');
+const ATTENDANCE_MODAL_PREVIEW_NOTICE = {
+  checkedThisWeekCount: 7,
+  rewardCoins: 2,
+  totalCheckedCount: 7,
+  weeklyRewardCoins: 1,
+};
 
 type MainScreenNavigation = CompositeNavigationProp<
   NavigationProp<MainStackParamList, 'Home'>,
@@ -188,6 +195,7 @@ function MainScreen(): JSX.Element {
   const refreshAllCoinsRef = useRef(refreshAllCoins);
   const refreshAttendanceRef = useRef(refreshAttendance);
   const attendanceModalProgress = useRef(new Animated.Value(0)).current;
+  const attendanceModalShake = useRef(new Animated.Value(0)).current;
   const bracketFlipValues = useRef(
     storyCards.reduce((acc, card) => {
       acc[card.id] = new Animated.Value(0);
@@ -195,6 +203,9 @@ function MainScreen(): JSX.Element {
     }, {} as Record<(typeof storyCards)[number]['id'], Animated.Value>),
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
+  const [isAttendancePreviewVisible, setIsAttendancePreviewVisible] = useState(true);
+  const activeCheckInNotice =
+    checkInNotice ?? (isAttendancePreviewVisible ? ATTENDANCE_MODAL_PREVIEW_NOTICE : null);
   const profile = auth?.profile;
   const coinBalance = latestHoldingCoin ?? toCoinNumber(profile?.holdingCoin) ?? 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
@@ -227,7 +238,20 @@ function MainScreen(): JSX.Element {
     };
   });
   const attendanceCountText = attendance ? `${attendance.checkedThisWeekCount}/7` : '-/7';
-  const modalWeeklyCount = attendance?.checkedThisWeekCount ?? checkInNotice?.checkedThisWeekCount ?? 0;
+  const modalWeeklyCount = activeCheckInNotice?.checkedThisWeekCount ?? attendance?.checkedThisWeekCount ?? 0;
+  const weeklyRewardCoins = activeCheckInNotice?.weeklyRewardCoins ?? 0;
+  const hasWeeklyReward = weeklyRewardCoins > 0;
+  const attendanceModalBoard = activeCheckInNotice
+    ? attendanceBoard.map((day, index) => ({
+        ...day,
+        isChecked: day.isChecked || index < modalWeeklyCount,
+        isMissed: false,
+      }))
+    : attendanceBoard;
+  const handleDismissAttendanceModal = () => {
+    setIsAttendancePreviewVisible(false);
+    dismissCheckInNotice();
+  };
   const attendanceModalOverlayStyle = {
     opacity: attendanceModalProgress.interpolate({
       inputRange: [0, 1],
@@ -237,6 +261,14 @@ function MainScreen(): JSX.Element {
   const attendanceModalCardStyle = {
     opacity: attendanceModalProgress,
     transform: [
+      {
+        translateX: hasWeeklyReward
+          ? attendanceModalShake.interpolate({
+              inputRange: [-1, 0, 1],
+              outputRange: [-8, 0, 8],
+            })
+          : 0,
+      },
       {
         translateY: attendanceModalProgress.interpolate({
           inputRange: [0, 1],
@@ -249,6 +281,30 @@ function MainScreen(): JSX.Element {
           outputRange: [0.94, 1],
         }),
       },
+      {
+        rotate: hasWeeklyReward
+          ? attendanceModalShake.interpolate({
+              inputRange: [-1, 0, 1],
+              outputRange: ['-1.1deg', '0deg', '1.1deg'],
+            })
+          : '0deg',
+      },
+    ],
+  };
+  const attendanceModalFanfareStyle = {
+    opacity: hasWeeklyReward
+      ? attendanceModalProgress.interpolate({
+          inputRange: [0, 0.22, 1],
+          outputRange: [0, 1, 1],
+        })
+      : 0,
+    transform: [
+      {
+        scale: attendanceModalProgress.interpolate({
+          inputRange: [0, 0.62, 1],
+          outputRange: [0.78, 1.08, 1],
+        }),
+      },
     ],
   };
 
@@ -259,19 +315,51 @@ function MainScreen(): JSX.Element {
   }, [refreshAllCoins, refreshAttendance, refreshProfile]);
 
   React.useEffect(() => {
-    if (!checkInNotice) {
+    if (!activeCheckInNotice) {
       attendanceModalProgress.setValue(0);
+      attendanceModalShake.setValue(0);
       return;
     }
 
     attendanceModalProgress.setValue(0);
-    Animated.spring(attendanceModalProgress, {
+    attendanceModalShake.setValue(0);
+    const entranceAnimation = Animated.spring(attendanceModalProgress, {
       toValue: 1,
       friction: 8,
       tension: 72,
       useNativeDriver: true,
-    }).start();
-  }, [attendanceModalProgress, checkInNotice]);
+    });
+
+    if (!hasWeeklyReward) {
+      entranceAnimation.start();
+      return;
+    }
+
+    const jingleStep = (toValue: number) =>
+      Animated.spring(attendanceModalShake, {
+        toValue,
+        friction: 8,
+        tension: 95,
+        useNativeDriver: true,
+      });
+
+    Animated.parallel([
+      entranceAnimation,
+      Animated.sequence([
+        Animated.delay(230),
+        jingleStep(1),
+        jingleStep(-1),
+        jingleStep(0.62),
+        jingleStep(-0.32),
+        Animated.spring(attendanceModalShake, {
+          toValue: 0,
+          friction: 7,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, [activeCheckInNotice, attendanceModalProgress, attendanceModalShake, hasWeeklyReward]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -749,19 +837,36 @@ function MainScreen(): JSX.Element {
         </View>
       </SafeAreaView>
 
-      <Modal animationType="fade" onRequestClose={dismissCheckInNotice} transparent visible={Boolean(checkInNotice)}>
+      <Modal
+        animationType="fade"
+        onRequestClose={handleDismissAttendanceModal}
+        transparent
+        visible={Boolean(activeCheckInNotice)}>
         <Animated.View style={[styles.attendanceModalOverlay, attendanceModalOverlayStyle]}>
           <Animated.View style={[styles.attendanceModalCard, attendanceModalCardStyle]}>
+            {hasWeeklyReward ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.attendanceModalFanfareLayer, attendanceModalFanfareStyle]}>
+                <LottieView autoPlay loop={true} source={fanfareLottie} style={styles.attendanceModalFanfare} />
+              </Animated.View>
+            ) : null}
             <View style={styles.attendanceModalBadge}>
               <Text style={styles.attendanceModalBadgeText}>출석체크</Text>
             </View>
             <Text style={styles.attendanceModalCountText}>
-              {modalWeeklyCount > 0 ? `이번 주 ${modalWeeklyCount}일 출석` : '출석체크'}
+              {hasWeeklyReward ? '7일 개근 완료' : modalWeeklyCount > 0 ? `이번 주 ${modalWeeklyCount}일 출석` : '출석 완료'}
             </Text>
-            <Text style={styles.attendanceModalSuccessText}>오늘 출석체크 완료!</Text>
+            <Text style={styles.attendanceModalSuccessText}>오늘 출석 완료</Text>
+
+            {hasWeeklyReward ? (
+              <View style={styles.attendanceModalPerfectBadge}>
+                <Text style={styles.attendanceModalPerfectText}>개근상 +{weeklyRewardCoins}코인</Text>
+              </View>
+            ) : null}
 
             <View style={styles.attendanceModalWeekWrap}>
-              {attendanceBoard.map((day, index) => {
+              {attendanceModalBoard.map((day, index) => {
                 const dayProgressStart = 0.18 + index * 0.055;
                 const dayAnimatedStyle = {
                   opacity: attendanceModalProgress.interpolate({
@@ -806,15 +911,15 @@ function MainScreen(): JSX.Element {
 
             <View style={styles.attendanceModalHintCard}>
               <Text style={styles.attendanceModalHintText}>
-                <Text style={styles.attendanceModalHintAccent}>이번 주 {modalWeeklyCount}/7 출석 완료</Text>
-                {'\n'}
-                {checkInNotice && checkInNotice.rewardCoins > 0
-                  ? `오늘 보상 코인 +${checkInNotice.rewardCoins} 지급!`
-                  : '남은 날도 잊지 말고 체크해요.'}
+                {hasWeeklyReward
+                  ? `총 ${activeCheckInNotice?.rewardCoins ?? weeklyRewardCoins}코인 지급`
+                  : activeCheckInNotice && activeCheckInNotice.rewardCoins > 0
+                  ? `+${activeCheckInNotice.rewardCoins}코인 지급`
+                  : '내일도 출석해요'}
               </Text>
             </View>
 
-            <AnimatedPressable onPress={dismissCheckInNotice} style={styles.attendanceModalConfirmButton}>
+            <AnimatedPressable onPress={handleDismissAttendanceModal} style={styles.attendanceModalConfirmButton}>
               <Text style={styles.attendanceModalConfirmText}>확인했어요</Text>
             </AnimatedPressable>
           </Animated.View>
@@ -1376,6 +1481,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 22,
   },
+  attendanceModalFanfareLayer: {
+    position: 'absolute',
+    top: -186,
+    left: '50%',
+    width: 620,
+    height: 620,
+    marginLeft: -310,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  attendanceModalFanfare: {
+    width: 450,
+    height: 450,
+  },
   attendanceModalCard: {
     width: '100%',
     maxWidth: 390,
@@ -1394,6 +1514,7 @@ const styles = StyleSheet.create({
     elevation: 18,
   },
   attendanceModalBadge: {
+    zIndex: 3,
     minHeight: 26,
     borderRadius: 8,
     backgroundColor: 'rgba(229,9,20,0.12)',
@@ -1409,18 +1530,37 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   attendanceModalCountText: {
+    zIndex: 3,
     marginTop: 14,
     color: '#FFFFFF',
     ...FONTS.font22B,
     lineHeight: 28,
   },
   attendanceModalSuccessText: {
+    zIndex: 3,
     marginTop: 4,
     color: '#BFC3CF',
     ...FONTS.font15M,
     lineHeight: 20,
   },
+  attendanceModalPerfectBadge: {
+    zIndex: 3,
+    marginTop: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(240,24,37,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(240,24,37,0.5)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  attendanceModalPerfectText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   attendanceModalWeekWrap: {
+    zIndex: 3,
     width: '100%',
     marginTop: 18,
     borderRadius: 12,
@@ -1470,6 +1610,7 @@ const styles = StyleSheet.create({
     transform: [{scale: 1.48}],
   },
   attendanceModalHintCard: {
+    zIndex: 3,
     width: '100%',
     marginTop: 14,
     borderRadius: 12,
@@ -1490,6 +1631,7 @@ const styles = StyleSheet.create({
     ...FONTS.font14B,
   },
   attendanceModalConfirmButton: {
+    zIndex: 3,
     marginTop: 16,
     width: '100%',
     height: 48,

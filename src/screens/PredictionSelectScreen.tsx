@@ -57,13 +57,15 @@ function formatMatchDateTime(value: string): string {
 
 function getMatchStatusLabel(status: string): string {
   switch (status) {
+    case 'COUNTING':
+      return '집계중';
     case 'FINISHED':
       return '종료';
     case 'IN_PROGRESS':
-      return '진행 중';
+      return '게임중';
     case 'READY':
     case 'SCHEDULED':
-      return '예정';
+      return '예측중';
     default:
       return status || '상태 미정';
   }

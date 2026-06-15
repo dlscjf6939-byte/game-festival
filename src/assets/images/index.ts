@@ -24,6 +24,7 @@ type ImageMap = {
   rock: ImageSourcePropType;
   scissor: ImageSourcePropType;
   tekken7: ImageSourcePropType;
+  maskSinger: ImageSourcePropType;
 };
 
 export const image: ImageMap = {
@@ -50,4 +51,5 @@ export const image: ImageMap = {
   rock: require('./rock.png'),
   scissor: require('./scissor.png'),
   tekken7: require('./tekken7.png'),
+  maskSinger: require('./maskSinger.jpg'),
 };

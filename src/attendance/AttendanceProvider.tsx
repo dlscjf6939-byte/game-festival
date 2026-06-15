@@ -20,6 +20,7 @@ type CheckInNotice = {
   checkedThisWeekCount: number;
   rewardCoins: number;
   totalCheckedCount: number;
+  weeklyRewardCoins: number;
 };
 
 type AttendanceContextValue = {
@@ -44,14 +45,23 @@ type AttendanceApiResponse = {
   code?: string;
   data?: {
     attendDate?: string;
+    receivedReward?: AttendanceReward;
     receivedRewards?: Array<{
       rewardCycle?: string;
       rewardType?: string;
-      rewardValue?: number;
+      rewardValue?: number | string;
     }>;
+    reward?: AttendanceReward;
+    rewards?: AttendanceReward[];
   };
   message?: string;
   success?: boolean;
+};
+
+type AttendanceReward = {
+  rewardCycle?: string;
+  rewardType?: string;
+  rewardValue?: number | string;
 };
 
 type WeeklyAttendanceApiResponse = {
@@ -176,6 +186,44 @@ function getAttendanceStorageKey(employeeKey: string): string {
   return `${ATTENDANCE_STORAGE_PREFIX}:${employeeKey}`;
 }
 
+function isAttendanceReward(value: unknown): value is AttendanceReward {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return 'rewardType' in record || 'rewardValue' in record || 'rewardCycle' in record;
+}
+
+function collectAttendanceRewards(value: unknown): AttendanceReward[] {
+  if (Array.isArray(value)) {
+    return value.flatMap(item => collectAttendanceRewards(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return [];
+  }
+
+  if (isAttendanceReward(value)) {
+    return [value];
+  }
+
+  return Object.values(value as Record<string, unknown>).flatMap(item => collectAttendanceRewards(item));
+}
+
+function getCoinRewardValue(reward: AttendanceReward): number {
+  const rewardType = reward.rewardType?.trim().toUpperCase();
+
+  if (rewardType !== 'COIN') {
+    return 0;
+  }
+
+  const rewardValue =
+    typeof reward.rewardValue === 'string' ? Number(reward.rewardValue) : reward.rewardValue;
+
+  return typeof rewardValue === 'number' && Number.isFinite(rewardValue) ? rewardValue : 0;
+}
+
 function getEmployeeKeyFromAuth(auth: ReturnType<typeof useAuth>['auth']): string | null {
   if (!auth) {
     return null;
@@ -196,7 +244,7 @@ function getEmployeeKeyFromAuth(auth: ReturnType<typeof useAuth>['auth']): strin
 async function requestAttendanceCheckIn(
   accessToken: string,
   fallbackDateKey: string,
-): Promise<{alreadyChecked: boolean; attendDate: string; rewardCoins: number}> {
+): Promise<{alreadyChecked: boolean; attendDate: string; rewardCoins: number; weeklyRewardCoins: number}> {
   const response = await withMinimumLoadingTime(
     fetch(
       `${API_BASE}/api/attendance/festivals/${ATTENDANCE_FESTIVAL_ID}/events/${ATTENDANCE_EVENT_ID}/attend`,
@@ -232,23 +280,26 @@ async function requestAttendanceCheckIn(
       alreadyChecked: true,
       attendDate: fallbackDateKey,
       rewardCoins: 0,
+      weeklyRewardCoins: 0,
     };
   }
 
-  if (!response.ok || json.success === false || !json.data?.attendDate) {
+  if (!response.ok || json.success === false || !json.data) {
     throw new Error(json.message || '출석체크에 실패했습니다.');
   }
 
-  const rewardCoins = (json.data.receivedRewards ?? []).reduce((sum, reward) => {
-    const isCoinReward = reward.rewardType === 'COIN';
-    const rewardValue = typeof reward.rewardValue === 'number' ? reward.rewardValue : 0;
-    return isCoinReward ? sum + rewardValue : sum;
+  const attendanceRewards = collectAttendanceRewards(json.data);
+  const rewardCoins = attendanceRewards.reduce((sum, reward) => sum + getCoinRewardValue(reward), 0);
+  const weeklyRewardCoins = attendanceRewards.reduce((sum, reward) => {
+    const rewardCycle = reward.rewardCycle?.trim().toUpperCase();
+    return rewardCycle === 'WEEKLY' ? sum + getCoinRewardValue(reward) : sum;
   }, 0);
 
   return {
     alreadyChecked: false,
-    attendDate: json.data.attendDate,
+    attendDate: json.data.attendDate ?? fallbackDateKey,
     rewardCoins,
+    weeklyRewardCoins,
   };
 }
 
@@ -395,6 +446,7 @@ export function AttendanceProvider({children}: {children: React.ReactNode}): JSX
           checkedThisWeekCount: nextStore.checkedDates.length,
           rewardCoins: attendanceResult.rewardCoins,
           totalCheckedCount,
+          weeklyRewardCoins: attendanceResult.weeklyRewardCoins,
         });
       }
 

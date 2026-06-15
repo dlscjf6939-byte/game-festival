@@ -57,6 +57,14 @@ const fallbackPredictionCards: PredictionCardItem[] = [
     posterSource: image.crazyarcade,
     wordmarkSource: image.crazyarcadeLetter,
   },
+  {
+    id: 'maskSinger',
+    title: '복면가왕',
+    description:
+      '복면을 쓴 프로들의 대결! 과연 누가 우승할 것 인가?',
+    posterSource: image.maskSinger,
+    wordmarkSource: image.maskSinger,
+  },
 ];
 
 type GameApiItem = {

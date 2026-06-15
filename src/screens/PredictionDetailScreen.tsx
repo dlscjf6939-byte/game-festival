@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useFocusEffect, useNavigation, useRoute, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {
@@ -15,12 +15,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  UIManager,
   View,
   type ImageSourcePropType,
 } from 'react-native';
-import LottieView from 'lottie-react-native';
-import LinearGradient from 'react-native-linear-gradient';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
@@ -53,9 +50,6 @@ const teams = [
     tone: '#8A8D95',
   },
 ] as const;
-
-const compareVsLottie = require('../assets/lotties/Compare.json');
-const isLottieNativeAvailable = Boolean(UIManager.getViewManagerConfig?.('LottieAnimationView'));
 
 type TeamId = (typeof teams)[number]['id'];
 type PredictionStep = 'select' | 'comment' | 'result';
@@ -310,7 +304,6 @@ export function PredictionDetailScreen(): JSX.Element {
   const [step, setStep] = useState<PredictionStep>(route.params?.startStep === 'comment' ? 'comment' : 'select');
   const [selectedTeam, setSelectedTeam] = useState<TeamId>(initialSelectedTeam);
   const [expandedTeam, setExpandedTeam] = useState<TeamId | null>(null);
-  const [matchupStageSize, setMatchupStageSize] = useState({height: 0, width: 0});
   const [cheerDraft, setCheerDraft] = useState('');
   const [cheerComments, setCheerComments] = useState<CheerComment[]>([]);
   const [gameDetail, setGameDetail] = useState<GameDetail | null>(null);
@@ -341,6 +334,9 @@ export function PredictionDetailScreen(): JSX.Element {
   const teamDetailProgress = useRef(new Animated.Value(0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
+  const canProceedToComment = Boolean(
+    selectedTeamInfo && typeof selectedTeamInfo.participantId === 'number',
+  );
   const expandedTeamInfo = expandedTeam
     ? predictionTeams.find(team => team.id === expandedTeam) ?? null
     : null;
@@ -358,27 +354,6 @@ export function PredictionDetailScreen(): JSX.Element {
   const displayCheerComments = submittedComment
     ? [submittedComment, ...cheerComments.filter(comment => comment.id !== submittedComment.id)]
     : cheerComments;
-  const matchupSplitLineStyle = useMemo(() => {
-    const {height, width} = matchupStageSize;
-    const lineBleed = 96;
-
-    if (!width || !height) {
-      return {
-        marginLeft: -(width + lineBleed) / 2,
-        transform: [{rotate: '-35deg'}],
-        width: width + lineBleed,
-      };
-    }
-
-    const diagonalLength = Math.sqrt(width * width + height * height) + lineBleed;
-    const diagonalAngle = Math.atan2(height, width) * (180 / Math.PI);
-
-    return {
-      marginLeft: -diagonalLength / 2,
-      transform: [{rotate: `${-diagonalAngle}deg`}],
-      width: diagonalLength,
-    };
-  }, [matchupStageSize]);
   const stepTransitionStyle = {
     opacity: stepTransition,
     transform: [
@@ -394,9 +369,9 @@ export function PredictionDetailScreen(): JSX.Element {
     opacity: stageIntroProgress,
     transform: [
       {
-        translateX: stageIntroProgress.interpolate({
+        translateY: stageIntroProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [-136, 0],
+          outputRange: [-28, 0],
         }),
       },
       {
@@ -411,9 +386,9 @@ export function PredictionDetailScreen(): JSX.Element {
     opacity: stageIntroProgress,
     transform: [
       {
-        translateX: stageIntroProgress.interpolate({
+        translateY: stageIntroProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [136, 0],
+          outputRange: [28, 0],
         }),
       },
       {
@@ -771,7 +746,7 @@ export function PredictionDetailScreen(): JSX.Element {
   };
 
   const handleSelectNext = () => {
-    if (!expandedTeam) {
+    if (!canProceedToComment) {
       return;
     }
 
@@ -1021,95 +996,123 @@ export function PredictionDetailScreen(): JSX.Element {
                       <AppLoading label="참가팀을 불러오는 중..." />
                     </View>
                   ) : predictionTeams.length && leftTeamInfo ? (
-                    <View
-                      onLayout={({nativeEvent}) => {
-                        const {height, width} = nativeEvent.layout;
-                        setMatchupStageSize(prev =>
-                          prev.width === width && prev.height === height ? prev : {height, width},
-                        );
-                      }}
-                      style={styles.matchupStageWrapper}>
-                      <Animated.View pointerEvents="none" style={[styles.matchupGlobalLineLayer, matchupIdleStyle]}>
-                        <View pointerEvents="none" style={[styles.matchupSplitLineCoreWrap, matchupSplitLineStyle]}>
-                          <LinearGradient
-                            pointerEvents="none"
-                            colors={['rgba(229,9,20,0)', 'rgba(229,9,20,1)', 'rgba(229,9,20,0)']}
-                            end={{x: 1, y: 0.5}}
-                            start={{x: 0, y: 0.5}}
-                            style={styles.matchupSplitLineGlobal}
-                          />
-                        </View>
-                      </Animated.View>
-
+                    <View style={styles.matchupStageWrapper}>
                       <View style={styles.matchupStage}>
-                        <Animated.View pointerEvents="none" style={[styles.matchupIdleLayer, matchupIdleStyle]}>
-                          <View pointerEvents="none" style={styles.vsBadgeCenter}>
-                            {isLottieNativeAvailable ? (
-                              <LottieView
-                                autoPlay
-                                loop={false}
-                                speed={0.8}
-                                source={compareVsLottie}
-                                style={styles.vsLottie}
-                              />
-                            ) : (
-                              <View style={styles.vsFallbackBadge}>
-                                <Text style={styles.vsFallbackText}>VS</Text>
-                              </View>
-                            )}
-                          </View>
-                        </Animated.View>
-
-                        <Animated.View
-                          style={[styles.wallLogoPressable, styles.wallLogoLeft, leftLogoIntroStyle, matchupIdleStyle]}>
-                          <AnimatedPressable
-                            accessibilityRole="button"
-                            disabled={Boolean(expandedTeam)}
-                            onPress={() => handleTeamLogoPress(leftTeamInfo.id)}
-                            style={styles.wallLogoTouchArea}>
-                            <Animated.View
-                              style={[
-                                styles.wallLogoShell,
-                                styles.wallLogoShellLeft,
-                                selectedTeam === leftTeamInfo.id && styles.wallLogoShellActive,
-                              ]}>
-                              <Image
-                                source={leftTeamInfo.imageSource}
-                                resizeMode="contain"
-                                style={styles.wallTeamLogo}
-                              />
-                            </Animated.View>
-                          </AnimatedPressable>
-                        </Animated.View>
-
-                        {rightTeamInfo ? (
-                          <Animated.View
-                            style={[
-                              styles.wallLogoPressable,
-                              styles.wallLogoRight,
-                              rightLogoIntroStyle,
-                              matchupIdleStyle,
-                            ]}>
+                        <Animated.View style={[styles.matchupChoiceStack, matchupIdleStyle]}>
+                          <Animated.View style={[styles.choiceCardShell, leftLogoIntroStyle]}>
                             <AnimatedPressable
                               accessibilityRole="button"
                               disabled={Boolean(expandedTeam)}
-                              onPress={() => handleTeamLogoPress(rightTeamInfo.id)}
-                              style={styles.wallLogoTouchArea}>
+                              onPress={() => handleTeamLogoPress(leftTeamInfo.id)}
+                              style={styles.choicePressable}>
                               <Animated.View
                                 style={[
-                                  styles.wallLogoShell,
-                                  styles.wallLogoShellRight,
-                                  selectedTeam === rightTeamInfo.id && styles.wallLogoShellActive,
+                                  styles.choiceCard,
+                                  selectedTeam !== leftTeamInfo.id && styles.choiceCardMuted,
+                                  selectedTeam === leftTeamInfo.id && styles.choiceCardSelected,
                                 ]}>
-                                <Image
-                                  source={rightTeamInfo.imageSource}
-                                  resizeMode="contain"
-                                  style={styles.wallTeamLogo}
-                                />
+                                <View style={styles.teamLogoBox}>
+                                  <Image
+                                    source={leftTeamInfo.imageSource}
+                                    resizeMode="contain"
+                                    style={[
+                                      styles.teamCardImage,
+                                      selectedTeam !== leftTeamInfo.id && styles.teamCardImageMuted,
+                                    ]}
+                                  />
+                                </View>
+                                <View style={styles.teamCardTextBlock}>
+                                  <Text
+                                    numberOfLines={1}
+                                    adjustsFontSizeToFit
+                                    style={[
+                                      styles.teamCardName,
+                                      selectedTeam !== leftTeamInfo.id && styles.teamCardNameMuted,
+                                    ]}>
+                                    {leftTeamInfo.name}
+                                  </Text>
+                                  <Text
+                                    numberOfLines={1}
+                                    adjustsFontSizeToFit
+                                    style={[
+                                      styles.teamCardMembers,
+                                      selectedTeam !== leftTeamInfo.id && styles.teamCardMembersMuted,
+                                    ]}>
+                                    {leftTeamInfo.members.join(' / ')}
+                                  </Text>
+                                </View>
+                                <View
+                                  style={[
+                                    styles.selectChip,
+                                    selectedTeam !== leftTeamInfo.id && styles.selectChipMuted,
+                                    selectedTeam === leftTeamInfo.id && styles.selectChipSelected,
+                                  ]}>
+                                  <Text style={styles.selectChipText}>
+                                    {selectedTeam === leftTeamInfo.id ? '선택됨' : '선택'}
+                                  </Text>
+                                </View>
                               </Animated.View>
                             </AnimatedPressable>
                           </Animated.View>
-                        ) : null}
+
+                          {rightTeamInfo ? (
+                            <Animated.View style={[styles.choiceCardShell, rightLogoIntroStyle]}>
+                              <AnimatedPressable
+                                accessibilityRole="button"
+                                disabled={Boolean(expandedTeam)}
+                                onPress={() => handleTeamLogoPress(rightTeamInfo.id)}
+                                style={styles.choicePressable}>
+                                <Animated.View
+                                  style={[
+                                    styles.choiceCard,
+                                    selectedTeam !== rightTeamInfo.id && styles.choiceCardMuted,
+                                    selectedTeam === rightTeamInfo.id && styles.choiceCardSelected,
+                                  ]}>
+                                  <View style={styles.teamLogoBox}>
+                                    <Image
+                                      source={rightTeamInfo.imageSource}
+                                      resizeMode="contain"
+                                      style={[
+                                        styles.teamCardImage,
+                                        selectedTeam !== rightTeamInfo.id && styles.teamCardImageMuted,
+                                      ]}
+                                    />
+                                  </View>
+                                  <View style={styles.teamCardTextBlock}>
+                                    <Text
+                                      numberOfLines={1}
+                                      adjustsFontSizeToFit
+                                      style={[
+                                        styles.teamCardName,
+                                        selectedTeam !== rightTeamInfo.id && styles.teamCardNameMuted,
+                                      ]}>
+                                      {rightTeamInfo.name}
+                                    </Text>
+                                    <Text
+                                      numberOfLines={1}
+                                      adjustsFontSizeToFit
+                                      style={[
+                                        styles.teamCardMembers,
+                                        selectedTeam !== rightTeamInfo.id && styles.teamCardMembersMuted,
+                                      ]}>
+                                      {rightTeamInfo.members.join(' / ')}
+                                    </Text>
+                                  </View>
+                                  <View
+                                    style={[
+                                      styles.selectChip,
+                                      selectedTeam !== rightTeamInfo.id && styles.selectChipMuted,
+                                      selectedTeam === rightTeamInfo.id && styles.selectChipSelected,
+                                    ]}>
+                                    <Text style={styles.selectChipText}>
+                                      {selectedTeam === rightTeamInfo.id ? '선택됨' : '선택'}
+                                    </Text>
+                                  </View>
+                                </Animated.View>
+                              </AnimatedPressable>
+                            </Animated.View>
+                          ) : null}
+                        </Animated.View>
 
                         {expandedTeamInfo ? (
                           <Animated.View style={[styles.expandedTeamPanel, teamDetailStyle]}>
@@ -1149,19 +1152,11 @@ export function PredictionDetailScreen(): JSX.Element {
                 <View style={styles.bottomActionWrap}>
                   <AnimatedPressable
                     accessibilityRole="button"
-                    disabled={!expandedTeam || !selectedTeamInfo || typeof selectedTeamInfo.participantId !== 'number'}
+                    disabled={!canProceedToComment}
                     onPress={handleSelectNext}
-                    style={[
-                      styles.nextButton,
-                      (!expandedTeam || !selectedTeamInfo || typeof selectedTeamInfo.participantId !== 'number') &&
-                        styles.nextButtonDisabled,
-                    ]}>
+                    style={[styles.nextButton, !canProceedToComment && styles.nextButtonDisabled]}>
                       <Text
-                        style={[
-                          styles.nextButtonText,
-                          (!expandedTeam || !selectedTeamInfo || typeof selectedTeamInfo.participantId !== 'number') &&
-                            styles.nextButtonTextDisabled,
-                        ]}>
+                        style={[styles.nextButtonText, !canProceedToComment && styles.nextButtonTextDisabled]}>
                       다음
                     </Text>
                   </AnimatedPressable>
@@ -1382,26 +1377,8 @@ const styles = StyleSheet.create({
   matchupStageWrapper: {
     marginHorizontal: 20,
     marginTop: 0,
-    height: 360,
+    height: 352,
     position: 'relative',
-  },
-  matchupGlobalLineLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
-    overflow: 'visible',
-  },
-  matchupSplitLineCoreWrap: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginTop: -3,
-    height: 6,
-    borderRadius: 999,
-  },
-  matchupSplitLineGlobal: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 999,
   },
   matchupStage: {
     height: '100%',
@@ -1411,9 +1388,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     // backgroundColor: '#0B0B0D',
   },
-  matchupIdleLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
+  matchupChoiceStack: {
+    flex: 1,
+    justifyContent: 'space-between',
+    gap: 12,
   },
   teamInfoBlock: {
     position: 'absolute',
@@ -1459,82 +1437,6 @@ const styles = StyleSheet.create({
     color: '#D0D4DC',
     ...FONTS.font12M,
     lineHeight: 17,
-  },
-  wallLogoPressable: {
-    position: 'absolute',
-    width: 156,
-    height: 156,
-    zIndex: 5,
-  },
-  wallLogoTouchArea: {
-    width: 156,
-    height: 156,
-  },
-  wallLogoLeft: {
-    left: -16,
-    top: 2,
-  },
-  wallLogoRight: {
-    right: -16,
-    bottom: 2,
-  },
-  wallLogoShell: {
-    width: 156,
-    height: 156,
-    borderRadius: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wallLogoShellLeft: {
-    paddingLeft: 30,
-    paddingTop: 20,
-  },
-  wallLogoShellRight: {
-    paddingRight: 30,
-    paddingBottom: 20,
-  },
-  wallLogoShellActive: {
-    transform: [{scale: 1.04}],
-  },
-  wallTeamLogo: {
-    width: 122,
-    height: 122,
-  },
-  vsBadgeCenter: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    width: 112,
-    height: 112,
-    marginTop: -56,
-    marginLeft: -56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 4,
-  },
-  vsLottie: {
-    width: 112,
-    height: 112,
-  },
-  vsFallbackBadge: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E50914',
-    borderWidth: 3,
-    borderColor: '#252525',
-    shadowColor: '#E50914',
-    shadowOpacity: 0.42,
-    shadowRadius: 18,
-    shadowOffset: {width: 0, height: 8},
-    elevation: 8,
-  },
-  vsFallbackText: {
-    color: '#FFFFFF',
-    ...FONTS.font24B,
-    lineHeight: 30,
   },
   expandedTeamPanel: {
     position: 'absolute',
@@ -1595,48 +1497,6 @@ const styles = StyleSheet.create({
     ...FONTS.font14B,
     lineHeight: 20,
   },
-  matchupCards: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 2,
-  },
-  diagonalCardSlot: {
-    position: 'absolute',
-    width: '74%',
-  },
-  diagonalCardSlotTop: {
-    left: 0,
-    top: 0,
-  },
-  diagonalCardSlotBottom: {
-    right: 0,
-    bottom: 0,
-  },
-  vsBadge: {
-    position: 'absolute',
-    top: 149,
-    left: '50%',
-    width: 84,
-    height: 84,
-    marginLeft: -42,
-    borderRadius: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#171717',
-    borderWidth: 3,
-    borderColor: '#252525',
-    shadowColor: '#E50914',
-    shadowOpacity: 0.36,
-    shadowRadius: 18,
-    shadowOffset: {width: 0, height: 8},
-    elevation: 8,
-    zIndex: 5,
-    overflow: 'hidden',
-  },
-  vsText: {
-    color: '#E50914',
-    ...FONTS.font20B,
-    lineHeight: 24,
-  },
   choiceCardShell: {
     width: '100%',
   },
@@ -1645,7 +1505,7 @@ const styles = StyleSheet.create({
   },
   choiceCard: {
     width: '100%',
-    height: 164,
+    height: 170,
     borderRadius: 12,
     backgroundColor: '#111111',
     position: 'relative',
@@ -1655,6 +1515,10 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: '#2A2A2A',
+  },
+  choiceCardMuted: {
+    backgroundColor: '#242428',
+    borderColor: '#3A3B40',
   },
   choiceCardSelected: {
     borderWidth: 2,
@@ -1673,24 +1537,38 @@ const styles = StyleSheet.create({
     width: 96,
     height: 88,
   },
+  teamCardImageMuted: {
+    opacity: 0.45,
+  },
   teamCardTextBlock: {
     flex: 1,
+    height: 112,
     marginLeft: 13,
-    paddingBottom: 36,
+    paddingRight: 0,
+    alignSelf: 'stretch',
     alignItems: 'flex-start',
+    justifyContent: 'center',
   },
   teamCardName: {
+    alignSelf: 'stretch',
     color: '#FFFFFF',
     textAlign: 'left',
     ...FONTS.font22B,
     lineHeight: 28,
   },
+  teamCardNameMuted: {
+    color: '#9A9DA6',
+  },
   teamCardMembers: {
+    alignSelf: 'stretch',
     marginTop: 7,
     color: '#C9CBD2',
     textAlign: 'left',
     ...FONTS.font12M,
     lineHeight: 18,
+  },
+  teamCardMembersMuted: {
+    color: '#858893',
   },
   selectChip: {
     position: 'absolute',
@@ -1702,6 +1580,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#E50914',
+  },
+  selectChipMuted: {
+    backgroundColor: '#4B4D55',
   },
   selectChipSelected: {
     backgroundColor: '#E50914',
