@@ -56,7 +56,7 @@ const storyCards = [
     posterImage: image.poster1,
     title: 'CRAZY ARCADE',
     subtitle: '크레이지 아케이드',
-    accent: '#8A8D95',
+    accent: '#E50914',
     tag: 'LIVE BRACKET',
   },
   {
@@ -72,7 +72,7 @@ const storyCards = [
     posterImage: image.poster3,
     title: 'STARCRAFT',
     subtitle: '스타크래프트',
-    accent: '#A9ABB2',
+    accent: '#E50914',
     tag: 'RISING PICK',
   },
 ];

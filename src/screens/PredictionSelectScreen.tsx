@@ -14,6 +14,7 @@ import {withMinimumLoadingTime} from '../utils/loading';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
+const MASK_SINGER_GAME_ID = 86;
 
 type GameDetailMatch = {
   matchId: number;
@@ -93,6 +94,8 @@ export function PredictionSelectScreen(): JSX.Element {
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const [matches, setMatches] = useState<GameDetailMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null);
+  const isMaskSingerGame = route.params.gameId === MASK_SINGER_GAME_ID;
+  const selectedMatch = matches.find(match => match.matchId === selectedMatchId) ?? null;
   const isEmptyMatchState = !isGameLoading && !loadErrorMessage && matches.length === 0;
 
   useEffect(() => {
@@ -164,6 +167,7 @@ export function PredictionSelectScreen(): JSX.Element {
     navigation.navigate('PredictionDetail', {
       gameId: route.params.gameId,
       gameTitle,
+      matchStatus: selectedMatch?.matchStatus,
       matchId: selectedMatchId,
     });
   };
@@ -189,7 +193,9 @@ export function PredictionSelectScreen(): JSX.Element {
             <View style={styles.emptyStateScreen}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
-                <Text style={styles.heroSubtitle}>예측할 경기를 선택해주세요.</Text>
+                <Text style={styles.heroSubtitle}>
+                  {isMaskSingerGame ? '투표할 무대를 선택해주세요.' : '예측할 경기를 선택해주세요.'}
+                </Text>
               </View>
               <View style={styles.emptyMatchState}>
                 <AppLoading label="경기 목록을 불러오는 중..." />
@@ -199,7 +205,9 @@ export function PredictionSelectScreen(): JSX.Element {
             <View style={styles.emptyStateScreen}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
-                <Text style={styles.heroSubtitle}>예측할 경기를 선택해주세요.</Text>
+                <Text style={styles.heroSubtitle}>
+                  {isMaskSingerGame ? '투표할 무대를 선택해주세요.' : '예측할 경기를 선택해주세요.'}
+                </Text>
               </View>
               <View style={styles.emptyMatchState}>
                 <Text style={styles.emptyMatchText}>현재 진행중인 경기가 없습니다.</Text>
@@ -209,7 +217,9 @@ export function PredictionSelectScreen(): JSX.Element {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
-                <Text style={styles.heroSubtitle}>예측할 경기를 선택해주세요.</Text>
+                <Text style={styles.heroSubtitle}>
+                  {isMaskSingerGame ? '투표할 무대를 선택해주세요.' : '예측할 경기를 선택해주세요.'}
+                </Text>
               </View>
 
               {loadErrorMessage ? <Text style={styles.errorText}>{loadErrorMessage}</Text> : null}
@@ -255,7 +265,13 @@ export function PredictionSelectScreen(): JSX.Element {
                     styles.nextButtonText,
                     (selectedMatchId === null || isGameLoading) && styles.nextButtonTextDisabled,
                   ]}>
-                  다음
+                  {isMaskSingerGame && selectedMatch?.matchStatus === 'COUNTING'
+                    ? '집계 보기'
+                    : isMaskSingerGame && selectedMatch?.matchStatus === 'FINISHED'
+                    ? '결과 보기'
+                    : isMaskSingerGame
+                    ? '투표하기'
+                    : '다음'}
                 </Text>
               </AnimatedPressable>
             </View>

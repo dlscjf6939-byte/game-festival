@@ -23,6 +23,7 @@ import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
+const MASK_SINGER_GAME_ID = 86;
 
 type PredictionCardItem = {
   description: string;
@@ -89,6 +90,10 @@ const tabs = [
 type PredictionTabId = (typeof tabs)[number]['id'];
 
 function getFallbackCardByTitle(gameTitle: string): PredictionCardItem {
+  if (gameTitle.includes('복면')) {
+    return fallbackPredictionCards[3];
+  }
+
   if (gameTitle.includes('철권')) {
     return fallbackPredictionCards[0];
   }
@@ -110,7 +115,8 @@ function toPredictionCard(game: GameApiItem): PredictionCardItem | null {
   }
 
   const gameTitle = game.gameTitle.trim();
-  const fallbackCard = getFallbackCardByTitle(gameTitle);
+  const fallbackCard =
+    game.gameId === MASK_SINGER_GAME_ID ? fallbackPredictionCards[3] : getFallbackCardByTitle(gameTitle);
 
   return {
     ...fallbackCard,

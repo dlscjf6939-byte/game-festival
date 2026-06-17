@@ -32,11 +32,12 @@ export type PredictionStackParamList = {
         cheerComment?: string;
         gameId?: number;
         gameTitle?: string;
+        matchStatus?: string;
         matchId?: number;
         mode?: 'participated';
         pickedParticipantId?: number;
         selectedTeamId?: 'team-red' | 'team-black';
-        startStep?: 'comment';
+        startStep?: 'comment' | 'counting' | 'result';
       }
     | undefined;
 };
