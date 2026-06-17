@@ -15,6 +15,7 @@ import {withMinimumLoadingTime} from '../utils/loading';
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
 const MASK_SINGER_GAME_ID = 86;
+const EXECUTIVE_GAME_ID = 106;
 
 type GameDetailMatch = {
   matchId: number;
@@ -95,6 +96,8 @@ export function PredictionSelectScreen(): JSX.Element {
   const [matches, setMatches] = useState<GameDetailMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null);
   const isMaskSingerGame = route.params.gameId === MASK_SINGER_GAME_ID;
+  const isExecutiveGame = route.params.gameId === EXECUTIVE_GAME_ID || gameTitle.includes('임원');
+  const isVoteOnlyGame = isMaskSingerGame || isExecutiveGame;
   const selectedMatch = matches.find(match => match.matchId === selectedMatchId) ?? null;
   const isEmptyMatchState = !isGameLoading && !loadErrorMessage && matches.length === 0;
 
@@ -117,15 +120,12 @@ export function PredictionSelectScreen(): JSX.Element {
 
       try {
         const response = await withMinimumLoadingTime(
-          fetch(
-            `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${route.params.gameId}`,
-            {
-              headers: {
-                Accept: 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-              },
+          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${route.params.gameId}`, {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessToken}`,
             },
-          ),
+          }),
         );
         const responseText = await response.text();
         const responseBody = JSON.parse(responseText) as GameDetailApiResponse;
@@ -168,6 +168,7 @@ export function PredictionSelectScreen(): JSX.Element {
       gameId: route.params.gameId,
       gameTitle,
       matchStatus: selectedMatch?.matchStatus,
+      matchType: isExecutiveGame ? 'INDIVIDUAL' : undefined,
       matchId: selectedMatchId,
     });
   };
@@ -194,7 +195,11 @@ export function PredictionSelectScreen(): JSX.Element {
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
-                  {isMaskSingerGame ? '투표할 무대를 선택해주세요.' : '예측할 경기를 선택해주세요.'}
+                  {isExecutiveGame
+                    ? '응원할 라운드를 선택해주세요.'
+                    : isMaskSingerGame
+                    ? '투표할 무대를 선택해주세요.'
+                    : '팀 선택으로 이동할 라운드를 선택해주세요.'}
                 </Text>
               </View>
               <View style={styles.emptyMatchState}>
@@ -206,7 +211,11 @@ export function PredictionSelectScreen(): JSX.Element {
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
-                  {isMaskSingerGame ? '투표할 무대를 선택해주세요.' : '예측할 경기를 선택해주세요.'}
+                  {isExecutiveGame
+                    ? '응원할 라운드를 선택해주세요.'
+                    : isMaskSingerGame
+                    ? '투표할 무대를 선택해주세요.'
+                    : '팀 선택으로 이동할 라운드를 선택해주세요.'}
                 </Text>
               </View>
               <View style={styles.emptyMatchState}>
@@ -218,7 +227,11 @@ export function PredictionSelectScreen(): JSX.Element {
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
-                  {isMaskSingerGame ? '투표할 무대를 선택해주세요.' : '예측할 경기를 선택해주세요.'}
+                  {isExecutiveGame
+                    ? '응원할 라운드를 선택해주세요.'
+                    : isMaskSingerGame
+                    ? '투표할 무대를 선택해주세요.'
+                    : '팀 선택으로 이동할 라운드를 선택해주세요.'}
                 </Text>
               </View>
 
@@ -256,22 +269,19 @@ export function PredictionSelectScreen(): JSX.Element {
                 accessibilityRole="button"
                 disabled={selectedMatchId === null || isGameLoading}
                 onPress={goNext}
-                style={[
-                  styles.nextButton,
-                  (selectedMatchId === null || isGameLoading) && styles.nextButtonDisabled,
-                ]}>
+                style={[styles.nextButton, (selectedMatchId === null || isGameLoading) && styles.nextButtonDisabled]}>
                 <Text
                   style={[
                     styles.nextButtonText,
                     (selectedMatchId === null || isGameLoading) && styles.nextButtonTextDisabled,
                   ]}>
-                  {isMaskSingerGame && selectedMatch?.matchStatus === 'COUNTING'
-                    ? '집계 보기'
-                    : isMaskSingerGame && selectedMatch?.matchStatus === 'FINISHED'
+                  {isVoteOnlyGame && selectedMatch?.matchStatus === 'FINISHED'
                     ? '결과 보기'
+                    : isExecutiveGame
+                    ? '응원하기'
                     : isMaskSingerGame
                     ? '투표하기'
-                    : '다음'}
+                    : '팀 선택하기'}
                 </Text>
               </AnimatedPressable>
             </View>

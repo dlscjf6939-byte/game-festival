@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp, NativeStackScreenProps} from '@react-navigation/native-stack';
+import LottieView from 'lottie-react-native';
 import {
   Alert,
   Animated,
@@ -79,6 +80,7 @@ const maxRoundCountByGameId: Record<number, number> = {
 const START_COUNTDOWN_SECONDS = 3;
 const PICTURE_MATCH_LOCAL_REVEAL_MS = 2000;
 const PICTURE_MATCH_REVEAL_STAGGER_MS = 90;
+const fanfareLottie = require('../assets/lotties/Fanfare.json');
 
 type RoundResultOverlay = {
   result: RpsResult;
@@ -1702,7 +1704,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
           }
         });
       },
-      isMatchFinished ? 1800 : 1400,
+      roundResultOverlay.result === 'WIN' ? 2300 : isMatchFinished ? 1800 : 1400,
     );
 
     return () => {
@@ -1741,21 +1743,17 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [isRealtime, leaveRoom, myUserId, navigation, roomId]);
 
   const handleLeaveRoom = React.useCallback(() => {
-    Alert.alert(
-      '방에서 퇴장하시겠습니까?',
-      '진행 중인 준비 상태와 게임 참여가 취소됩니다.',
-      [
-        {
-          style: 'cancel',
-          text: '취소',
-        },
-        {
-          onPress: leaveCurrentRoom,
-          style: 'destructive',
-          text: '퇴장',
-        },
-      ],
-    );
+    Alert.alert('방에서 퇴장하시겠습니까?', '진행 중인 준비 상태와 게임 참여가 취소됩니다.', [
+      {
+        style: 'cancel',
+        text: '취소',
+      },
+      {
+        onPress: leaveCurrentRoom,
+        style: 'destructive',
+        text: '퇴장',
+      },
+    ]);
   }, [leaveCurrentRoom]);
 
   useEffect(() => {
@@ -2238,11 +2236,15 @@ export function CoinBattleRoomScreen(): JSX.Element {
             <Animated.View
               style={[
                 styles.resultCenter,
+                roundResultOverlay.result === 'WIN' && styles.resultCenterWin,
                 {
                   opacity: resultOpacity,
                   transform: [{scale: resultScale}],
                 },
               ]}>
+              {roundResultOverlay.result === 'WIN' ? (
+                <LottieView autoPlay loop={false} source={fanfareLottie} style={styles.resultFanfare} />
+              ) : null}
               <Text style={styles.resultEyebrow}>
                 {isMatchFinished ? 'FINAL ROUND' : `ROUND ${roundResultOverlay.roundNumber}`}
               </Text>
@@ -2486,7 +2488,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   resultOverlayWin: {
-    backgroundColor: 'rgba(6, 22, 13, 0.86)',
+    backgroundColor: 'rgba(16, 8, 10, 0.92)',
   },
   resultOverlayLose: {
     backgroundColor: 'rgba(28, 5, 8, 0.88)',
@@ -2498,6 +2500,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  resultCenterWin: {
+    minWidth: 250,
+    minHeight: 210,
+    paddingHorizontal: 28,
+    paddingVertical: 28,
+    borderRadius: 28,
+    backgroundColor: 'rgba(229, 9, 20, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    shadowColor: '#E50914',
+    shadowOpacity: 0.42,
+    shadowRadius: 28,
+    shadowOffset: {width: 0, height: 12},
+    elevation: 12,
+  },
+  resultFanfare: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+  },
   resultEyebrow: {
     color: '#FFFFFF',
     ...FONTS.font13B,
@@ -2508,7 +2530,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     color: '#FFFFFF',
     ...FONTS.font44B,
-    lineHeight: 52,
+    lineHeight: 56,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: {width: 0, height: 3},
     textShadowRadius: 12,

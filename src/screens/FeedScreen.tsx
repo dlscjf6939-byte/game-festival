@@ -224,7 +224,6 @@ export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const feedScrollRef = useRef<ScrollView | null>(null);
   const feedScrollOffsetYRef = useRef(0);
-  const pendingLikePostIdsRef = useRef<Set<string>>(new Set());
   const prefetchedHighlightIdsRef = useRef<Set<string>>(new Set());
   const {auth} = useAuth();
   const {
@@ -562,18 +561,9 @@ export function FeedScreen(): JSX.Element {
 
   const toggleLike = useCallback(
     (postId: string) => {
-      if (pendingLikePostIdsRef.current.has(postId)) {
-        return;
-      }
-
-      pendingLikePostIdsRef.current.add(postId);
-      togglePostLike(postId)
-        .catch(error => {
-          console.log('[FeedScreen] like toggle failed', {error, postId});
-        })
-        .finally(() => {
-          pendingLikePostIdsRef.current.delete(postId);
-        });
+      togglePostLike(postId).catch(error => {
+        console.log('[FeedScreen] like toggle failed', {error, postId});
+      });
     },
     [togglePostLike],
   );
@@ -1129,11 +1119,6 @@ export function FeedScreen(): JSX.Element {
       return;
     }
 
-    if (pendingLikePostIdsRef.current.has(selectedEmployeePostId)) {
-      return;
-    }
-
-    pendingLikePostIdsRef.current.add(selectedEmployeePostId);
     const nextIsLiked = !selectedEmployeePostIsLiked;
     const nextLikes = Math.max(0, selectedEmployeePostLikeCount + (nextIsLiked ? 1 : -1));
 
@@ -1145,16 +1130,12 @@ export function FeedScreen(): JSX.Element {
         likes: nextLikes,
       },
     }));
-    togglePostLike(selectedEmployeePostId)
-      .catch(error => {
-        console.log('[FeedScreen] employee profile like failed', {
-          error,
-          postId: selectedEmployeePostId,
-        });
-      })
-      .finally(() => {
-        pendingLikePostIdsRef.current.delete(selectedEmployeePostId);
+    togglePostLike(selectedEmployeePostId).catch(error => {
+      console.log('[FeedScreen] employee profile like failed', {
+        error,
+        postId: selectedEmployeePostId,
       });
+    });
   }, [
     selectedEmployeePostCommentCount,
     selectedEmployeePostId,

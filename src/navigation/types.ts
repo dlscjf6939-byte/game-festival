@@ -34,9 +34,10 @@ export type PredictionStackParamList = {
         gameTitle?: string;
         matchStatus?: string;
         matchId?: number;
+        matchType?: string;
         mode?: 'participated';
         pickedParticipantId?: number;
-        selectedTeamId?: 'team-red' | 'team-black';
+        selectedTeamId?: string;
         startStep?: 'comment' | 'counting' | 'result';
       }
     | undefined;

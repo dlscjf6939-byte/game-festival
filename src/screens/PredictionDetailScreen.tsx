@@ -36,7 +36,11 @@ import {getProfileImageUriFromRecord} from '../utils/profileImage';
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
 const MASK_SINGER_GAME_ID = 86;
+const EXECUTIVE_GAME_ID = 106;
 const countingLottie = require('../assets/lotties/Counting.json');
+const participantTones = ['#E50914', '#3F8CFF', '#F4B740', '#21B37B', '#B05CFF'];
+const INDIVIDUAL_CHOICE_CARD_HEIGHT = 222;
+const INDIVIDUAL_CHOICE_CARD_GAP = 14;
 
 const teams = [
   {
@@ -55,12 +59,13 @@ const teams = [
   },
 ] as const;
 
-type TeamId = (typeof teams)[number]['id'];
 type PredictionStep = 'select' | 'comment' | 'counting' | 'result';
 
 type PredictionTeam = {
-  id: TeamId;
-  imageSource: ImageSourcePropType;
+  department?: string;
+  id: string;
+  imageSource?: ImageSourcePropType;
+  isIndividual?: boolean;
   members: string[];
   name: string;
   participantId?: number;
@@ -109,11 +114,13 @@ type MatchDetailApiResponse = {
   data?: {
     matchStatus?: string;
     matchName?: string;
+    matchType?: string;
     participants?: Array<{
       logoImageUrl?: string;
       participantName?: string;
       participantId?: number;
       name?: string;
+      department?: string;
       predictionRate?: number;
       participantType?: string;
       participantMembers?: Array<{
@@ -157,16 +164,19 @@ type MatchOverviewApiResponse = {
     matchStatus?: string;
     matchType?: string;
     participants?: Array<{
+      department?: string;
       logoImageUrl?: string;
       participantId?: number;
       participantName?: string;
       participantType?: string;
+      name?: string;
       predictionRate?: number;
     }>;
     pickedParticipant?: {
       participantId?: number;
       participantName?: string;
     } | null;
+    pickedParticipantId?: number | null;
   };
   message?: string;
   success?: boolean;
@@ -182,12 +192,16 @@ type CheerComment = {
   avatar: ImageSourcePropType;
   isMine?: boolean;
   name: string;
-  teamId: TeamId;
+  teamId: string;
   text: string;
   time: string;
 };
 
-function getTeamIdFromParticipantType(participantType: string | undefined, fallbackIndex = 0): TeamId {
+function getTeamIdFromParticipantType(
+  participantType: string | undefined,
+  participantId: number,
+  fallbackIndex = 0,
+): string {
   if (participantType === 'TEAM_BLUE') {
     return 'team-black';
   }
@@ -196,7 +210,11 @@ function getTeamIdFromParticipantType(participantType: string | undefined, fallb
     return 'team-red';
   }
 
-  return fallbackIndex === 1 ? 'team-black' : 'team-red';
+  if (participantType === 'TEAM_RED') {
+    return 'team-red';
+  }
+
+  return fallbackIndex < 2 ? `team-${fallbackIndex}` : `participant-${participantId}`;
 }
 
 function toPredictionRate(value: unknown): number | undefined {
@@ -270,25 +288,35 @@ function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
 function toPredictionTeam(
   participant: NonNullable<NonNullable<MatchDetailApiResponse['data']>['participants']>[number],
   index = 0,
+  matchType?: string,
 ): PredictionTeam | null {
   if (typeof participant.participantId !== 'number') {
     return null;
   }
 
-  const teamId = getTeamIdFromParticipantType(participant.participantType, index);
-  const fallbackTeam = teamId === 'team-red' ? teams[0] : teams[1];
+  const normalizedMatchType = typeof matchType === 'string' ? matchType.trim().toUpperCase() : '';
+  const isIndividual = normalizedMatchType === 'INDIVIDUAL' || Boolean(participant.department?.trim());
+  const teamId = isIndividual
+    ? `participant-${participant.participantId}`
+    : getTeamIdFromParticipantType(participant.participantType, participant.participantId, index);
+  const fallbackTeam = teamId === 'team-black' ? teams[1] : teams[0];
   const logoImageUrl = participant.logoImageUrl?.trim();
+  const department = participant.department?.trim();
 
   return {
-    id: fallbackTeam.id,
-    imageSource: logoImageUrl ? {uri: logoImageUrl} : fallbackTeam.imageSource,
-    members: (participant.participantMembers ?? [])
-      .map(member => member.nickname?.trim())
-      .filter((nickname): nickname is string => Boolean(nickname)),
+    department,
+    id: isIndividual ? teamId : fallbackTeam.id,
+    imageSource: logoImageUrl ? {uri: logoImageUrl} : isIndividual ? image.human : fallbackTeam.imageSource,
+    isIndividual,
+    members: department
+      ? [department]
+      : (participant.participantMembers ?? [])
+          .map(member => member.nickname?.trim())
+          .filter((nickname): nickname is string => Boolean(nickname)),
     name: participant.participantName?.trim() || participant.name?.trim() || `참가팀 ${index + 1}`,
     participantId: participant.participantId,
     predictionRate: toPredictionRate(participant.predictionRate),
-    tone: fallbackTeam.tone,
+    tone: isIndividual ? participantTones[index % participantTones.length] : fallbackTeam.tone,
   };
 }
 
@@ -325,6 +353,13 @@ function toCheerComment(
   };
 }
 
+function getPickedParticipantId(
+  data: MatchDetailApiResponse['data'] | MatchOverviewApiResponse['data'] | undefined,
+): number | null {
+  const pickedParticipantId = data?.pickedParticipantId ?? data?.pickedParticipant?.participantId;
+  return typeof pickedParticipantId === 'number' ? pickedParticipantId : null;
+}
+
 export function PredictionDetailScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const route = useRoute<RouteProp<PredictionStackParamList, 'PredictionDetail'>>();
@@ -333,16 +368,21 @@ export function PredictionDetailScreen(): JSX.Element {
   const routeGameTitle = route.params?.gameTitle;
   const routeMatchId = route.params?.matchId;
   const isMaskSingerGame = routeGameId === MASK_SINGER_GAME_ID;
+  const isExecutiveGame = routeGameId === EXECUTIVE_GAME_ID || routeGameTitle?.includes('임원') === true;
   const profileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const myName = auth?.name ?? '이인철';
-  const initialSelectedTeam = route.params?.selectedTeamId ?? 'team-red';
+  const initialSelectedTeam = route.params?.selectedTeamId ?? '';
   const isParticipatedDetail = route.params?.mode === 'participated';
   const [step, setStep] = useState<PredictionStep>(() =>
     getInitialPredictionStep(route.params?.startStep, route.params?.matchStatus, isMaskSingerGame),
   );
-  const [selectedTeam, setSelectedTeam] = useState<TeamId>(initialSelectedTeam);
+  const [selectedTeam, setSelectedTeam] = useState<string>(initialSelectedTeam);
   const [matchStatus, setMatchStatus] = useState(() => normalizeMatchStatus(route.params?.matchStatus));
+  const [matchType, setMatchType] = useState(() => route.params?.matchType?.trim().toUpperCase() ?? '');
+  const [pickedParticipantId, setPickedParticipantId] = useState<number | null>(
+    typeof route.params?.pickedParticipantId === 'number' ? route.params.pickedParticipantId : null,
+  );
   const [cheerDraft, setCheerDraft] = useState('');
   const [cheerComments, setCheerComments] = useState<CheerComment[]>([]);
   const [gameDetail, setGameDetail] = useState<GameDetail | null>(null);
@@ -374,23 +414,48 @@ export function PredictionDetailScreen(): JSX.Element {
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
   const isSelectedTeamInfoPending =
-    !selectedTeamInfo && (isGameDetailLoading || isMatchDetailLoading || isSubmittingPrediction || !predictionTeams.length);
-  const canProceedToComment = Boolean(
-    selectedTeamInfo && typeof selectedTeamInfo.participantId === 'number',
-  );
+    !selectedTeamInfo &&
+    (isGameDetailLoading || isMatchDetailLoading || isSubmittingPrediction || !predictionTeams.length);
+  const canProceedToComment = Boolean(selectedTeamInfo && typeof selectedTeamInfo.participantId === 'number');
   const leftTeamInfo = predictionTeams[0] ?? null;
   const rightTeamInfo = predictionTeams[1] ?? null;
   const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '경기 정보';
-  const isMatchReady = matchStatus === 'READY' || matchStatus === 'SCHEDULED';
-  const isMatchCounting = matchStatus === 'COUNTING';
+  const isIndividualMatch =
+    !isMaskSingerGame && (matchType === 'INDIVIDUAL' || isExecutiveGame || predictionTeams.length > 2);
+  const isVoteOnlyGame = isMaskSingerGame || isIndividualMatch;
+  const maskSingerTeams = predictionTeams.slice(0, 4);
+  const individualStageStyle = isIndividualMatch
+    ? {
+        height: Math.max(
+          INDIVIDUAL_CHOICE_CARD_HEIGHT,
+          predictionTeams.length * INDIVIDUAL_CHOICE_CARD_HEIGHT +
+            Math.max(predictionTeams.length - 1, 0) * INDIVIDUAL_CHOICE_CARD_GAP,
+        ),
+      }
+    : undefined;
+  const pickedTeamInfo =
+    pickedParticipantId !== null
+      ? predictionTeams.find(team => team.participantId === pickedParticipantId) ?? selectedTeamInfo
+      : selectedTeamInfo;
   const displayTeamName = useCallback(
-    (teamId: TeamId) => predictionTeams.find(team => team.id === teamId)?.name ?? '참가팀',
+    (teamId: string) => predictionTeams.find(team => team.id === teamId)?.name ?? '참가팀',
     [predictionTeams],
   );
-  const redRatio = predictionTeams.find(team => team.id === 'team-red')?.predictionRate ?? 0;
-  const blackRatio = predictionTeams.find(team => team.id === 'team-black')?.predictionRate ?? 0;
-  const voteGraphRedFlex = redRatio > 0 || blackRatio > 0 ? redRatio : 1;
-  const voteGraphBlackFlex = redRatio > 0 || blackRatio > 0 ? blackRatio : 1;
+  const getTeamTone = useCallback(
+    (teamId: string) => predictionTeams.find(team => team.id === teamId)?.tone ?? '#E50914',
+    [predictionTeams],
+  );
+  const hasVoteRate = predictionTeams.some(team => (team.predictionRate ?? 0) > 0);
+  const getVoteGraphSegmentStyle = useCallback(
+    (team: PredictionTeam) => [
+      styles.voteGraphSegment,
+      {
+        backgroundColor: team.tone,
+        flex: hasVoteRate ? Math.max(team.predictionRate ?? 0, 0.001) : 1,
+      },
+    ],
+    [hasVoteRate],
+  );
   const displayCheerComments = submittedComment
     ? [submittedComment, ...cheerComments.filter(comment => comment.id !== submittedComment.id)]
     : cheerComments;
@@ -411,13 +476,13 @@ export function PredictionDetailScreen(): JSX.Element {
       {
         translateY: stageIntroProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [-28, 0],
+          outputRange: [-10, 0],
         }),
       },
       {
         scale: stageIntroProgress.interpolate({
           inputRange: [0, 0.7, 1],
-          outputRange: [0.72, 1.08, 1],
+          outputRange: [0.94, 1.015, 1],
         }),
       },
     ],
@@ -428,13 +493,13 @@ export function PredictionDetailScreen(): JSX.Element {
       {
         translateY: stageIntroProgress.interpolate({
           inputRange: [0, 1],
-          outputRange: [28, 0],
+          outputRange: [10, 0],
         }),
       },
       {
         scale: stageIntroProgress.interpolate({
           inputRange: [0, 0.7, 1],
-          outputRange: [0.72, 1.08, 1],
+          outputRange: [0.94, 1.015, 1],
         }),
       },
     ],
@@ -464,6 +529,21 @@ export function PredictionDetailScreen(): JSX.Element {
   useEffect(() => {
     playStageIntro();
   }, [playStageIntro]);
+
+  useEffect(() => {
+    if (!isVoteOnlyGame) {
+      return;
+    }
+
+    if (matchStatus === 'FINISHED') {
+      setStep('result');
+      return;
+    }
+
+    if (matchStatus === 'COUNTING') {
+      setStep(pickedParticipantId === null ? 'select' : 'counting');
+    }
+  }, [isVoteOnlyGame, matchStatus, pickedParticipantId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -505,17 +585,18 @@ export function PredictionDetailScreen(): JSX.Element {
     if (responseBody.data?.matchStatus) {
       setMatchStatus(nextStatus);
 
-      if (isMaskSingerGame && nextStatus === 'COUNTING') {
-        setStep('counting');
-      }
-
       if (isMaskSingerGame && nextStatus === 'FINISHED') {
         setStep('result');
       }
     }
 
+    if (responseBody.data?.matchType) {
+      setMatchType(responseBody.data.matchType.trim().toUpperCase());
+    }
+
+    const responseMatchType = responseBody.data?.matchType?.trim().toUpperCase() ?? matchType;
     const nextTeams = (responseBody.data?.participants ?? [])
-      .map((participant, index) => toPredictionTeam(participant, index))
+      .map((participant, index) => toPredictionTeam(participant, index, responseMatchType))
       .filter((team): team is PredictionTeam => Boolean(team));
 
     if (nextTeams.length) {
@@ -540,15 +621,17 @@ export function PredictionDetailScreen(): JSX.Element {
 
     setCheerComments(nextComments);
 
-    const pickedParticipantId = responseBody.data?.pickedParticipant?.participantId;
-    const pickedTeam = nextTeams.find(team => team.participantId === pickedParticipantId);
+    const nextPickedParticipantId = getPickedParticipantId(responseBody.data);
+    const pickedTeam = nextTeams.find(team => team.participantId === nextPickedParticipantId);
+
+    setPickedParticipantId(nextPickedParticipantId);
 
     if (pickedTeam) {
       setSelectedTeam(pickedTeam.id);
     }
 
     return true;
-  }, [auth?.accessToken, auth?.employeeId, auth?.name, isMaskSingerGame, routeGameId, routeMatchId]);
+  }, [auth?.accessToken, auth?.employeeId, auth?.name, isMaskSingerGame, matchType, routeGameId, routeMatchId]);
 
   useEffect(() => {
     const accessToken = auth?.accessToken;
@@ -588,15 +671,14 @@ export function PredictionDetailScreen(): JSX.Element {
 
         if (isMounted && nextGameDetail) {
           setGameDetail(nextGameDetail);
+          if (nextGameDetail.matchType) {
+            setMatchType(nextGameDetail.matchType.trim().toUpperCase());
+          }
           const currentMatch = nextGameDetail.matches.find(match => match.matchId === routeMatchId);
           const nextStatus = normalizeMatchStatus(currentMatch?.matchStatus);
 
           if (currentMatch) {
             setMatchStatus(nextStatus);
-
-            if (isMaskSingerGame && nextStatus === 'COUNTING') {
-              setStep('counting');
-            }
 
             if (isMaskSingerGame && nextStatus === 'FINISHED') {
               setStep('result');
@@ -632,7 +714,6 @@ export function PredictionDetailScreen(): JSX.Element {
       setIsMatchDetailLoading(true);
 
       if (!isParticipatedDetail) {
-        setExpandedTeam(null);
         setPredictionTeams([]);
       }
 
@@ -663,17 +744,18 @@ export function PredictionDetailScreen(): JSX.Element {
         if (isMounted && responseBody.data?.matchStatus) {
           setMatchStatus(nextStatus);
 
-          if (isMaskSingerGame && nextStatus === 'COUNTING') {
-            setStep('counting');
-          }
-
           if (isMaskSingerGame && nextStatus === 'FINISHED') {
             setStep('result');
           }
         }
 
+        if (isMounted && responseBody.data?.matchType) {
+          setMatchType(responseBody.data.matchType.trim().toUpperCase());
+        }
+
+        const responseMatchType = responseBody.data?.matchType?.trim().toUpperCase() ?? matchType;
         const nextTeams = (responseBody.data?.participants ?? [])
-          .map(toPredictionTeam)
+          .map((participant, index) => toPredictionTeam(participant, index, responseMatchType))
           .filter((team): team is PredictionTeam => Boolean(team));
 
         if (isMounted && nextTeams.length) {
@@ -690,9 +772,10 @@ export function PredictionDetailScreen(): JSX.Element {
             }),
           );
 
-          const pickedParticipantId =
-            responseBody?.data?.pickedParticipantId ?? responseBody?.data?.pickedParticipant?.participantId;
-          const pickedTeam = nextTeams.find(team => team.participantId === pickedParticipantId);
+          const nextPickedParticipantId = getPickedParticipantId(responseBody.data);
+          const pickedTeam = nextTeams.find(team => team.participantId === nextPickedParticipantId);
+
+          setPickedParticipantId(nextPickedParticipantId);
 
           if (pickedTeam) {
             setSelectedTeam(pickedTeam.id);
@@ -712,7 +795,7 @@ export function PredictionDetailScreen(): JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [auth?.accessToken, isMaskSingerGame, isParticipatedDetail, routeGameId, routeMatchId]);
+  }, [auth?.accessToken, isMaskSingerGame, isParticipatedDetail, matchType, routeGameId, routeMatchId]);
 
   useEffect(() => {
     if (!auth?.accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
@@ -767,30 +850,33 @@ export function PredictionDetailScreen(): JSX.Element {
     [stepTransition],
   );
 
-  const showSubmitToast = useCallback((message: string) => {
-    toastProgress.stopAnimation();
-    toastProgress.setValue(0);
-    setToastMessage(message);
-    setToastVisible(true);
+  const showSubmitToast = useCallback(
+    (message: string) => {
+      toastProgress.stopAnimation();
+      toastProgress.setValue(0);
+      setToastMessage(message);
+      setToastVisible(true);
 
-    Animated.sequence([
-      Animated.timing(toastProgress, {
-        toValue: 1,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-      Animated.delay(3000),
-      Animated.timing(toastProgress, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-    ]).start(({finished}) => {
-      if (finished) {
-        setToastVisible(false);
-      }
-    });
-  }, [toastProgress]);
+      Animated.sequence([
+        Animated.timing(toastProgress, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.delay(3000),
+        Animated.timing(toastProgress, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start(({finished}) => {
+        if (finished) {
+          setToastVisible(false);
+        }
+      });
+    },
+    [toastProgress],
+  );
 
   const handleBackPress = () => {
     if (step === 'comment') {
@@ -811,13 +897,8 @@ export function PredictionDetailScreen(): JSX.Element {
       return;
     }
 
-    if (isMaskSingerGame) {
-      if (!isMatchReady) {
-        if (isMatchCounting) {
-          transitionToStep('counting');
-          return;
-        }
-
+    if (isVoteOnlyGame) {
+      if (matchStatus === 'FINISHED') {
         transitionToStep('result');
         return;
       }
@@ -833,16 +914,11 @@ export function PredictionDetailScreen(): JSX.Element {
   const openSubmitConfirm = () => {
     const trimmedComment = cheerDraft.trim();
 
-    if (!isMaskSingerGame && !trimmedComment) {
+    if (!isVoteOnlyGame && !trimmedComment) {
       return;
     }
 
-    if (isMaskSingerGame && !isMatchReady) {
-      if (isMatchCounting) {
-        transitionToStep('counting');
-        return;
-      }
-
+    if (isVoteOnlyGame && matchStatus === 'FINISHED') {
       transitionToStep('result');
       return;
     }
@@ -916,7 +992,7 @@ export function PredictionDetailScreen(): JSX.Element {
     const trimmedComment = cheerDraft.trim();
     const participantId = selectedTeamInfo?.participantId;
 
-    if ((!isMaskSingerGame && !trimmedComment) || isSubmittingPrediction) {
+    if ((!isVoteOnlyGame && !trimmedComment) || isSubmittingPrediction) {
       return;
     }
 
@@ -929,10 +1005,10 @@ export function PredictionDetailScreen(): JSX.Element {
     setPredictionSubmitError(null);
 
     try {
-      if (isMaskSingerGame) {
+      if (isVoteOnlyGame) {
         const latestStatus = await requestLatestMatchStatus();
 
-        if (latestStatus && latestStatus !== 'READY' && latestStatus !== 'SCHEDULED') {
+        if (latestStatus === 'FINISHED') {
           setMatchStatus(latestStatus);
           setIsConfirmVisible(false);
           Alert.alert('이미 끝난 경기입니다');
@@ -943,12 +1019,17 @@ export function PredictionDetailScreen(): JSX.Element {
             console.log('[PredictionDetailScreen] overview refresh after closed vote failed', overviewError);
           }
 
-          transitionToStep(latestStatus === 'COUNTING' ? 'counting' : 'result');
+          transitionToStep('result');
           return;
+        }
+
+        if (latestStatus) {
+          setMatchStatus(latestStatus);
         }
       }
 
-      await submitPrediction(participantId, isMaskSingerGame ? undefined : trimmedComment);
+      await submitPrediction(participantId, isVoteOnlyGame ? undefined : trimmedComment);
+      setPickedParticipantId(participantId);
       await refreshProfile();
       let didRefreshOverview = false;
 
@@ -973,8 +1054,10 @@ export function PredictionDetailScreen(): JSX.Element {
       }
 
       setIsConfirmVisible(false);
-      showSubmitToast(isMaskSingerGame ? '투표가 완료됐어요' : '응원댓글이 등록됐어요');
-      transitionToStep(isMaskSingerGame ? 'counting' : 'result');
+      showSubmitToast(
+        isIndividualMatch ? '응원이 완료됐어요' : isMaskSingerGame ? '투표가 완료됐어요' : '응원댓글이 등록됐어요',
+      );
+      transitionToStep(isVoteOnlyGame ? 'counting' : 'result');
     } catch (error) {
       setPredictionSubmitError(error instanceof Error ? error.message : '승부예측 등록에 실패했습니다.');
     } finally {
@@ -1001,23 +1084,27 @@ export function PredictionDetailScreen(): JSX.Element {
           </View>
 
           <Animated.View style={[styles.stepAnimatedShell, stepTransitionStyle]}>
-            {(step === 'counting' || step === 'result') && isSelectedTeamInfoPending ? (
+            {(step === 'counting' || step === 'result') && !pickedTeamInfo && isSelectedTeamInfoPending ? (
               <View style={styles.fullScreenLoadingState}>
-                <AppLoading label="내 투표를 불러오는 중..." />
+                <AppLoading label={isIndividualMatch ? '내 응원을 불러오는 중...' : '내 투표를 불러오는 중...'} />
               </View>
             ) : step === 'counting' ? (
               <View style={styles.countingContent}>
                 <View style={styles.countingCard}>
-                  <Text style={styles.countingEyebrow}>투표 집계중</Text>
-                  <Text style={styles.countingTitle}>결과를 집계하고 있어요</Text>
+                  <Text style={styles.countingEyebrow}>{isIndividualMatch ? '응원 집계중' : '투표 집계중'}</Text>
+                  <Text style={styles.countingTitle}>
+                    {isIndividualMatch ? '응원 결과를 집계하고 있어요' : '결과를 집계하고 있어요'}
+                  </Text>
                   <LottieView autoPlay loop source={countingLottie} style={styles.countingLottie} />
                   <Text style={styles.countingSubtitle}>
-                    투표가 마감되었습니다.{'\n'}결과 공개 후 다시 확인해주세요.
+                    {isIndividualMatch
+                      ? '내 응원이 접수되었습니다.\n결과 공개 후 다시 확인해주세요.'
+                      : '내 투표가 접수되었습니다.\n결과 공개 후 다시 확인해주세요.'}
                   </Text>
-                  {selectedTeamInfo ? (
+                  {pickedTeamInfo ? (
                     <View style={styles.countingSelectionBox}>
-                      <Text style={styles.countingSelectionLabel}>내 투표</Text>
-                      <Text style={styles.countingSelectionName}>{selectedTeamInfo.name}</Text>
+                      <Text style={styles.countingSelectionLabel}>{isIndividualMatch ? '내 응원' : '내 투표'}</Text>
+                      <Text style={styles.countingSelectionName}>{pickedTeamInfo.name}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -1025,41 +1112,42 @@ export function PredictionDetailScreen(): JSX.Element {
             ) : step === 'result' ? (
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
                 <View style={styles.resultHero}>
-                  <Text style={styles.resultEyebrow}>{isMaskSingerGame ? '내 투표' : '내 선택'}</Text>
-                  <Text style={styles.resultTitle}>{selectedTeamInfo?.name ?? displayTeamName(selectedTeam)}</Text>
+                  <Text style={styles.resultEyebrow}>
+                    {isIndividualMatch ? '내 응원' : isMaskSingerGame ? '내 투표' : '내 선택'}
+                  </Text>
+                  <Text style={styles.resultTitle}>{pickedTeamInfo?.name ?? displayTeamName(selectedTeam)}</Text>
                   <Text style={styles.resultSubtitle}>
-                    {isMaskSingerGame ? '투표가 종료되어 결과를 확인할 수 있어요' : '경기 종료 후 결과에 따라 코인을 지급받을 수 있어요'}
+                    {isVoteOnlyGame
+                      ? '종료되어 결과를 확인할 수 있어요'
+                      : '경기 종료 후 결과에 따라 코인을 지급받을 수 있어요'}
                   </Text>
                 </View>
 
                 <View style={styles.voteCard}>
                   <View style={styles.voteHeader}>
-                    <Text style={styles.voteTitle}>{isMaskSingerGame ? '투표 결과' : '투표 현황'}</Text>
-                    <Text style={styles.voteTotal}>{isMaskSingerGame ? '최종 투표율' : '실시간 투표율'}</Text>
+                    <Text style={styles.voteTitle}>{isIndividualMatch ? '응원 결과' : '투표 결과'}</Text>
+                    <Text style={styles.voteTotal}>최종 {isIndividualMatch ? '응원율' : '투표율'}</Text>
                   </View>
 
                   <View style={styles.voteGraphTrack}>
-                    <View style={[styles.voteGraphRed, {flex: voteGraphRedFlex}]} />
-                    <View style={[styles.voteGraphBlack, {flex: voteGraphBlackFlex}]} />
+                    {predictionTeams.map(team => (
+                      <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
+                    ))}
                   </View>
 
                   <View style={styles.voteLegendRow}>
-                    <View style={styles.voteLegendItem}>
-                      <View style={[styles.voteDot, styles.voteDotRed]} />
-                      <Text style={styles.voteLegendText}>
-                        {displayTeamName('team-red')} {redRatio}%
-                      </Text>
-                    </View>
-                    <View style={styles.voteLegendItem}>
-                      <View style={[styles.voteDot, styles.voteDotBlack]} />
-                      <Text style={styles.voteLegendText}>
-                        {displayTeamName('team-black')} {blackRatio}%
-                      </Text>
-                    </View>
+                    {predictionTeams.map(team => (
+                      <View key={team.id} style={styles.voteLegendItem}>
+                        <View style={[styles.voteDot, {backgroundColor: team.tone}]} />
+                        <Text style={styles.voteLegendText}>
+                          {team.name} {team.predictionRate ?? 0}%
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 </View>
 
-                {!isMaskSingerGame ? (
+                {!isVoteOnlyGame ? (
                   <>
                     <View style={styles.commentSectionHeader}>
                       <Text style={styles.commentSectionTitle}>전체 응원댓글</Text>
@@ -1076,13 +1164,7 @@ export function PredictionDetailScreen(): JSX.Element {
                             <View style={styles.cheerCommentBody}>
                               <View style={styles.cheerCommentMetaRow}>
                                 <Text style={styles.cheerName}>{comment.name}</Text>
-                                <View
-                                  style={[
-                                    styles.cheerTeamBadge,
-                                    comment.teamId === 'team-red'
-                                      ? styles.cheerTeamBadgeRed
-                                      : styles.cheerTeamBadgeBlack,
-                                  ]}>
+                                <View style={[styles.cheerTeamBadge, {borderColor: getTeamTone(comment.teamId)}]}>
                                   <Text style={styles.cheerTeamBadgeText}>{displayTeamName(comment.teamId)}</Text>
                                 </View>
                                 {comment.isMine ? <Text style={styles.mineLabel}>내 댓글</Text> : null}
@@ -1117,6 +1199,8 @@ export function PredictionDetailScreen(): JSX.Element {
                     <Text style={styles.heroSubtitle}>
                       {isGameDetailLoading || isMatchDetailLoading
                         ? '경기 정보를 불러오는 중...'
+                        : isIndividualMatch
+                        ? '응원할 임원을 선택해주세요.'
                         : isMaskSingerGame
                         ? '더 잘한것 같은 사람에게 투표하세요.'
                         : '승리할 팀을 선택해주세요.'}
@@ -1128,52 +1212,195 @@ export function PredictionDetailScreen(): JSX.Element {
                       <AppLoading label="참가팀을 불러오는 중..." />
                     </View>
                   ) : predictionTeams.length && leftTeamInfo ? (
-                    <View style={styles.matchupStageWrapper}>
+                    <View
+                      style={[
+                        styles.matchupStageWrapper,
+                        isMaskSingerGame && styles.maskSingerStageWrapper,
+                        isIndividualMatch && styles.individualStageWrapper,
+                        individualStageStyle,
+                      ]}>
                       <View style={styles.matchupStage}>
-                        {isMaskSingerGame ? (
-                          <Animated.View style={[styles.maskSingerChoiceRow, matchupIdleStyle]}>
-                            <Animated.View style={[styles.maskSingerChoiceShell, leftLogoIntroStyle]}>
+                        {isIndividualMatch ? (
+                          <Animated.View style={[styles.individualChoiceStack, matchupIdleStyle]}>
+                            {predictionTeams.map(team => {
+                              const isSelected = selectedTeam === team.id;
+
+                              return (
+                                <AnimatedPressable
+                                  key={team.id}
+                                  accessibilityRole="button"
+                                  onPress={() => setSelectedTeam(team.id)}
+                                  style={styles.individualChoicePressable}>
+                                  <Animated.View
+                                    style={[
+                                      styles.individualChoiceCard,
+                                      !isSelected && styles.choiceCardMuted,
+                                      isSelected && styles.choiceCardSelected,
+                                      isSelected && {borderColor: team.tone},
+                                    ]}>
+                                    <View style={[styles.individualCardWash, {backgroundColor: team.tone}]} />
+                                    <View style={styles.individualCharacterStage}>
+                                      {team.imageSource ? (
+                                        <Image
+                                          resizeMode="contain"
+                                          source={team.imageSource}
+                                          style={[
+                                            styles.individualCharacterImage,
+                                            !isSelected && styles.teamCardImageMuted,
+                                          ]}
+                                        />
+                                      ) : (
+                                        <View style={[styles.individualCharacterPlaceholder, {borderColor: team.tone}]}>
+                                          <Text style={styles.individualCharacterInitial}>
+                                            {team.name.trim().slice(0, 1)}
+                                          </Text>
+                                        </View>
+                                      )}
+                                    </View>
+                                    <View style={styles.individualTextBlock}>
+                                      <Text style={styles.individualLabel}>EXECUTIVE PICK</Text>
+                                      <Text
+                                        numberOfLines={2}
+                                        adjustsFontSizeToFit
+                                        style={[styles.individualName, !isSelected && styles.teamCardNameMuted]}>
+                                        {team.name}
+                                      </Text>
+                                      <Text
+                                        numberOfLines={2}
+                                        adjustsFontSizeToFit
+                                        style={[
+                                          styles.individualDepartment,
+                                          !isSelected && styles.teamCardMembersMuted,
+                                        ]}>
+                                        {team.department ?? team.members.join(' / ')}
+                                      </Text>
+                                    </View>
+                                    <View
+                                      style={[
+                                        styles.individualSelectChip,
+                                        !isSelected && styles.selectChipMuted,
+                                        isSelected && {backgroundColor: team.tone},
+                                      ]}>
+                                      <Text style={styles.selectChipText}>{isSelected ? '선택됨' : '응원'}</Text>
+                                    </View>
+                                  </Animated.View>
+                                </AnimatedPressable>
+                              );
+                            })}
+                          </Animated.View>
+                        ) : isMaskSingerGame ? (
+                          <Animated.View style={[styles.maskSingerPortraitGrid, matchupIdleStyle]}>
+                            {maskSingerTeams.map(team => {
+                              const isSelected = selectedTeam === team.id;
+
+                              return (
+                                <AnimatedPressable
+                                  key={team.id}
+                                  accessibilityRole="button"
+                                  onPress={() => setSelectedTeam(team.id)}
+                                  style={[
+                                    styles.maskSingerPortraitPressable,
+                                    maskSingerTeams.length === 1 && styles.maskSingerPortraitPressableSingle,
+                                  ]}>
+                                  <Animated.View
+                                    style={[
+                                      styles.maskSingerPortraitCard,
+                                      !isSelected && styles.choiceCardMuted,
+                                      isSelected && styles.choiceCardSelected,
+                                    ]}>
+                                    <View
+                                      style={[
+                                        styles.maskSingerPortraitImageBox,
+                                        maskSingerTeams.length === 1 && styles.maskSingerPortraitImageBoxSingle,
+                                      ]}>
+                                      <Image
+                                        source={team.imageSource ?? image.profile}
+                                        resizeMode="cover"
+                                        style={[
+                                          styles.maskSingerPortraitImage,
+                                          !isSelected && styles.teamCardImageMuted,
+                                        ]}
+                                      />
+                                    </View>
+                                    <View style={styles.maskSingerPortraitTextBlock}>
+                                      <Text
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        style={[
+                                          styles.maskSingerPortraitName,
+                                          !isSelected && styles.teamCardNameMuted,
+                                        ]}>
+                                        {team.name}
+                                      </Text>
+                                      <Text
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        style={[
+                                          styles.maskSingerPortraitMembers,
+                                          !isSelected && styles.teamCardMembersMuted,
+                                        ]}>
+                                        {team.members.join(' / ')}
+                                      </Text>
+                                    </View>
+                                    <View
+                                      style={[
+                                        styles.maskSingerSelectChip,
+                                        !isSelected && styles.selectChipMuted,
+                                        isSelected && styles.selectChipSelected,
+                                      ]}>
+                                      <Text style={styles.selectChipText}>{isSelected ? '선택됨' : '선택'}</Text>
+                                    </View>
+                                  </Animated.View>
+                                </AnimatedPressable>
+                              );
+                            })}
+                          </Animated.View>
+                        ) : (
+                          <Animated.View style={[styles.matchupChoiceStack, matchupIdleStyle]}>
+                            <Animated.View style={[styles.choiceCardShell, leftLogoIntroStyle]}>
                               <AnimatedPressable
                                 accessibilityRole="button"
                                 onPress={() => setSelectedTeam(leftTeamInfo.id)}
                                 style={styles.choicePressable}>
                                 <Animated.View
                                   style={[
-                                    styles.maskSingerChoiceCard,
+                                    styles.choiceCard,
                                     selectedTeam !== leftTeamInfo.id && styles.choiceCardMuted,
                                     selectedTeam === leftTeamInfo.id && styles.choiceCardSelected,
                                   ]}>
-                                  <View style={styles.maskSingerImageBox}>
+                                  <View style={styles.teamLogoBox}>
                                     <Image
-                                      source={leftTeamInfo.imageSource}
+                                      source={leftTeamInfo.imageSource ?? logo.boongkwon}
                                       resizeMode="contain"
                                       style={[
-                                        styles.maskSingerImage,
+                                        styles.teamCardImage,
                                         selectedTeam !== leftTeamInfo.id && styles.teamCardImageMuted,
                                       ]}
                                     />
                                   </View>
-                                  <Text
-                                    numberOfLines={2}
-                                    adjustsFontSizeToFit
-                                    style={[
-                                      styles.maskSingerName,
-                                      selectedTeam !== leftTeamInfo.id && styles.teamCardNameMuted,
-                                    ]}>
-                                    {leftTeamInfo.name}
-                                  </Text>
-                                  <Text
-                                    numberOfLines={1}
-                                    adjustsFontSizeToFit
-                                    style={[
-                                      styles.maskSingerMembers,
-                                      selectedTeam !== leftTeamInfo.id && styles.teamCardMembersMuted,
-                                    ]}>
-                                    {leftTeamInfo.members.join(' / ')}
-                                  </Text>
+                                  <View style={styles.teamCardTextBlock}>
+                                    <Text
+                                      numberOfLines={1}
+                                      adjustsFontSizeToFit
+                                      style={[
+                                        styles.teamCardName,
+                                        selectedTeam !== leftTeamInfo.id && styles.teamCardNameMuted,
+                                      ]}>
+                                      {leftTeamInfo.name}
+                                    </Text>
+                                    <Text
+                                      numberOfLines={1}
+                                      adjustsFontSizeToFit
+                                      style={[
+                                        styles.teamCardMembers,
+                                        selectedTeam !== leftTeamInfo.id && styles.teamCardMembersMuted,
+                                      ]}>
+                                      {leftTeamInfo.members.join(' / ')}
+                                    </Text>
+                                  </View>
                                   <View
                                     style={[
-                                      styles.maskSingerSelectChip,
+                                      styles.selectChip,
                                       selectedTeam !== leftTeamInfo.id && styles.selectChipMuted,
                                       selectedTeam === leftTeamInfo.id && styles.selectChipSelected,
                                     ]}>
@@ -1186,48 +1413,50 @@ export function PredictionDetailScreen(): JSX.Element {
                             </Animated.View>
 
                             {rightTeamInfo ? (
-                              <Animated.View style={[styles.maskSingerChoiceShell, rightLogoIntroStyle]}>
+                              <Animated.View style={[styles.choiceCardShell, rightLogoIntroStyle]}>
                                 <AnimatedPressable
                                   accessibilityRole="button"
                                   onPress={() => setSelectedTeam(rightTeamInfo.id)}
                                   style={styles.choicePressable}>
                                   <Animated.View
                                     style={[
-                                      styles.maskSingerChoiceCard,
+                                      styles.choiceCard,
                                       selectedTeam !== rightTeamInfo.id && styles.choiceCardMuted,
                                       selectedTeam === rightTeamInfo.id && styles.choiceCardSelected,
                                     ]}>
-                                    <View style={styles.maskSingerImageBox}>
+                                    <View style={styles.teamLogoBox}>
                                       <Image
-                                        source={rightTeamInfo.imageSource}
+                                        source={rightTeamInfo.imageSource ?? logo.gwantaekdong}
                                         resizeMode="contain"
                                         style={[
-                                          styles.maskSingerImage,
+                                          styles.teamCardImage,
                                           selectedTeam !== rightTeamInfo.id && styles.teamCardImageMuted,
                                         ]}
                                       />
                                     </View>
-                                    <Text
-                                      numberOfLines={2}
-                                      adjustsFontSizeToFit
-                                      style={[
-                                        styles.maskSingerName,
-                                        selectedTeam !== rightTeamInfo.id && styles.teamCardNameMuted,
-                                      ]}>
-                                      {rightTeamInfo.name}
-                                    </Text>
-                                    <Text
-                                      numberOfLines={1}
-                                      adjustsFontSizeToFit
-                                      style={[
-                                        styles.maskSingerMembers,
-                                        selectedTeam !== rightTeamInfo.id && styles.teamCardMembersMuted,
-                                      ]}>
-                                      {rightTeamInfo.members.join(' / ')}
-                                    </Text>
+                                    <View style={styles.teamCardTextBlock}>
+                                      <Text
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        style={[
+                                          styles.teamCardName,
+                                          selectedTeam !== rightTeamInfo.id && styles.teamCardNameMuted,
+                                        ]}>
+                                        {rightTeamInfo.name}
+                                      </Text>
+                                      <Text
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                        style={[
+                                          styles.teamCardMembers,
+                                          selectedTeam !== rightTeamInfo.id && styles.teamCardMembersMuted,
+                                        ]}>
+                                        {rightTeamInfo.members.join(' / ')}
+                                      </Text>
+                                    </View>
                                     <View
                                       style={[
-                                        styles.maskSingerSelectChip,
+                                        styles.selectChip,
                                         selectedTeam !== rightTeamInfo.id && styles.selectChipMuted,
                                         selectedTeam === rightTeamInfo.id && styles.selectChipSelected,
                                       ]}>
@@ -1239,120 +1468,6 @@ export function PredictionDetailScreen(): JSX.Element {
                                 </AnimatedPressable>
                               </Animated.View>
                             ) : null}
-                          </Animated.View>
-                        ) : (
-                          <Animated.View style={[styles.matchupChoiceStack, matchupIdleStyle]}>
-                          <Animated.View style={[styles.choiceCardShell, leftLogoIntroStyle]}>
-                            <AnimatedPressable
-                              accessibilityRole="button"
-                              onPress={() => setSelectedTeam(leftTeamInfo.id)}
-                              style={styles.choicePressable}>
-                              <Animated.View
-                                style={[
-                                  styles.choiceCard,
-                                  selectedTeam !== leftTeamInfo.id && styles.choiceCardMuted,
-                                  selectedTeam === leftTeamInfo.id && styles.choiceCardSelected,
-                                ]}>
-                                <View style={styles.teamLogoBox}>
-                                  <Image
-                                    source={leftTeamInfo.imageSource}
-                                    resizeMode="contain"
-                                    style={[
-                                      styles.teamCardImage,
-                                      selectedTeam !== leftTeamInfo.id && styles.teamCardImageMuted,
-                                    ]}
-                                  />
-                                </View>
-                                <View style={styles.teamCardTextBlock}>
-                                  <Text
-                                    numberOfLines={1}
-                                    adjustsFontSizeToFit
-                                    style={[
-                                      styles.teamCardName,
-                                      selectedTeam !== leftTeamInfo.id && styles.teamCardNameMuted,
-                                    ]}>
-                                    {leftTeamInfo.name}
-                                  </Text>
-                                  <Text
-                                    numberOfLines={1}
-                                    adjustsFontSizeToFit
-                                    style={[
-                                      styles.teamCardMembers,
-                                      selectedTeam !== leftTeamInfo.id && styles.teamCardMembersMuted,
-                                    ]}>
-                                    {leftTeamInfo.members.join(' / ')}
-                                  </Text>
-                                </View>
-                                <View
-                                  style={[
-                                    styles.selectChip,
-                                    selectedTeam !== leftTeamInfo.id && styles.selectChipMuted,
-                                    selectedTeam === leftTeamInfo.id && styles.selectChipSelected,
-                                  ]}>
-                                  <Text style={styles.selectChipText}>
-                                    {selectedTeam === leftTeamInfo.id ? '선택됨' : '선택'}
-                                  </Text>
-                                </View>
-                              </Animated.View>
-                            </AnimatedPressable>
-                          </Animated.View>
-
-                          {rightTeamInfo ? (
-                            <Animated.View style={[styles.choiceCardShell, rightLogoIntroStyle]}>
-                              <AnimatedPressable
-                                accessibilityRole="button"
-                                onPress={() => setSelectedTeam(rightTeamInfo.id)}
-                                style={styles.choicePressable}>
-                                <Animated.View
-                                  style={[
-                                    styles.choiceCard,
-                                    selectedTeam !== rightTeamInfo.id && styles.choiceCardMuted,
-                                    selectedTeam === rightTeamInfo.id && styles.choiceCardSelected,
-                                  ]}>
-                                  <View style={styles.teamLogoBox}>
-                                    <Image
-                                      source={rightTeamInfo.imageSource}
-                                      resizeMode="contain"
-                                      style={[
-                                        styles.teamCardImage,
-                                        selectedTeam !== rightTeamInfo.id && styles.teamCardImageMuted,
-                                      ]}
-                                    />
-                                  </View>
-                                  <View style={styles.teamCardTextBlock}>
-                                    <Text
-                                      numberOfLines={1}
-                                      adjustsFontSizeToFit
-                                      style={[
-                                        styles.teamCardName,
-                                        selectedTeam !== rightTeamInfo.id && styles.teamCardNameMuted,
-                                      ]}>
-                                      {rightTeamInfo.name}
-                                    </Text>
-                                    <Text
-                                      numberOfLines={1}
-                                      adjustsFontSizeToFit
-                                      style={[
-                                        styles.teamCardMembers,
-                                        selectedTeam !== rightTeamInfo.id && styles.teamCardMembersMuted,
-                                      ]}>
-                                      {rightTeamInfo.members.join(' / ')}
-                                    </Text>
-                                  </View>
-                                  <View
-                                    style={[
-                                      styles.selectChip,
-                                      selectedTeam !== rightTeamInfo.id && styles.selectChipMuted,
-                                      selectedTeam === rightTeamInfo.id && styles.selectChipSelected,
-                                    ]}>
-                                    <Text style={styles.selectChipText}>
-                                      {selectedTeam === rightTeamInfo.id ? '선택됨' : '선택'}
-                                    </Text>
-                                  </View>
-                                </Animated.View>
-                              </AnimatedPressable>
-                            </Animated.View>
-                          ) : null}
                           </Animated.View>
                         )}
                       </View>
@@ -1371,7 +1486,7 @@ export function PredictionDetailScreen(): JSX.Element {
                     onPress={handleSelectNext}
                     style={[styles.nextButton, !canProceedToComment && styles.nextButtonDisabled]}>
                     <Text style={[styles.nextButtonText, !canProceedToComment && styles.nextButtonTextDisabled]}>
-                      {isMaskSingerGame ? '투표하기' : '다음'}
+                      {isIndividualMatch ? '응원하기' : isMaskSingerGame ? '투표하기' : '다음'}
                     </Text>
                   </AnimatedPressable>
                 </View>
@@ -1389,17 +1504,27 @@ export function PredictionDetailScreen(): JSX.Element {
                   contentContainerStyle={styles.voteInputContent}>
                   {selectedTeamInfo ? (
                     <View style={styles.selectedTeamHero}>
-                      <Image
-                        source={selectedTeamInfo.imageSource}
-                        style={styles.selectedTeamImage}
-                        resizeMode="contain"
-                      />
+                      {selectedTeamInfo.imageSource ? (
+                        <Image
+                          source={selectedTeamInfo.imageSource}
+                          style={styles.selectedTeamImage}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={[styles.selectedIndividualAvatar, {borderColor: selectedTeamInfo.tone}]}>
+                          <Text style={styles.selectedIndividualAvatarText}>{selectedTeamInfo.name.slice(0, 1)}</Text>
+                        </View>
+                      )}
                       <View style={styles.selectedTeamTextBlock}>
-                        <Text style={styles.selectedTeamEyebrow}>내가 선택한 팀</Text>
+                        <Text style={styles.selectedTeamEyebrow}>
+                          {isIndividualMatch ? '내가 응원할 임원' : '내가 선택한 팀'}
+                        </Text>
                         <Text adjustsFontSizeToFit numberOfLines={1} style={styles.selectedTeamName}>
                           {selectedTeamInfo.name}
                         </Text>
-                        <Text style={styles.selectedTeamMembers}>{selectedTeamInfo.members.join(' / ')}</Text>
+                        <Text style={styles.selectedTeamMembers}>
+                          {selectedTeamInfo.department ?? selectedTeamInfo.members.join(' / ')}
+                        </Text>
                         {/* <Text style={styles.selectedTeamDescription}>응원댓글을 남기면 투표 결과를 볼 수 있어요.</Text> */}
                       </View>
                     </View>
@@ -1415,7 +1540,11 @@ export function PredictionDetailScreen(): JSX.Element {
                       multiline
                       autoFocus
                       editable={Boolean(selectedTeamInfo)}
-                      placeholder={selectedTeamInfo ? `${selectedTeamInfo.name} 응원댓글 달기` : '참가팀 정보를 불러온 뒤 입력할 수 있습니다.'}
+                      placeholder={
+                        selectedTeamInfo
+                          ? `${selectedTeamInfo.name} 응원댓글 달기`
+                          : '참가팀 정보를 불러온 뒤 입력할 수 있습니다.'
+                      }
                       placeholderTextColor="#777A82"
                       style={styles.commentOnlyInput}
                       value={cheerDraft}
@@ -1461,13 +1590,17 @@ export function PredictionDetailScreen(): JSX.Element {
                 style={styles.confirmBackdrop}
               />
               <View style={styles.confirmCard}>
-                <Text style={styles.confirmEyebrow}>{isMaskSingerGame ? '투표 확인' : '승부예측 확인'}</Text>
+                <Text style={styles.confirmEyebrow}>
+                  {isIndividualMatch ? '응원 확인' : isMaskSingerGame ? '투표 확인' : '승부예측 확인'}
+                </Text>
                 <Text style={styles.confirmTitle}>
-                  {isMaskSingerGame
+                  {isIndividualMatch
+                    ? `${selectedTeamInfo?.name ?? '참가자'}님을 응원할까요?`
+                    : isMaskSingerGame
                     ? `${selectedTeamInfo?.name ?? '참가자'}에게 투표할까요?`
                     : `${selectedTeamInfo?.name ?? '참가팀'}에 투표하고\n응원댓글을 등록할까요?`}
                 </Text>
-                {!isMaskSingerGame ? (
+                {!isVoteOnlyGame ? (
                   <Text numberOfLines={3} style={styles.confirmCommentPreview}>
                     “{cheerDraft.trim()}”
                   </Text>
@@ -1492,7 +1625,13 @@ export function PredictionDetailScreen(): JSX.Element {
                       isSubmittingPrediction && styles.confirmSubmitButtonDisabled,
                     ]}>
                     <Text style={styles.confirmSubmitText}>
-                      {isSubmittingPrediction ? '처리 중...' : isMaskSingerGame ? '투표' : '등록'}
+                      {isSubmittingPrediction
+                        ? '처리 중...'
+                        : isIndividualMatch
+                        ? '응원'
+                        : isMaskSingerGame
+                        ? '투표'
+                        : '등록'}
                     </Text>
                   </AnimatedPressable>
                 </View>
@@ -1606,6 +1745,12 @@ const styles = StyleSheet.create({
     height: 352,
     position: 'relative',
   },
+  maskSingerStageWrapper: {
+    height: 492,
+  },
+  individualStageWrapper: {
+    height: INDIVIDUAL_CHOICE_CARD_HEIGHT,
+  },
   matchupStage: {
     height: '100%',
     position: 'relative',
@@ -1626,6 +1771,62 @@ const styles = StyleSheet.create({
   },
   maskSingerChoiceShell: {
     flex: 1,
+  },
+  maskSingerPortraitGrid: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignContent: 'flex-start',
+    gap: 12,
+  },
+  maskSingerPortraitPressable: {
+    width: '48.2%',
+    height: 240,
+  },
+  maskSingerPortraitPressableSingle: {
+    width: '100%',
+    height: 392,
+  },
+  maskSingerPortraitCard: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#111111',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  maskSingerPortraitImageBox: {
+    height: 158,
+    backgroundColor: '#18181C',
+    overflow: 'hidden',
+  },
+  maskSingerPortraitImageBoxSingle: {
+    height: 296,
+  },
+  maskSingerPortraitImage: {
+    width: '100%',
+    height: '100%',
+  },
+  maskSingerPortraitTextBlock: {
+    minHeight: 50,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  maskSingerPortraitName: {
+    width: '100%',
+    color: '#FFFFFF',
+    textAlign: 'left',
+    ...FONTS.font17B,
+    lineHeight: 22,
+  },
+  maskSingerPortraitMembers: {
+    width: '100%',
+    marginTop: 4,
+    color: '#C9CBD2',
+    textAlign: 'left',
+    ...FONTS.font11M,
+    lineHeight: 15,
   },
   maskSingerChoiceCard: {
     flex: 1,
@@ -1668,7 +1869,100 @@ const styles = StyleSheet.create({
   },
   maskSingerSelectChip: {
     marginTop: 'auto',
+    marginLeft: 12,
+    marginBottom: 12,
+    alignSelf: 'flex-start',
     minWidth: 68,
+    height: 32,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E50914',
+  },
+  individualChoiceStack: {
+    flex: 1,
+    gap: INDIVIDUAL_CHOICE_CARD_GAP,
+  },
+  individualChoicePressable: {
+    width: '100%',
+    height: INDIVIDUAL_CHOICE_CARD_HEIGHT,
+  },
+  individualChoiceCard: {
+    flex: 1,
+    borderRadius: 16,
+    backgroundColor: '#111114',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  individualCardWash: {
+    position: 'absolute',
+    right: -42,
+    top: -28,
+    width: 210,
+    height: 286,
+    borderRadius: 42,
+    opacity: 0.26,
+    transform: [{rotate: '10deg'}],
+  },
+  individualCharacterStage: {
+    position: 'absolute',
+    top: 14,
+    right: 0,
+    bottom: 0,
+    width: '58%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    overflow: 'visible',
+  },
+  individualCharacterImage: {
+    width: '106%',
+    height: '98%',
+  },
+  individualCharacterPlaceholder: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  individualCharacterInitial: {
+    color: '#FFFFFF',
+    ...FONTS.font40B,
+    lineHeight: 48,
+  },
+  individualTextBlock: {
+    position: 'absolute',
+    left: 18,
+    right: '44%',
+    bottom: 18,
+  },
+  individualLabel: {
+    marginBottom: 8,
+    color: '#E50914',
+    ...FONTS.font11B,
+    lineHeight: 15,
+  },
+  individualName: {
+    color: '#FFFFFF',
+    ...FONTS.font24B,
+    lineHeight: 30,
+  },
+  individualDepartment: {
+    marginTop: 7,
+    color: '#C9CBD2',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  individualSelectChip: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    minWidth: 70,
     height: 32,
     borderRadius: 16,
     paddingHorizontal: 12,
@@ -1852,6 +2146,20 @@ const styles = StyleSheet.create({
   selectedTeamImage: {
     width: Platform.OS === 'android' ? '58%' : '76%',
     height: Platform.OS === 'android' ? 82 : 126,
+  },
+  selectedIndividualAvatar: {
+    width: Platform.OS === 'android' ? 86 : 112,
+    height: Platform.OS === 'android' ? 86 : 112,
+    borderRadius: Platform.OS === 'android' ? 43 : 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    backgroundColor: '#17171B',
+  },
+  selectedIndividualAvatarText: {
+    color: '#FFFFFF',
+    ...FONTS.font40B,
+    lineHeight: 46,
   },
   selectedTeamTextBlock: {
     width: '100%',
@@ -2088,10 +2396,12 @@ const styles = StyleSheet.create({
   },
   nextButton: {
     height: 54,
-    borderRadius: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E50914',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
   },
   nextButtonDisabled: {
     backgroundColor: '#242428',
@@ -2164,11 +2474,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#242428',
   },
-  voteGraphRed: {
-    backgroundColor: '#E50914',
-  },
-  voteGraphBlack: {
-    backgroundColor: '#8A8D95',
+  voteGraphSegment: {
+    minWidth: 2,
   },
   voteLegendRow: {
     marginTop: 14,

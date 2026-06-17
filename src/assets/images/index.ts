@@ -8,6 +8,7 @@ type ImageMap = {
   gameFestival3: ImageSourcePropType;
   // coinBattle: ImageSourcePropType;
   homeBanner: ImageSourcePropType;
+  human: ImageSourcePropType;
   logo: ImageSourcePropType;
   poster1: ImageSourcePropType;
   poster2: ImageSourcePropType;
@@ -35,6 +36,7 @@ export const image: ImageMap = {
   gameFestival3: require('./gameFestival3.jpg'),
   // coinBattle: require('./코인대전.png'),
   homeBanner: require('./home-banner.png'),
+  human: require('./human.png'),
   logo: require('./logo.png'),
   poster1: require('./poster1.png'),
   poster2: require('./poster2.png'),

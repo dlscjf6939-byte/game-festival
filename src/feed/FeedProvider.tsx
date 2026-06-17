@@ -19,6 +19,7 @@ const FEED_POST_PAGE = 1;
 const FEED_POST_SIZE = 5;
 const MAX_FEED_IMAGE_COUNT = 5;
 const MAX_FEED_IMAGE_FILE_SIZE = 10 * 1024 * 1024;
+const LIKE_SYNC_DELAY_MS = 1000;
 const FEED_IMAGE_RESIZE_STEPS = [
   {maxSize: 2400, quality: 82},
   {maxSize: 2000, quality: 76},
@@ -169,6 +170,13 @@ type FetchPostDetailOptions = {
 type PostLikeOverride = {
   isLiked: boolean;
   likes: number;
+};
+
+type PostLikeSyncState = {
+  isSyncing: boolean;
+  pendingToggleCount: number;
+  rollbackPost: FeedPost | null;
+  timer: ReturnType<typeof setTimeout> | null;
 };
 
 type FeedCommentItemApi = {
@@ -452,7 +460,12 @@ function toFeedComment(
   };
 }
 
-function getImageFileInfo(uri: string, index: number, fileName?: string, mimeType?: string): {name: string; type: string} {
+function getImageFileInfo(
+  uri: string,
+  index: number,
+  fileName?: string,
+  mimeType?: string,
+): {name: string; type: string} {
   const cleanedUri = uri.split('?')[0];
   const baseFileName = fileName?.trim() || cleanedUri.split('/').pop()?.trim() || `upload-${Date.now()}-${index}.jpg`;
   const safeFileName = baseFileName
@@ -548,9 +561,22 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
   const [lastResponseBody, setLastResponseBody] = useState<unknown>(null);
   const isLoadingMorePostsRef = useRef(false);
   const postLikeOverridesRef = useRef<Record<string, PostLikeOverride>>({});
+  const postLikeSyncRef = useRef<Record<string, PostLikeSyncState>>({});
 
   useEffect(() => {
+    const clearLikeSyncTimers = () => {
+      Object.values(postLikeSyncRef.current).forEach(syncState => {
+        if (syncState.timer) {
+          clearTimeout(syncState.timer);
+        }
+      });
+    };
+
     postLikeOverridesRef.current = {};
+    clearLikeSyncTimers();
+    postLikeSyncRef.current = {};
+
+    return clearLikeSyncTimers;
   }, [auth?.employeeId]);
 
   const refreshHighlights = useCallback(async () => {
@@ -654,49 +680,52 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
     [auth?.accessToken, highlightGroups],
   );
 
-  const requestPostsPage = useCallback(async (page: number) => {
-    if (!auth?.accessToken) {
-      return null;
-    }
+  const requestPostsPage = useCallback(
+    async (page: number) => {
+      if (!auth?.accessToken) {
+        return null;
+      }
 
-    const queryString = new URLSearchParams({
-      page: String(page),
-      size: String(FEED_POST_SIZE),
-    }).toString();
+      const queryString = new URLSearchParams({
+        page: String(page),
+        size: String(FEED_POST_SIZE),
+      }).toString();
 
-    const response = await withMinimumLoadingTime(
-      fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts?${queryString}`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`,
-        },
-      }),
-    );
-    const responseText = await response.text();
-    let responseBody: FeedPostApiResponse | null = null;
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts?${queryString}`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: FeedPostApiResponse | null = null;
 
-    try {
-      responseBody = JSON.parse(responseText) as FeedPostApiResponse;
-    } catch {
-      throw new Error('피드 응답을 해석하지 못했습니다.');
-    }
+      try {
+        responseBody = JSON.parse(responseText) as FeedPostApiResponse;
+      } catch {
+        throw new Error('피드 응답을 해석하지 못했습니다.');
+      }
 
-    setLastResponseBody(responseBody);
+      setLastResponseBody(responseBody);
 
-    if (!response.ok || responseBody.success === false) {
-      throw new Error(responseBody.message || '피드 조회에 실패했습니다.');
-    }
+      if (!response.ok || responseBody.success === false) {
+        throw new Error(responseBody.message || '피드 조회에 실패했습니다.');
+      }
 
-    const mappedPosts = (responseBody.data?.content ?? [])
-      .map(post => toFeedPost(post, auth.employeeId))
-      .filter((post): post is FeedPost => Boolean(post));
-    const nextPosts = mappedPosts.map(post => applyLikeOverride(post, postLikeOverridesRef.current[post.id]));
+      const mappedPosts = (responseBody.data?.content ?? [])
+        .map(post => toFeedPost(post, auth.employeeId))
+        .filter((post): post is FeedPost => Boolean(post));
+      const nextPosts = mappedPosts.map(post => applyLikeOverride(post, postLikeOverridesRef.current[post.id]));
 
-    return {
-      hasMore: getHasMorePosts(responseBody, page, nextPosts.length),
-      posts: nextPosts,
-    };
-  }, [auth?.accessToken, auth?.employeeId]);
+      return {
+        hasMore: getHasMorePosts(responseBody, page, nextPosts.length),
+        posts: nextPosts,
+      };
+    },
+    [auth?.accessToken, auth?.employeeId],
+  );
 
   const refreshPosts = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -798,14 +827,118 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       const hasDetailPatch = Object.keys(detailPatch).length > 0;
 
       if (hasDetailPatch) {
-        setPosts(prevPosts =>
-          prevPosts.map(post => (post.id === postId ? {...post, ...detailPatch} : post)),
-        );
+        setPosts(prevPosts => prevPosts.map(post => (post.id === postId ? {...post, ...detailPatch} : post)));
       }
 
       return responseBody;
     },
     [auth?.accessToken],
+  );
+
+  const getPostLikeSyncState = useCallback((postId: string): PostLikeSyncState => {
+    const currentState = postLikeSyncRef.current[postId];
+
+    if (currentState) {
+      return currentState;
+    }
+
+    const nextState: PostLikeSyncState = {
+      isSyncing: false,
+      pendingToggleCount: 0,
+      rollbackPost: null,
+      timer: null,
+    };
+
+    postLikeSyncRef.current[postId] = nextState;
+    return nextState;
+  }, []);
+
+  const requestLikeToggle = useCallback(
+    async (postId: string) => {
+      if (!auth?.accessToken) {
+        return;
+      }
+
+      const response = await fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/likes/toggle`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${auth.accessToken}`,
+        },
+      });
+
+      const responseText = await response.text();
+      let responseBody: {message?: string; success?: boolean} | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
+      } catch {
+        responseBody = null;
+      }
+
+      if (!response.ok || responseBody?.success === false) {
+        throw new Error(responseBody?.message || '좋아요 처리에 실패했습니다.');
+      }
+    },
+    [auth?.accessToken],
+  );
+
+  const flushPostLikeToggles = useCallback(
+    async (postId: string) => {
+      const syncState = getPostLikeSyncState(postId);
+
+      if (syncState.isSyncing) {
+        return;
+      }
+
+      if (syncState.timer) {
+        clearTimeout(syncState.timer);
+        syncState.timer = null;
+      }
+
+      const toggleCount = syncState.pendingToggleCount;
+
+      if (toggleCount <= 0) {
+        syncState.rollbackPost = null;
+        return;
+      }
+
+      syncState.pendingToggleCount = 0;
+
+      if (toggleCount % 2 === 0) {
+        syncState.rollbackPost = null;
+        return;
+      }
+
+      syncState.isSyncing = true;
+
+      try {
+        await requestLikeToggle(postId);
+        await fetchPostDetail(postId, {preserveLikeState: true});
+        syncState.rollbackPost = null;
+      } catch (error) {
+        if (syncState.rollbackPost && syncState.pendingToggleCount === 0) {
+          const rollbackPost = syncState.rollbackPost;
+          postLikeOverridesRef.current[postId] = {
+            isLiked: Boolean(rollbackPost.isLiked),
+            likes: rollbackPost.likes,
+          };
+          setPosts(prevPosts => prevPosts.map(post => (post.id === postId ? rollbackPost : post)));
+        }
+        console.log('[FeedProvider] like toggle failed', {error, postId});
+      } finally {
+        syncState.isSyncing = false;
+
+        if (syncState.pendingToggleCount > 0) {
+          syncState.timer = setTimeout(() => {
+            flushPostLikeToggles(postId).catch(error => {
+              console.log('[FeedProvider] delayed like sync failed', {error, postId});
+            });
+          }, LIKE_SYNC_DELAY_MS);
+        }
+      }
+    },
+    [fetchPostDetail, getPostLikeSyncState, requestLikeToggle],
   );
 
   const togglePostLike = useCallback(
@@ -814,7 +947,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         return;
       }
 
-      let previousPost: FeedPost | null = null;
+      const syncState = getPostLikeSyncState(postId);
 
       setPosts(prevPosts =>
         prevPosts.map(post => {
@@ -822,7 +955,10 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
             return post;
           }
 
-          previousPost = post;
+          if (!syncState.rollbackPost) {
+            syncState.rollbackPost = post;
+          }
+
           const nextIsLiked = !post.isLiked;
           const nextPost = {
             ...post,
@@ -838,43 +974,19 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
         }),
       );
 
-      try {
-        const response = await withMinimumLoadingTime(
-          fetch(`${API_BASE}/api/boards/${FEED_BOARD_ID}/posts/${postId}/likes/toggle`, {
-            method: 'POST',
-            headers: {
-              Accept: 'application/json',
-              Authorization: `Bearer ${auth.accessToken}`,
-            },
-          }),
-        );
+      syncState.pendingToggleCount += 1;
 
-        const responseText = await response.text();
-        let responseBody: {message?: string; success?: boolean} | null = null;
-
-        try {
-          responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
-        } catch {
-          responseBody = null;
-        }
-
-        if (!response.ok || responseBody?.success === false) {
-          throw new Error(responseBody?.message || '좋아요 처리에 실패했습니다.');
-        }
-
-        await fetchPostDetail(postId, {preserveLikeState: true});
-      } catch (error) {
-        if (previousPost) {
-          postLikeOverridesRef.current[postId] = {
-            isLiked: previousPost.isLiked ?? false,
-            likes: previousPost.likes,
-          };
-          setPosts(prevPosts => prevPosts.map(post => (post.id === postId ? previousPost! : post)));
-        }
-        console.log('[FeedProvider] like toggle failed', {error, postId});
+      if (syncState.timer) {
+        clearTimeout(syncState.timer);
       }
+
+      syncState.timer = setTimeout(() => {
+        flushPostLikeToggles(postId).catch(error => {
+          console.log('[FeedProvider] delayed like sync failed', {error, postId});
+        });
+      }, LIKE_SYNC_DELAY_MS);
     },
-    [auth?.accessToken, fetchPostDetail],
+    [auth?.accessToken, flushPostLikeToggles, getPostLikeSyncState],
   );
 
   const createComment = useCallback(
@@ -990,7 +1102,6 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       if (!response.ok || responseBody?.success === false) {
         throw new Error(responseBody?.message || responseText || '댓글 삭제에 실패했습니다.');
       }
-
     },
     [auth?.accessToken],
   );
@@ -1084,12 +1195,7 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
   );
 
   const createPost = useCallback(
-    async (payload: {
-      content: string;
-      hashTags: string[];
-      images: FeedUploadImage[];
-      title: string;
-    }) => {
+    async (payload: {content: string; hashTags: string[]; images: FeedUploadImage[]; title: string}) => {
       if (!auth?.accessToken) {
         throw new Error('로그인 정보가 필요합니다.');
       }
