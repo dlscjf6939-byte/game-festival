@@ -373,6 +373,8 @@ export function PredictionDetailScreen(): JSX.Element {
   const stageIntroProgress = useRef(new Animated.Value(0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
+  const isSelectedTeamInfoPending =
+    !selectedTeamInfo && (isGameDetailLoading || isMatchDetailLoading || isSubmittingPrediction || !predictionTeams.length);
   const canProceedToComment = Boolean(
     selectedTeamInfo && typeof selectedTeamInfo.participantId === 'number',
   );
@@ -999,7 +1001,11 @@ export function PredictionDetailScreen(): JSX.Element {
           </View>
 
           <Animated.View style={[styles.stepAnimatedShell, stepTransitionStyle]}>
-            {step === 'counting' ? (
+            {(step === 'counting' || step === 'result') && isSelectedTeamInfoPending ? (
+              <View style={styles.fullScreenLoadingState}>
+                <AppLoading label="내 투표를 불러오는 중..." />
+              </View>
+            ) : step === 'counting' ? (
               <View style={styles.countingContent}>
                 <View style={styles.countingCard}>
                   <Text style={styles.countingEyebrow}>투표 집계중</Text>
@@ -1020,7 +1026,7 @@ export function PredictionDetailScreen(): JSX.Element {
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
                 <View style={styles.resultHero}>
                   <Text style={styles.resultEyebrow}>{isMaskSingerGame ? '내 투표' : '내 선택'}</Text>
-                  <Text style={styles.resultTitle}>{displayTeamName(selectedTeam)}</Text>
+                  <Text style={styles.resultTitle}>{selectedTeamInfo?.name ?? displayTeamName(selectedTeam)}</Text>
                   <Text style={styles.resultSubtitle}>
                     {isMaskSingerGame ? '투표가 종료되어 결과를 확인할 수 있어요' : '경기 종료 후 결과에 따라 코인을 지급받을 수 있어요'}
                   </Text>
@@ -1532,6 +1538,12 @@ const styles = StyleSheet.create({
   },
   stepAnimatedShell: {
     flex: 1,
+  },
+  fullScreenLoadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   voteInputStep: {
     flex: 1,

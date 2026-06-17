@@ -5,6 +5,7 @@ import {
   type CompositeNavigationProp,
   type NavigationProp,
 } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Animated,
   Dimensions,
@@ -42,6 +43,7 @@ const STORY_CARD_GAP = 18;
 const STORY_ITEM_WIDTH = STORY_CARD_WIDTH + STORY_CARD_GAP;
 const STORY_SNAP_INTERVAL = STORY_ITEM_WIDTH;
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
+const PROFILE_TIP_STORAGE_PREFIX = 'game_app_profile_tip_dismissed_v1';
 const checkLottie = require('../assets/lotties/Check.json');
 const fanfareLottie = require('../assets/lotties/Fanfare.json');
 
@@ -199,8 +201,14 @@ function MainScreen(): JSX.Element {
     }, {} as Record<(typeof storyCards)[number]['id'], Animated.Value>),
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
+  const [isAttendanceSummaryModalVisible, setIsAttendanceSummaryModalVisible] = useState(false);
+  const [isProfileTipVisible, setIsProfileTipVisible] = useState(false);
   const activeCheckInNotice = checkInNotice;
+  const isAttendanceModalVisible = Boolean(activeCheckInNotice || isAttendanceSummaryModalVisible);
   const profile = auth?.profile;
+  const profileTipStorageKey = `${PROFILE_TIP_STORAGE_PREFIX}:${
+    auth?.employeeId ?? profile?.employeeId ?? auth?.id ?? 'guest'
+  }`;
   const coinBalance = latestHoldingCoin ?? toCoinNumber(profile?.holdingCoin) ?? 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
   const profileImageUri = getProfileImageUriFromRecord(profile);
@@ -212,6 +220,7 @@ function MainScreen(): JSX.Element {
   const rankingText = isRankingLoading ? '집계 중' : myRankingItem ? `${myRankingItem.rank}위` : '미집계';
   const checkedDateSet = new Set(attendance?.checkedDates ?? []);
   const todayKey = toDateKey(new Date());
+  const didAttendToday = checkedDateSet.has(todayKey);
   const weekStartDate = attendance?.weekStartDate ? parseDateKey(attendance.weekStartDate) : null;
   const attendanceBoard = WEEKDAY_LABELS.map((label, index) => {
     const targetDate = weekStartDate ? new Date(weekStartDate) : null;
@@ -243,7 +252,11 @@ function MainScreen(): JSX.Element {
       }))
     : attendanceBoard;
   const handleDismissAttendanceModal = () => {
+    setIsAttendanceSummaryModalVisible(false);
     dismissCheckInNotice();
+  };
+  const handleAttendanceCardPress = () => {
+    setIsAttendanceSummaryModalVisible(true);
   };
   const attendanceModalOverlayStyle = {
     opacity: attendanceModalProgress.interpolate({
@@ -308,13 +321,35 @@ function MainScreen(): JSX.Element {
   }, [refreshAllCoins, refreshAttendance, refreshProfile]);
 
   React.useEffect(() => {
+    let isMounted = true;
+
+    AsyncStorage.getItem(profileTipStorageKey)
+      .then(storedValue => {
+        if (isMounted) {
+          setIsProfileTipVisible(storedValue !== 'true');
+        }
+      })
+      .catch(error => {
+        console.log('[MainScreen] profile tip storage read failed', error);
+
+        if (isMounted) {
+          setIsProfileTipVisible(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [profileTipStorageKey]);
+
+  React.useEffect(() => {
     return registerScrollToTopHandler('Home', () => {
       mainScrollRef.current?.scrollTo({animated: true, y: 0});
     });
   }, []);
 
   React.useEffect(() => {
-    if (!activeCheckInNotice) {
+    if (!isAttendanceModalVisible) {
       attendanceModalProgress.setValue(0);
       attendanceModalShake.setValue(0);
       return;
@@ -358,7 +393,7 @@ function MainScreen(): JSX.Element {
         }),
       ]),
     ]).start();
-  }, [activeCheckInNotice, attendanceModalProgress, attendanceModalShake, hasWeeklyReward]);
+  }, [attendanceModalProgress, attendanceModalShake, hasWeeklyReward, isAttendanceModalVisible]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -439,9 +474,16 @@ function MainScreen(): JSX.Element {
   const handleCoinCardPress = React.useCallback(() => {
     navigation.navigate('Coins');
   }, [navigation]);
+  const dismissProfileTip = React.useCallback(() => {
+    setIsProfileTipVisible(false);
+    AsyncStorage.setItem(profileTipStorageKey, 'true').catch(error => {
+      console.log('[MainScreen] profile tip storage write failed', error);
+    });
+  }, [profileTipStorageKey]);
   const handleProfilePress = React.useCallback(() => {
+    dismissProfileTip();
     navigation.navigate('ProfileSetup');
-  }, [navigation]);
+  }, [dismissProfileTip, navigation]);
 
   const renderStoryCard = React.useCallback(
     ({item, index}: {item: (typeof storyCards)[number]; index: number}): JSX.Element => {
@@ -753,14 +795,28 @@ function MainScreen(): JSX.Element {
               </View>
 
               <View style={styles.coinSection}>
+                {isProfileTipVisible ? (
+                  <AnimatedPressable
+                    accessibilityLabel="프로필 수정 안내 닫기"
+                    accessibilityRole="button"
+                    onPress={dismissProfileTip}
+                    style={styles.profileTipBubble}>
+                    <Text style={styles.profileTipText}>프로필을 눌러 수정할 수 있어요</Text>
+                    <View style={styles.profileTipTail} />
+                  </AnimatedPressable>
+                ) : null}
                 <AnimatedPressable
                   accessibilityLabel="프로필 수정"
                   accessibilityRole="button"
                   onPress={handleProfilePress}
                   style={styles.profileSummary}>
                   <Image source={profileImageSource} style={styles.profileImage} />
-                  <Text style={styles.greeting}>{`${greetingPrefix} ${name}님`}</Text>
-                  <Image source={icon.pencil} style={styles.profileEditIcon} resizeMode="contain" />
+                  <View style={styles.profileTextBlock}>
+                    <Text numberOfLines={1} style={styles.greeting}>
+                      {`${greetingPrefix} ${name}님`}
+                    </Text>
+                  </View>
+                  {/* <Image source={icon.pencil} style={styles.profileEditIcon} resizeMode="contain" /> */}
                 </AnimatedPressable>
                 <AnimatedPressable
                   accessibilityLabel="나의 코인현황 상세 보기"
@@ -805,7 +861,11 @@ function MainScreen(): JSX.Element {
                   </View>
                 </AnimatedPressable>
 
-                <View style={styles.attendanceCard}>
+                <AnimatedPressable
+                  accessibilityLabel="출석체크 현황 자세히 보기"
+                  accessibilityRole="button"
+                  onPress={handleAttendanceCardPress}
+                  style={styles.attendanceCard}>
                   <View style={styles.attendanceHeader}>
                     <Text style={styles.attendanceTitle}>출석체크 현황판</Text>
                     <Text style={styles.attendanceMeta}>
@@ -830,7 +890,7 @@ function MainScreen(): JSX.Element {
                       </View>
                     ))}
                   </View>
-                </View>
+                </AnimatedPressable>
               </View>
             </Animated.ScrollView>
           </View>
@@ -841,7 +901,7 @@ function MainScreen(): JSX.Element {
         animationType="fade"
         onRequestClose={handleDismissAttendanceModal}
         transparent
-        visible={Boolean(activeCheckInNotice)}>
+        visible={isAttendanceModalVisible}>
         <Animated.View style={[styles.attendanceModalOverlay, attendanceModalOverlayStyle]}>
           <Animated.View style={[styles.attendanceModalCard, attendanceModalCardStyle]}>
             {hasWeeklyReward ? (
@@ -861,7 +921,9 @@ function MainScreen(): JSX.Element {
                 ? `이번 주 ${modalWeeklyCount}일 출석`
                 : '출석 완료'}
             </Text>
-            <Text style={styles.attendanceModalSuccessText}>오늘 출석 완료</Text>
+            <Text style={styles.attendanceModalSuccessText}>
+              {didAttendToday ? '오늘 출석 완료' : '오늘은 아직 출석 전'}
+            </Text>
 
             {hasWeeklyReward ? (
               <View style={styles.attendanceModalPerfectBadge}>
@@ -919,7 +981,7 @@ function MainScreen(): JSX.Element {
                   ? `총 ${activeCheckInNotice?.rewardCoins ?? weeklyRewardCoins}코인 지급`
                   : activeCheckInNotice && activeCheckInNotice.rewardCoins > 0
                   ? `+${activeCheckInNotice.rewardCoins}코인 지급`
-                  : '내일도 출석해요'}
+                  : '내일도 출석해요🍀'}
               </Text>
             </View>
 
@@ -1321,10 +1383,42 @@ const styles = StyleSheet.create({
     marginTop: 32,
     gap: 14,
   },
+  profileTipBubble: {
+    alignSelf: 'flex-start',
+    maxWidth: 250,
+    minHeight: 36,
+    borderRadius: 10,
+    backgroundColor: '#20232C',
+    borderWidth: 1,
+    borderColor: '#343743',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    justifyContent: 'center',
+  },
+  profileTipText: {
+    color: '#FFFFFF',
+    ...FONTS.font13B,
+    lineHeight: 17,
+  },
+  profileTipTail: {
+    position: 'absolute',
+    left: 14,
+    bottom: -7,
+    width: 13,
+    height: 13,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#343743',
+    backgroundColor: '#20232C',
+    transform: [{rotate: '45deg'}],
+  },
   profileSummary: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+  },
+  profileTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   greeting: {
     color: '#FFFFFF',
@@ -1442,38 +1536,40 @@ const styles = StyleSheet.create({
   },
   attendanceCell: {
     alignItems: 'center',
-    width: 38,
+    width: 36,
   },
   attendanceDot: {
     width: 30,
     height: 30,
-    borderRadius: 15,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#343743',
+    backgroundColor: '#20232C',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2B2B2B',
-    borderWidth: 1,
-    borderColor: '#3A3A3A',
   },
   attendanceDotChecked: {
-    backgroundColor: '#E50914',
-    borderColor: '#E50914',
+    backgroundColor: '#F01825',
+    borderColor: '#F01825',
   },
   attendanceDotText: {
-    color: '#E6E8EE',
-    ...FONTS.font14B,
+    color: '#8E93A2',
+    ...FONTS.font13B,
+    lineHeight: 15,
   },
   attendanceDotTextChecked: {
     color: '#FFFFFF',
   },
   attendanceDotLottie: {
-    width: 44,
-    height: 44,
-    transform: [{scale: 1.5}],
+    width: 42,
+    height: 42,
+    transform: [{scale: 1.48}],
   },
   attendanceDayLabel: {
     marginTop: 6,
-    color: '#8A8D95',
-    ...FONTS.font11M,
+    color: '#8B909D',
+    ...FONTS.font11B,
+    lineHeight: 14,
   },
   attendanceDayLabelChecked: {
     color: '#FFFFFF',
@@ -1487,7 +1583,6 @@ const styles = StyleSheet.create({
   },
   attendanceModalFanfareLayer: {
     position: 'absolute',
-    // top: -186,
     top: '-50%',
     width: 620,
     height: 620,
