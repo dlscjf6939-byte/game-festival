@@ -6,6 +6,7 @@ import {image} from '../assets/images';
 import {
   type FeedPost,
   type FeedComment,
+  type FeedLikeMember,
   type HighlightGroup,
   type HighlightItem,
 } from '../dummyData/feedDummyData';
@@ -216,6 +217,20 @@ function applyLikeOverride(post: FeedPost, override: PostLikeOverride | undefine
   return override ? {...post, isLiked: override.isLiked, likes: override.likes} : post;
 }
 
+function toFeedLikeMember(member: FeedMemberApi): FeedLikeMember {
+  const profileImageUri = getProfileImageUriFromRecord(member);
+
+  return {
+    avatar: profileImageUri ? {uri: profileImageUri} : image.profile,
+    department: member.department?.trim() || '부서 미지정',
+    employeeId:
+      typeof member.employeeId === 'number' || typeof member.employeeId === 'string'
+        ? String(member.employeeId)
+        : undefined,
+    name: member.employeeName?.trim() || '이름 없음',
+  };
+}
+
 function toFeedPost(post: FeedPostItemApi, myEmployeeId?: number | string): FeedPost | null {
   if (typeof post.postId !== 'number') {
     return null;
@@ -231,6 +246,7 @@ function toFeedPost(post: FeedPostItemApi, myEmployeeId?: number | string): Feed
   const profileImageUri = getProfileImageUriFromRecord(post.writer);
   const likedMemberCount = getArrayCount(post.likedMembers);
   const commentArrayCount = getArrayCount(post.comments);
+  const likedMembers = (post.likedMembers ?? []).map(toFeedLikeMember);
 
   return {
     avatar: profileImageUri ? {uri: profileImageUri} : image.profile,
@@ -242,6 +258,7 @@ function toFeedPost(post: FeedPostItemApi, myEmployeeId?: number | string): Feed
     image: images[0],
     images,
     isLiked: typeof post.isLiked === 'boolean' ? post.isLiked : hasLikedMember(post.likedMembers, myEmployeeId),
+    likedMembers,
     likes: likedMemberCount ?? (typeof post.likeCount === 'number' ? post.likeCount : 0),
     role: post.writer?.department?.trim() || '부서 미지정',
     time: getDisplayElapsedTime(post.elapsedTime),
@@ -372,6 +389,7 @@ function getPostPatchFromDetail(data: FeedCommentApiResponse['data']): Partial<F
 
   if (likedMemberCount !== null) {
     patch.likes = likedMemberCount;
+    patch.likedMembers = (data.likedMembers ?? []).map(toFeedLikeMember);
   } else if (typeof data.likeCount === 'number') {
     patch.likes = data.likeCount;
   }

@@ -10,17 +10,32 @@ import {
 } from 'react-native';
 import {AppGnb} from './AppGnb';
 import {TabSceneTransition} from './TabSceneTransition';
+import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
+import type {MainStackParamList} from '../navigation/types';
 
 type MainScaffoldProps = {
   children: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  scrollToTopRouteName?: keyof MainStackParamList;
 };
 
 export function MainScaffold({
   children,
   contentContainerStyle,
+  scrollToTopRouteName,
 }: MainScaffoldProps): JSX.Element {
   const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<Animated.ScrollView | null>(null);
+
+  React.useEffect(() => {
+    if (!scrollToTopRouteName) {
+      return undefined;
+    }
+
+    return registerScrollToTopHandler(scrollToTopRouteName, () => {
+      scrollRef.current?.scrollTo({animated: true, y: 0});
+    });
+  }, [scrollToTopRouteName]);
 
   return (
     <TabSceneTransition>
@@ -30,6 +45,7 @@ export function MainScaffold({
         <AppGnb scrollY={scrollY} />
 
         <Animated.ScrollView
+          ref={scrollRef}
           bounces={false}
           contentContainerStyle={[styles.content, contentContainerStyle]}
           showsVerticalScrollIndicator={false}

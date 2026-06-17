@@ -32,6 +32,7 @@ import {TabSceneTransition} from '../components/TabSceneTransition';
 import {FONTS} from '../constants/theme';
 import {getProfileImageUriFromRecord} from '../utils/profileImage';
 import type {MainStackParamList, RootStackParamList} from '../navigation/types';
+import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
@@ -43,12 +44,6 @@ const STORY_SNAP_INTERVAL = STORY_ITEM_WIDTH;
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
 const checkLottie = require('../assets/lotties/Check.json');
 const fanfareLottie = require('../assets/lotties/Fanfare.json');
-const ATTENDANCE_MODAL_PREVIEW_NOTICE = {
-  checkedThisWeekCount: 7,
-  rewardCoins: 2,
-  totalCheckedCount: 7,
-  weeklyRewardCoins: 1,
-};
 
 type MainScreenNavigation = CompositeNavigationProp<
   NavigationProp<MainStackParamList, 'Home'>,
@@ -191,6 +186,7 @@ function MainScreen(): JSX.Element {
   const {attendance, checkInNotice, dismissCheckInNotice, isChecking, refreshAttendance} = useAttendance();
   const scrollX = useRef(new Animated.Value(STORY_SNAP_INTERVAL)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
+  const mainScrollRef = useRef<Animated.ScrollView | null>(null);
   const refreshProfileRef = useRef(refreshProfile);
   const refreshAllCoinsRef = useRef(refreshAllCoins);
   const refreshAttendanceRef = useRef(refreshAttendance);
@@ -203,9 +199,7 @@ function MainScreen(): JSX.Element {
     }, {} as Record<(typeof storyCards)[number]['id'], Animated.Value>),
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
-  const [isAttendancePreviewVisible, setIsAttendancePreviewVisible] = useState(true);
-  const activeCheckInNotice =
-    checkInNotice ?? (isAttendancePreviewVisible ? ATTENDANCE_MODAL_PREVIEW_NOTICE : null);
+  const activeCheckInNotice = checkInNotice;
   const profile = auth?.profile;
   const coinBalance = latestHoldingCoin ?? toCoinNumber(profile?.holdingCoin) ?? 0;
   const department = typeof profile?.department === 'string' ? profile.department.trim() : '';
@@ -249,7 +243,6 @@ function MainScreen(): JSX.Element {
       }))
     : attendanceBoard;
   const handleDismissAttendanceModal = () => {
-    setIsAttendancePreviewVisible(false);
     dismissCheckInNotice();
   };
   const attendanceModalOverlayStyle = {
@@ -313,6 +306,12 @@ function MainScreen(): JSX.Element {
     refreshAllCoinsRef.current = refreshAllCoins;
     refreshAttendanceRef.current = refreshAttendance;
   }, [refreshAllCoins, refreshAttendance, refreshProfile]);
+
+  React.useEffect(() => {
+    return registerScrollToTopHandler('Home', () => {
+      mainScrollRef.current?.scrollTo({animated: true, y: 0});
+    });
+  }, []);
 
   React.useEffect(() => {
     if (!activeCheckInNotice) {
@@ -695,6 +694,7 @@ function MainScreen(): JSX.Element {
             <AppGnb scrollY={scrollY} />
 
             <Animated.ScrollView
+              ref={mainScrollRef}
               bounces={false}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
@@ -855,7 +855,11 @@ function MainScreen(): JSX.Element {
               <Text style={styles.attendanceModalBadgeText}>출석체크</Text>
             </View>
             <Text style={styles.attendanceModalCountText}>
-              {hasWeeklyReward ? '7일 개근 완료' : modalWeeklyCount > 0 ? `이번 주 ${modalWeeklyCount}일 출석` : '출석 완료'}
+              {hasWeeklyReward
+                ? '7일 개근 완료'
+                : modalWeeklyCount > 0
+                ? `이번 주 ${modalWeeklyCount}일 출석`
+                : '출석 완료'}
             </Text>
             <Text style={styles.attendanceModalSuccessText}>오늘 출석 완료</Text>
 
@@ -1320,7 +1324,7 @@ const styles = StyleSheet.create({
   profileSummary: {
     flexDirection: 'row',
     alignItems: 'center',
-  marginBottom: 4,
+    marginBottom: 4,
   },
   greeting: {
     color: '#FFFFFF',
@@ -1483,14 +1487,14 @@ const styles = StyleSheet.create({
   },
   attendanceModalFanfareLayer: {
     position: 'absolute',
-    top: -186,
-    left: '50%',
+    // top: -186,
+    top: '-50%',
     width: 620,
     height: 620,
-    marginLeft: -310,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
+    zIndex: 10,
+    elevation: 20,
   },
   attendanceModalFanfare: {
     width: 450,

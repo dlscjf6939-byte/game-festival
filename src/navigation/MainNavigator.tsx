@@ -22,6 +22,7 @@ import {PredictionNavigator} from './PredictionNavigator';
 import type {MainStackParamList} from './types';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {FONTS} from '../constants/theme';
+import {emitScrollToTop} from './scrollToTopEvents';
 
 const Tab = createBottomTabNavigator<MainStackParamList>();
 type VisibleTabRoute = keyof MainStackParamList;
@@ -143,16 +144,13 @@ function FeedTabScreen(): JSX.Element {
   );
 }
 
-function renderTabButton(props: BottomTabBarButtonProps): JSX.Element {
-  return <TabButton {...props} />;
-}
-
 function TabButton({
   children,
   onPress,
   onLongPress,
+  routeName,
   accessibilityState,
-}: BottomTabBarButtonProps): JSX.Element {
+}: BottomTabBarButtonProps & {routeName: VisibleTabRoute}): JSX.Element {
   const pulse = useRef(new Animated.Value(0)).current;
   const isSelected = accessibilityState?.selected;
 
@@ -172,6 +170,7 @@ function TabButton({
       }),
     ]).start();
     onPress?.(event);
+    emitScrollToTop(routeName);
   };
 
   return (
@@ -204,6 +203,26 @@ function TabButton({
   );
 }
 
+function renderHomeTabButton(props: BottomTabBarButtonProps): JSX.Element {
+  return <TabButton {...props} routeName="Home" />;
+}
+
+function renderCoinsTabButton(props: BottomTabBarButtonProps): JSX.Element {
+  return <TabButton {...props} routeName="Coins" />;
+}
+
+function renderFeedTabButton(props: BottomTabBarButtonProps): JSX.Element {
+  return <TabButton {...props} routeName="Feed" />;
+}
+
+function renderCoinBattleTabButton(props: BottomTabBarButtonProps): JSX.Element {
+  return <TabButton {...props} routeName="CoinBattle" />;
+}
+
+function renderPredictionTabButton(props: BottomTabBarButtonProps): JSX.Element {
+  return <TabButton {...props} routeName="Prediction" />;
+}
+
 export function MainNavigator(): JSX.Element {
   const insets = useSafeAreaInsets();
   const tabBarStyle = {
@@ -229,22 +248,21 @@ export function MainNavigator(): JSX.Element {
           tabBarItemStyle: {
             justifyContent: 'center',
           },
-          tabBarButton: renderTabButton,
         }}>
         <Tab.Screen
           component={MainScreen}
           name="Home"
-          options={{tabBarIcon: HomeTabIcon}}
+          options={{tabBarButton: renderHomeTabButton, tabBarIcon: HomeTabIcon}}
         />
         <Tab.Screen
           component={CoinsScreen}
           name="Coins"
-          options={{tabBarIcon: CoinsTabIcon}}
+          options={{tabBarButton: renderCoinsTabButton, tabBarIcon: CoinsTabIcon}}
         />
         <Tab.Screen
           component={FeedTabScreen}
           name="Feed"
-          options={{tabBarIcon: FeedTabIcon}}
+          options={{tabBarButton: renderFeedTabButton, tabBarIcon: FeedTabIcon}}
         />
         <Tab.Screen
           component={CoinBattleNavigator}
@@ -254,6 +272,7 @@ export function MainNavigator(): JSX.Element {
             const shouldHideTabBar = focusedRouteName === 'CoinBattleRoom';
 
             return {
+              tabBarButton: renderCoinBattleTabButton,
               tabBarIcon: CoinBattleTabIcon,
               tabBarStyle: shouldHideTabBar
                 ? {...tabBarStyle, display: 'none'}
@@ -264,7 +283,7 @@ export function MainNavigator(): JSX.Element {
         <Tab.Screen
           component={PredictionNavigator}
           name="Prediction"
-          options={{tabBarIcon: PredictionTabIcon}}
+          options={{tabBarButton: renderPredictionTabButton, tabBarIcon: PredictionTabIcon}}
         />
       </Tab.Navigator>
     </CoinProvider>

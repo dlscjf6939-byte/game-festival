@@ -1912,7 +1912,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
                     <View style={styles.liveCompactDot} />
                     <Text style={styles.liveCompactMeta}>코인 {roomBetAmount}</Text>
                     <View style={styles.liveCompactDot} />
-                    <Text style={styles.liveCompactMeta}>보유 {holdingCoin}개</Text>
+                    <View style={styles.holdingCoinPill}>
+                      <Image source={icon.coin} style={styles.holdingCoinIcon} resizeMode="contain" />
+                      <Text style={styles.holdingCoinText}>{holdingCoin}개</Text>
+                    </View>
                   </View>
                   <View style={styles.liveCompactPlayersRow}>
                     <Text numberOfLines={1} style={styles.liveCompactPlayer}>
@@ -2075,8 +2078,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 <View style={styles.section}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>참가자</Text>
-                    <View style={styles.sectionHoldingCoin}>
-                      <Text style={styles.holdingCoinLabel}>보유코인 {holdingCoin}개</Text>
+                    <View style={styles.holdingCoinPill}>
+                      <Image source={icon.coin} style={styles.holdingCoinIcon} resizeMode="contain" />
+                      <Text style={styles.holdingCoinText}>{holdingCoin}개</Text>
                     </View>
                   </View>
                   {roomMembers.length > 0 ? (
@@ -2410,25 +2414,26 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font11B,
   },
-  holdingCoinChip: {
-    minHeight: 29,
+  holdingCoinPill: {
+    height: 34,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E50914',
-    // backgroundColor: '#ffffff',
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
   },
-  holdingCoinLabel: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
+  holdingCoinIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 6,
   },
-  holdingCoinValue: {
+  holdingCoinText: {
     color: '#FFFFFF',
-    ...FONTS.font11B,
+    ...FONTS.font13B,
+    lineHeight: 17,
   },
   title: {
     color: '#FFFFFF',
@@ -2596,16 +2601,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  sectionHoldingCoin: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2D2D2D',
-    backgroundColor: '#252525',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   memberRow: {
     minHeight: 80,

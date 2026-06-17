@@ -19,6 +19,7 @@ import {useAuth} from '../auth/AuthProvider';
 import type {PredictionStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
@@ -317,6 +318,7 @@ export function PredictionScreen(): JSX.Element {
     useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const {auth} = useAuth();
   const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<Animated.ScrollView | null>(null);
   const tabContentProgress = useRef(new Animated.Value(1)).current;
   const [activeTab, setActiveTab] = useState<PredictionTabId>('prediction');
   const [activePredictionId, setActivePredictionId] = useState<string | null>(null);
@@ -401,6 +403,12 @@ export function PredictionScreen(): JSX.Element {
     };
   }, [auth?.accessToken]);
 
+  useEffect(() => {
+    return registerScrollToTopHandler('Prediction', () => {
+      scrollRef.current?.scrollTo({animated: true, y: 0});
+    });
+  }, []);
+
   const handlePredictionPress = (card: PredictionCardItem) => {
     if (typeof card.gameId !== 'number') {
       return;
@@ -420,6 +428,7 @@ export function PredictionScreen(): JSX.Element {
         <AppGnb scrollY={scrollY} />
 
         <Animated.ScrollView
+          ref={scrollRef}
           bounces={false}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}

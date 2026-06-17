@@ -409,6 +409,7 @@ export function CoinsScreen(): JSX.Element {
   const [raffleHistories, setRaffleHistories] = useState<RaffleHistory[]>([]);
   const [isRaffleHistoriesLoading, setIsRaffleHistoriesLoading] = useState(false);
   const [raffleHistoriesError, setRaffleHistoriesError] = useState<string | null>(null);
+  const [isCoinInfoVisible, setIsCoinInfoVisible] = useState(false);
   const viewTransitionProgress = useRef(new Animated.Value(1)).current;
   const tabContentProgress = useRef(new Animated.Value(1)).current;
   const tabContentTranslateY = tabContentProgress.interpolate({
@@ -695,7 +696,7 @@ export function CoinsScreen(): JSX.Element {
 
   if (viewMode === 'raffle') {
     return (
-      <MainScaffold>
+      <MainScaffold scrollToTopRouteName="Coins">
         <View style={styles.raffleHeader}>
           <AnimatedPressable
             accessibilityLabel="응모 페이지 뒤로가기"
@@ -739,7 +740,8 @@ export function CoinsScreen(): JSX.Element {
                   행운의 주인공이 되어보세요
                 </Text>
                 <View style={styles.raffleBalancePill}>
-                  <Text style={styles.raffleBalanceText}>코인 {coinBalance}개</Text>
+                  <Image source={icon.coin} style={styles.raffleBalanceIcon} resizeMode="contain" />
+                  <Text style={styles.raffleBalanceText}>{coinBalance}개</Text>
                 </View>
               </View>
 
@@ -780,7 +782,9 @@ export function CoinsScreen(): JSX.Element {
               <View style={styles.raffleSummary}>
                 <View>
                   <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
-                  <Text style={styles.raffleSummaryTitle}>{selectedRaffleItem?.productName ?? '상품을 선택하세요'}</Text>
+                  <Text style={styles.raffleSummaryTitle}>
+                    {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
+                  </Text>
                 </View>
                 <AnimatedPressable
                   accessibilityRole="button"
@@ -876,9 +880,16 @@ export function CoinsScreen(): JSX.Element {
   }
 
   return (
-    <MainScaffold>
+    <MainScaffold scrollToTopRouteName="Coins">
       <View style={styles.header}>
         <Text style={styles.headerTitle}>코인</Text>
+        <AnimatedPressable
+          accessibilityLabel="코인 안내"
+          accessibilityRole="button"
+          onPress={() => setIsCoinInfoVisible(true)}
+          style={styles.headerInfoButton}>
+          <Image source={icon.info} style={styles.headerInfoIcon} resizeMode="contain" />
+        </AnimatedPressable>
       </View>
 
       <View style={styles.tabRow}>
@@ -1008,6 +1019,57 @@ export function CoinsScreen(): JSX.Element {
           </View>
         )}
       </Animated.View>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setIsCoinInfoVisible(false)}
+        transparent
+        visible={isCoinInfoVisible}>
+        <View style={styles.coinInfoOverlay}>
+          <AnimatedPressable
+            accessibilityLabel="코인 안내 닫기"
+            accessibilityRole="button"
+            onPress={() => setIsCoinInfoVisible(false)}
+            style={styles.coinInfoBackdrop}
+          />
+          <View style={styles.coinInfoCard}>
+            <View style={styles.coinInfoHeader}>
+              <View>
+                <Text style={styles.coinInfoEyebrow}>COIN GUIDE</Text>
+                <Text style={styles.coinInfoTitle}>코인 안내</Text>
+              </View>
+              <AnimatedPressable
+                accessibilityLabel="코인 안내 닫기"
+                accessibilityRole="button"
+                onPress={() => setIsCoinInfoVisible(false)}
+                style={styles.coinInfoCloseButton}>
+                <Image source={icon.closeBtn} style={styles.coinInfoCloseIcon} resizeMode="contain" />
+              </AnimatedPressable>
+            </View>
+
+            <View style={styles.coinInfoSection}>
+              <Text style={styles.coinInfoSectionTitle}>코인 획득 방법</Text>
+              <Text style={styles.coinInfoDescription}>
+                출석체크, 게시글/댓글 참여, 승부예측, 코인대전 등 이벤트 활동에 참여하면 코인을 모을 수 있어요.
+              </Text>
+            </View>
+
+            <View style={styles.coinInfoSection}>
+              <Text style={styles.coinInfoSectionTitle}>코인을 모으면 좋은 점</Text>
+              <Text style={styles.coinInfoDescription}>
+                모은 코인은 상품 응모와 코인대전 참가에 사용할 수 있고, 누적 코인은 랭킹에 반영됩니다.
+              </Text>
+            </View>
+
+            <AnimatedPressable
+              accessibilityRole="button"
+              onPress={() => setIsCoinInfoVisible(false)}
+              style={styles.coinInfoConfirmButton}>
+              <Text style={styles.coinInfoConfirmText}>확인</Text>
+            </AnimatedPressable>
+          </View>
+        </View>
+      </Modal>
     </MainScaffold>
   );
 }
@@ -1016,12 +1078,23 @@ const styles = StyleSheet.create({
   header: {
     height: 56,
     marginTop: -16,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    justifyContent: 'flex-start',
   },
   headerTitle: {
     color: '#FFFFFF',
     ...FONTS.font22B,
     lineHeight: 29,
+  },
+  headerInfoButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerInfoIcon: {
+    width: 18,
+    height: 18,
   },
   tabRow: {
     flexDirection: 'row',
@@ -1115,6 +1188,84 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: '#A9ABB2',
     ...FONTS.font13R,
+    lineHeight: 18,
+  },
+  coinInfoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+  },
+  coinInfoBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  coinInfoCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#252525',
+    backgroundColor: '#171717',
+    padding: 18,
+  },
+  coinInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  coinInfoEyebrow: {
+    color: '#E50914',
+    ...FONTS.font11B,
+    lineHeight: 14,
+    letterSpacing: 0.8,
+  },
+  coinInfoTitle: {
+    marginTop: 5,
+    color: '#FFFFFF',
+    ...FONTS.font22B,
+    lineHeight: 28,
+  },
+  coinInfoCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinInfoCloseIcon: {
+    width: 18,
+    height: 18,
+    tintColor: '#A9ABB2',
+  },
+  coinInfoSection: {
+    marginTop: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#252525',
+    backgroundColor: '#111114',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  coinInfoSectionTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 20,
+  },
+  coinInfoDescription: {
+    marginTop: 7,
+    color: '#C7C8CC',
+    ...FONTS.font13M,
+    lineHeight: 19,
+  },
+  coinInfoConfirmButton: {
+    height: 48,
+    marginTop: 18,
+    borderRadius: 12,
+    backgroundColor: '#E50914',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinInfoConfirmText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
     lineHeight: 18,
   },
   section: {
@@ -1438,15 +1589,25 @@ const styles = StyleSheet.create({
   },
   raffleBalancePill: {
     flexShrink: 0,
+    height: 34,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#E50914',
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  raffleBalanceIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 6,
   },
   raffleBalanceText: {
     color: '#FFFFFF',
-    ...FONTS.font14B,
-    lineHeight: 18,
+    ...FONTS.font13B,
+    lineHeight: 17,
   },
   raffleGrid: {
     flexDirection: 'row',

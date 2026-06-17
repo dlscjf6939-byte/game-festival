@@ -27,6 +27,13 @@ export type FeedComment = {
   time: string;
 };
 
+export type FeedLikeMember = {
+  avatar?: ImageSourcePropType;
+  department: string;
+  employeeId?: string;
+  name: string;
+};
+
 export type FeedPost = {
   commentCount?: number;
   id: string;
@@ -42,6 +49,7 @@ export type FeedPost = {
   hashtags: string[];
   time: string;
   likes: number;
+  likedMembers?: FeedLikeMember[];
   comments: FeedComment[];
 };
 

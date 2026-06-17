@@ -32,6 +32,7 @@ import {useCoin} from '../coin/CoinProvider';
 import {useCoinBattleRooms, type CoinBattleRoom, type CoinBattleRoomStatus} from '../hooks/useCoinBattleRooms';
 import type {CoinBattleStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
+import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 
 const SCREENSHOT_WIDTH = 375;
 const SCREENSHOT_HEIGHT = 812;
@@ -269,6 +270,7 @@ export function CoinBattleScreen(): JSX.Element {
   const {auth, refreshProfile} = useAuth();
   const {holdingCoin: latestHoldingCoin, refreshAllCoins, refreshCoinSummary} = useCoin();
   const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<Animated.ScrollView | null>(null);
   const quickActionProgress = useRef(new Animated.Value(0)).current;
   const createModalProgress = useRef(new Animated.Value(0)).current;
   const betAmountScale = useRef(new Animated.Value(1)).current;
@@ -281,6 +283,7 @@ export function CoinBattleScreen(): JSX.Element {
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
   const [pendingCreatedRoomName, setPendingCreatedRoomName] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isCoinInfoVisible, setIsCoinInfoVisible] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [activeFilterId, setActiveFilterId] = useState<RoomFilterId>('all');
   const [roomName, setRoomName] = useState('저랑 코인걸고 게임 한판 하실분!!!');
@@ -332,6 +335,7 @@ export function CoinBattleScreen(): JSX.Element {
       return room.title === pendingCreatedRoomName || isSameEmployeeId(room.ownerEmployeeId, auth?.employeeId);
     });
   }, [auth?.employeeId, pendingCreatedRoomName, visibleRooms]);
+  const displayHoldingCoin = latestHoldingCoin ?? getHoldingCoin(auth?.profile);
 
   const clearCreateRoomWaiters = useCallback(() => {
     if (createRoomPollIntervalRef.current) {
@@ -358,6 +362,12 @@ export function CoinBattleScreen(): JSX.Element {
       clearCreateRoomWaiters();
     };
   }, [clearCreateRoomWaiters]);
+
+  useEffect(() => {
+    return registerScrollToTopHandler('CoinBattle', () => {
+      scrollRef.current?.scrollTo({animated: true, y: 0});
+    });
+  }, []);
 
   useEffect(() => {
     setTotalRoundCount(previousCount => {
@@ -604,6 +614,7 @@ export function CoinBattleScreen(): JSX.Element {
 
         <View style={styles.screen}>
           <Animated.ScrollView
+            ref={scrollRef}
             bounces={false}
             contentContainerStyle={contentContainerStyle}
             keyboardDismissMode="interactive"
@@ -612,13 +623,28 @@ export function CoinBattleScreen(): JSX.Element {
             onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
             scrollEventThrottle={16}>
             <View style={styles.titleRow}>
-              <Text style={styles.title}>코인대전</Text>
-              <AnimatedPressable
-                accessibilityRole="button"
-                onPress={() => navigation.navigate('CoinBattleGuide')}
-                style={styles.guideEntryButton}>
-                <Text style={styles.guideEntryButtonText}>연습하기</Text>
-              </AnimatedPressable>
+              <View style={styles.titleLeft}>
+                <Text style={styles.title}>코인대전</Text>
+                <AnimatedPressable
+                  accessibilityLabel="코인 안내"
+                  accessibilityRole="button"
+                  onPress={() => setIsCoinInfoVisible(true)}
+                  style={styles.headerInfoButton}>
+                  <Image source={icon.info} style={styles.headerInfoIcon} resizeMode="contain" />
+                </AnimatedPressable>
+              </View>
+              <View style={styles.titleActions}>
+                <View style={styles.headerCoinPill}>
+                  <Image source={icon.coin} style={styles.headerCoinIcon} resizeMode="contain" />
+                  <Text style={styles.headerCoinText}>{displayHoldingCoin}개</Text>
+                </View>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  onPress={() => navigation.navigate('CoinBattleGuide')}
+                  style={styles.guideEntryButton}>
+                  <Text style={styles.guideEntryButtonText}>연습하기</Text>
+                </AnimatedPressable>
+              </View>
             </View>
 
             <View style={styles.filterRow}>
@@ -821,71 +847,71 @@ export function CoinBattleScreen(): JSX.Element {
                     value={roomName}
                   />
 
-                <Text style={styles.createLabel}>게임</Text>
-                <View style={styles.optionRow}>
-                  {gameOptions.map(option => {
-                    const active = option.id === realtimeGameId;
+                  <Text style={styles.createLabel}>게임</Text>
+                  <View style={styles.optionRow}>
+                    {gameOptions.map(option => {
+                      const active = option.id === realtimeGameId;
 
-                    return (
+                      return (
+                        <AnimatedPressable
+                          key={option.id}
+                          disabled={isCreatingRoom}
+                          onPress={() => {
+                            setRealtimeGameId(option.id);
+                            setTotalRoundCount(previousCount => {
+                              return Math.min(previousCount, getMaxRoundCount(option.id));
+                            });
+                          }}
+                          style={[styles.optionChip, active && styles.optionChipActive]}>
+                          <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
+                        </AnimatedPressable>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={styles.createLabel}>진행 라운드</Text>
+                  <View style={styles.optionRow}>
+                    {visibleRoundOptions.map(option => {
+                      const active = option === totalRoundCount;
+
+                      return (
+                        <AnimatedPressable
+                          key={option}
+                          disabled={isCreatingRoom}
+                          onPress={() => setTotalRoundCount(option)}
+                          style={[styles.roundChip, active && styles.optionChipActive]}>
+                          <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
+                        </AnimatedPressable>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={styles.createLabel}>베팅 코인</Text>
+                  <View style={styles.stepper}>
+                    {betAmount > MIN_BET_AMOUNT ? (
                       <AnimatedPressable
-                        key={option.id}
                         disabled={isCreatingRoom}
-                        onPress={() => {
-                          setRealtimeGameId(option.id);
-                          setTotalRoundCount(previousCount => {
-                            return Math.min(previousCount, getMaxRoundCount(option.id));
-                          });
-                        }}
-                        style={[styles.optionChip, active && styles.optionChipActive]}>
-                        <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
+                        onPress={() => updateBetAmount(betAmount - 1)}
+                        style={styles.stepperButton}>
+                        <Text style={styles.stepperButtonText}>−</Text>
                       </AnimatedPressable>
-                    );
-                  })}
-                </View>
-
-                <Text style={styles.createLabel}>진행 라운드</Text>
-                <View style={styles.optionRow}>
-                  {visibleRoundOptions.map(option => {
-                    const active = option === totalRoundCount;
-
-                    return (
+                    ) : (
+                      <View style={styles.stepperButton} />
+                    )}
+                    <Animated.Text style={[styles.stepperValue, {transform: [{scale: betAmountScale}]}]}>
+                      {betAmount}
+                    </Animated.Text>
+                    {betAmount < MAX_BET_AMOUNT ? (
                       <AnimatedPressable
-                        key={option}
                         disabled={isCreatingRoom}
-                        onPress={() => setTotalRoundCount(option)}
-                        style={[styles.roundChip, active && styles.optionChipActive]}>
-                        <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
+                        onPress={() => updateBetAmount(betAmount + 1)}
+                        style={styles.stepperButton}>
+                        <Text style={styles.stepperButtonText}>＋</Text>
                       </AnimatedPressable>
-                    );
-                  })}
-                </View>
-
-                <Text style={styles.createLabel}>베팅 코인</Text>
-                <View style={styles.stepper}>
-                  {betAmount > MIN_BET_AMOUNT ? (
-                    <AnimatedPressable
-                      disabled={isCreatingRoom}
-                      onPress={() => updateBetAmount(betAmount - 1)}
-                      style={styles.stepperButton}>
-                      <Text style={styles.stepperButtonText}>−</Text>
-                    </AnimatedPressable>
-                  ) : (
-                    <View style={styles.stepperButton} />
-                  )}
-                  <Animated.Text style={[styles.stepperValue, {transform: [{scale: betAmountScale}]}]}>
-                    {betAmount}
-                  </Animated.Text>
-                  {betAmount < MAX_BET_AMOUNT ? (
-                    <AnimatedPressable
-                      disabled={isCreatingRoom}
-                      onPress={() => updateBetAmount(betAmount + 1)}
-                      style={styles.stepperButton}>
-                      <Text style={styles.stepperButtonText}>＋</Text>
-                    </AnimatedPressable>
-                  ) : (
-                    <View style={styles.stepperButton} />
-                  )}
-                </View>
+                    ) : (
+                      <View style={styles.stepperButton} />
+                    )}
+                  </View>
 
                   <View style={styles.createActions}>
                     <AnimatedPressable
@@ -907,6 +933,52 @@ export function CoinBattleScreen(): JSX.Element {
                 </Animated.View>
               </TouchableWithoutFeedback>
             </KeyboardAvoidingView>
+          </Modal>
+
+          <Modal
+            animationType="fade"
+            onRequestClose={() => setIsCoinInfoVisible(false)}
+            transparent
+            visible={isCoinInfoVisible}>
+            <View style={styles.coinInfoOverlay}>
+              <Pressable style={styles.coinInfoBackdrop} onPress={() => setIsCoinInfoVisible(false)} />
+              <View style={styles.coinInfoCard}>
+                <View style={styles.coinInfoHeader}>
+                  <View>
+                    <Text style={styles.coinInfoEyebrow}>COIN GUIDE</Text>
+                    <Text style={styles.coinInfoTitle}>코인 안내</Text>
+                  </View>
+                  <AnimatedPressable
+                    accessibilityLabel="코인 안내 닫기"
+                    accessibilityRole="button"
+                    onPress={() => setIsCoinInfoVisible(false)}
+                    style={styles.coinInfoCloseButton}>
+                    <Image source={icon.closeBtn} style={styles.coinInfoCloseIcon} resizeMode="contain" />
+                  </AnimatedPressable>
+                </View>
+
+                <View style={styles.coinInfoSection}>
+                  <Text style={styles.coinInfoSectionTitle}>코인 획득 방법</Text>
+                  <Text style={styles.coinInfoDescription}>
+                    출석체크, 게시글/댓글 참여, 승부예측, 코인대전 등 이벤트 활동에 참여하면 코인을 모을 수 있어요.
+                  </Text>
+                </View>
+
+                <View style={styles.coinInfoSection}>
+                  <Text style={styles.coinInfoSectionTitle}>코인을 모으면 좋은 점</Text>
+                  <Text style={styles.coinInfoDescription}>
+                    모은 코인은 상품 응모와 코인대전 참가에 사용할 수 있고, 누적 코인은 랭킹에 반영됩니다.
+                  </Text>
+                </View>
+
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  onPress={() => setIsCoinInfoVisible(false)}
+                  style={styles.coinInfoConfirmButton}>
+                  <Text style={styles.coinInfoConfirmText}>확인</Text>
+                </AnimatedPressable>
+              </View>
+            </View>
           </Modal>
         </View>
       </SafeAreaView>
@@ -940,6 +1012,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  titleLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  titleActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerCoinPill: {
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+    backgroundColor: '#111114',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  headerCoinIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 6,
+  },
+  headerCoinText: {
+    color: '#FFFFFF',
+    ...FONTS.font13B,
+    lineHeight: 17,
+  },
+  headerInfoButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerInfoIcon: {
+    width: 18,
+    height: 18,
   },
   guideEntryButton: {
     height: 34,
@@ -1317,5 +1429,83 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: '#FFFFFF',
     ...FONTS.font14B,
+  },
+  coinInfoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+  },
+  coinInfoBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  coinInfoCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#252525',
+    backgroundColor: '#171717',
+    padding: 18,
+  },
+  coinInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  coinInfoEyebrow: {
+    color: '#E50914',
+    ...FONTS.font11B,
+    lineHeight: 14,
+    letterSpacing: 0.8,
+  },
+  coinInfoTitle: {
+    marginTop: 5,
+    color: '#FFFFFF',
+    ...FONTS.font22B,
+    lineHeight: 28,
+  },
+  coinInfoCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinInfoCloseIcon: {
+    width: 18,
+    height: 18,
+    tintColor: '#A9ABB2',
+  },
+  coinInfoSection: {
+    marginTop: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#252525',
+    backgroundColor: '#111114',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  coinInfoSectionTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 20,
+  },
+  coinInfoDescription: {
+    marginTop: 7,
+    color: '#C7C8CC',
+    ...FONTS.font13M,
+    lineHeight: 19,
+  },
+  coinInfoConfirmButton: {
+    height: 48,
+    marginTop: 18,
+    borderRadius: 12,
+    backgroundColor: '#E50914',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinInfoConfirmText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 18,
   },
 });

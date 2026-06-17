@@ -24,6 +24,16 @@ type AppGnbProps = {
 export function AppGnb(_: AppGnbProps): JSX.Element {
   const navigation = useNavigation<NavigationProp<MainStackParamList>>();
 
+  const handleLogoPress = () => {
+    if (navigation.getState().routeNames.includes('Home')) {
+      navigation.navigate('Home');
+      return;
+    }
+
+    const parentNavigation = navigation.getParent<NavigationProp<RootStackParamList>>();
+    parentNavigation?.navigate('Main', {screen: 'Home'});
+  };
+
   const handleQrPress = () => {
     const parentNavigation = navigation.getParent<NavigationProp<RootStackParamList>>();
 
@@ -32,7 +42,13 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
 
   return (
     <View style={styles.gnb}>
-      <Image source={image.logo} style={styles.logoImage} resizeMode="contain" />
+      <AnimatedPressable
+        accessibilityLabel="홈으로 이동"
+        accessibilityRole="button"
+        onPress={handleLogoPress}
+        style={styles.logoButton}>
+        <Image source={image.logo} style={styles.logoImage} resizeMode="contain" />
+      </AnimatedPressable>
       <View style={styles.gnbActions}>
         {/* <HeaderAction variant="bell" /> */}
         <HeaderAction onPress={handleQrPress} variant="coin" />
@@ -52,6 +68,11 @@ const styles = StyleSheet.create({
   },
   logoImage: {
     width: 107,
+  },
+  logoButton: {
+    minWidth: 107,
+    height: 28,
+    justifyContent: 'center',
   },
   gnbActions: {
     flexDirection: 'row',

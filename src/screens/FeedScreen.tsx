@@ -38,10 +38,12 @@ import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
 import {FONTS} from '../constants/theme';
 import {useFeed} from '../feed/FeedProvider';
-import {type FeedComment, type FeedPost} from '../dummyData/feedDummyData';
+import {type FeedComment, type FeedLikeMember, type FeedPost} from '../dummyData/feedDummyData';
 import {getProfileImageUriFromRecord} from '../utils/profileImage';
+import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 
 type ComposeStep = 'select' | 'details';
+type FeedSheetMode = 'comments' | 'likes';
 type ComposeImageAsset = {
   fileName: string | undefined;
   fileSize: number | undefined;
@@ -278,6 +280,9 @@ export function FeedScreen(): JSX.Element {
   const [isMutatingComment, setIsMutatingComment] = useState(false);
   const [isMutatingPost, setIsMutatingPost] = useState(false);
   const [isLoadingComments, setIsLoadingComments] = useState(false);
+  const [sheetMode, setSheetMode] = useState<FeedSheetMode>('comments');
+  const [likedMembersPostId, setLikedMembersPostId] = useState<string | null>(null);
+  const [isLoadingLikedMembers, setIsLoadingLikedMembers] = useState(false);
   const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [activePostImageIndexes, setActivePostImageIndexes] = useState<Record<string, number>>({});
   const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>({});
@@ -385,6 +390,8 @@ export function FeedScreen(): JSX.Element {
   const selectedEmployeePostIsLiked =
     selectedEmployeePostInteraction?.isLiked ?? Boolean(selectedEmployeeFeedPost?.isLiked);
   const selectedEmployeePostLikeCount = selectedEmployeePostInteraction?.likes ?? selectedEmployeeFeedPost?.likes ?? 0;
+  const likedMembersPost = likedMembersPostId ? posts.find(post => post.id === likedMembersPostId) : undefined;
+  const likedMembers = likedMembersPost?.likedMembers ?? [];
   const employeePostDetailAnimatedStyle = {
     opacity: employeePostDetailProgress,
     transform: [
@@ -396,6 +403,12 @@ export function FeedScreen(): JSX.Element {
       },
     ],
   };
+
+  useEffect(() => {
+    return registerScrollToTopHandler('Feed', () => {
+      feedScrollRef.current?.scrollTo({animated: true, y: 0});
+    });
+  }, []);
 
   useEffect(() => {
     Animated.timing(commentSubmitProgress, {
@@ -421,8 +434,13 @@ export function FeedScreen(): JSX.Element {
 
   const openComments = useCallback(
     (postId: string) => {
+      setSheetMode('comments');
       setSelectedPostId(postId);
-      bottomSheetRef.current?.snapToIndex(0);
+      setLikedMembersPostId(null);
+      setIsLoadingLikedMembers(false);
+      requestAnimationFrame(() => {
+        bottomSheetRef.current?.snapToIndex(0);
+      });
       setIsLoadingComments(true);
       fetchComments(postId)
         .then(comments => {
@@ -451,6 +469,30 @@ export function FeedScreen(): JSX.Element {
         })
         .finally(() => {
           setIsLoadingComments(false);
+        });
+    },
+    [fetchComments],
+  );
+
+  const openLikedMembers = useCallback(
+    (post: FeedPost) => {
+      setSheetMode('likes');
+      setLikedMembersPostId(post.id);
+      requestAnimationFrame(() => {
+        bottomSheetRef.current?.snapToIndex(0);
+      });
+
+      if ((post.likedMembers?.length ?? 0) > 0 || post.likes === 0) {
+        return;
+      }
+
+      setIsLoadingLikedMembers(true);
+      fetchComments(post.id)
+        .catch(error => {
+          console.log('[FeedScreen] liked members detail failed', {error, postId: post.id});
+        })
+        .finally(() => {
+          setIsLoadingLikedMembers(false);
         });
     },
     [fetchComments],
@@ -917,6 +959,17 @@ export function FeedScreen(): JSX.Element {
     }
   }, [closeCompose, composeCaption, composeImageAssets, composeTagDraft, composeTags, composeTitle, createPost]);
 
+  const handleComposePrimaryPress = useCallback(() => {
+    if (composeStep === 'select') {
+      goToComposeDetails();
+      return;
+    }
+
+    submitCompose().catch(error => {
+      console.log('[FeedScreen] submitCompose handler failed', error);
+    });
+  }, [composeStep, goToComposeDetails, submitCompose]);
+
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
       <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.56} pressBehavior="close" />
@@ -945,6 +998,23 @@ export function FeedScreen(): JSX.Element {
       </AnimatedPressable>
     ),
     [myName, openCommentActions],
+  );
+
+  const renderLikedMember = useCallback(
+    ({item}: {item: FeedLikeMember}) => (
+      <View style={styles.likedMemberRow}>
+        <Image source={item.avatar ?? image.profile} style={styles.likedMemberAvatar} resizeMode="cover" />
+        <View style={styles.likedMemberText}>
+          <Text numberOfLines={1} style={styles.likedMemberName}>
+            {item.name}
+          </Text>
+          <Text numberOfLines={1} style={styles.likedMemberDepartment}>
+            {item.department}
+          </Text>
+        </View>
+      </View>
+    ),
+    [],
   );
 
   const openEmployeeProfile = useCallback(
@@ -1412,7 +1482,11 @@ export function FeedScreen(): JSX.Element {
 
                         <View style={styles.actionRow}>
                           <View style={styles.leftActions}>
-                            <LikeButton isLiked={isLiked} onPress={() => toggleLike(post.id)} style={styles.iconButton} />
+                            <LikeButton
+                              isLiked={isLiked}
+                              onPress={() => toggleLike(post.id)}
+                              style={styles.iconButton}
+                            />
                             <AnimatedPressable
                               accessibilityLabel="댓글 보기"
                               accessibilityRole="button"
@@ -1424,7 +1498,17 @@ export function FeedScreen(): JSX.Element {
                         </View>
 
                         <View style={styles.captionBlock}>
-                          <Text style={styles.likeText}>좋아요 {formatCount(likeCount)}개</Text>
+                          <AnimatedPressable
+                            accessibilityLabel={`좋아요 ${formatCount(likeCount)}개, 누른 사람 보기`}
+                            accessibilityRole="button"
+                            disabled={likeCount === 0}
+                            hitSlop={10}
+                            onPress={() => openLikedMembers(post)}
+                            style={styles.likeTextButton}>
+                            <Text style={[styles.likeText, likeCount === 0 && styles.likeTextDisabled]}>
+                              좋아요 {formatCount(likeCount)}개
+                            </Text>
+                          </AnimatedPressable>
                           <Text
                             style={styles.captionMeasureLine}
                             onTextLayout={({nativeEvent}) => markCaptionAsTruncated(post.id, nativeEvent.lines.length)}>
@@ -1494,51 +1578,79 @@ export function FeedScreen(): JSX.Element {
             handleStyle={styles.sheetHandleArea}
             backgroundStyle={styles.sheetBackground}>
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>댓글</Text>
+              <Text style={styles.sheetTitle}>{sheetMode === 'likes' ? '좋아요' : '댓글'}</Text>
             </View>
 
-            <BottomSheetFlatList
-              data={selectedComments}
-              keyboardShouldPersistTaps="handled"
-              ListEmptyComponent={
-                isLoadingComments ? (
-                  <View style={styles.commentLoadingState}>
-                    <AppLoading label="댓글을 불러오는 중..." />
-                  </View>
-                ) : (
-                  <View style={styles.commentEmptyState}>
-                    <Text style={styles.commentEmptyText}>아직 댓글이 없습니다.</Text>
-                  </View>
-                )
-              }
-              keyExtractor={item => item.id}
-              renderItem={renderComment}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.commentListContent,
-                !selectedComments.length && styles.commentListEmptyContent,
-              ]}
-            />
-
-            <View style={[styles.commentInputWrap, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
-              <Image source={myAvatarSource} style={styles.inputAvatar} />
-              <BottomSheetTextInput
-                placeholder="댓글 달기"
-                placeholderTextColor="#8A8D95"
-                style={styles.commentInput}
-                value={commentDraft}
-                onChangeText={setCommentDraft}
+            {sheetMode === 'likes' ? (
+              <BottomSheetFlatList
+                data={likedMembers}
+                keyboardShouldPersistTaps="handled"
+                ListEmptyComponent={
+                  isLoadingLikedMembers ? (
+                    <View style={styles.commentLoadingState}>
+                      <AppLoading label="좋아요 목록을 불러오는 중..." />
+                    </View>
+                  ) : (
+                    <View style={styles.commentEmptyState}>
+                      <Text style={styles.commentEmptyText}>아직 좋아요 한 사람이 없습니다.</Text>
+                    </View>
+                  )
+                }
+                keyExtractor={(item, index) => `${item.employeeId ?? item.name}-${index}`}
+                renderItem={renderLikedMember}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[
+                  styles.commentListContent,
+                  !likedMembers.length && styles.commentListEmptyContent,
+                  {paddingBottom: Math.max(insets.bottom + 16, 28)},
+                ]}
               />
-              <AnimatedPressable
-                accessibilityRole="button"
-                disabled={!isCommentSubmittable}
-                style={styles.commentSubmitPressable}
-                onPress={handleCommentSubmit}>
-                <Animated.View style={[styles.commentSubmitButton, commentSubmitAnimatedStyle]}>
-                  <Text style={styles.commentSubmitIcon}>↑</Text>
-                </Animated.View>
-              </AnimatedPressable>
-            </View>
+            ) : (
+              <>
+                <BottomSheetFlatList
+                  data={selectedComments}
+                  keyboardShouldPersistTaps="handled"
+                  ListEmptyComponent={
+                    isLoadingComments ? (
+                      <View style={styles.commentLoadingState}>
+                        <AppLoading label="댓글을 불러오는 중..." />
+                      </View>
+                    ) : (
+                      <View style={styles.commentEmptyState}>
+                        <Text style={styles.commentEmptyText}>아직 댓글이 없습니다.</Text>
+                      </View>
+                    )
+                  }
+                  keyExtractor={item => item.id}
+                  renderItem={renderComment}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={[
+                    styles.commentListContent,
+                    !selectedComments.length && styles.commentListEmptyContent,
+                  ]}
+                />
+
+                <View style={[styles.commentInputWrap, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
+                  <Image source={myAvatarSource} style={styles.inputAvatar} />
+                  <BottomSheetTextInput
+                    placeholder="댓글 달기"
+                    placeholderTextColor="#8A8D95"
+                    style={styles.commentInput}
+                    value={commentDraft}
+                    onChangeText={setCommentDraft}
+                  />
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    disabled={!isCommentSubmittable}
+                    style={styles.commentSubmitPressable}
+                    onPress={handleCommentSubmit}>
+                    <Animated.View style={[styles.commentSubmitButton, commentSubmitAnimatedStyle]}>
+                      <Text style={styles.commentSubmitIcon}>↑</Text>
+                    </Animated.View>
+                  </AnimatedPressable>
+                </View>
+              </>
+            )}
           </BottomSheet>
 
           <Modal
@@ -1640,7 +1752,9 @@ export function FeedScreen(): JSX.Element {
                           styles.commentEditSaveButton,
                           (isMutatingComment || !editingCommentDraft.trim()) && styles.commentEditSaveButtonDisabled,
                         ]}>
-                        <Text style={styles.commentEditSaveButtonText}>{isMutatingComment ? '저장 중...' : '저장'}</Text>
+                        <Text style={styles.commentEditSaveButtonText}>
+                          {isMutatingComment ? '저장 중...' : '저장'}
+                        </Text>
                       </AnimatedPressable>
                     </View>
                   </View>
@@ -2162,7 +2276,7 @@ export function FeedScreen(): JSX.Element {
                 <AnimatedPressable
                   accessibilityRole="button"
                   disabled={composeStep === 'details' && !isComposeSubmittable}
-                  onPress={composeStep === 'select' ? goToComposeDetails : () => void submitCompose()}
+                  onPress={handleComposePrimaryPress}
                   style={[
                     styles.composePrimaryButton,
                     composeStep === 'details' && !isComposeSubmittable && styles.composePrimaryButtonDisabled,
@@ -2479,6 +2593,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font14B,
     lineHeight: 18,
+  },
+  likeTextButton: {
+    alignSelf: 'flex-start',
+    minHeight: 26,
+    justifyContent: 'center',
+    paddingRight: 12,
+  },
+  likeTextDisabled: {
+    color: '#C7C8CC',
+  },
+  likedMemberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  likedMemberAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    marginRight: 10,
+    backgroundColor: '#2A2A2A',
+  },
+  likedMemberText: {
+    flex: 1,
+  },
+  likedMemberName: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 18,
+  },
+  likedMemberDepartment: {
+    marginTop: 3,
+    color: '#8A8D95',
+    ...FONTS.font12M,
+    lineHeight: 16,
   },
   captionLine: {
     color: '#E9E9EC',
