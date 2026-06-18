@@ -3,8 +3,10 @@ import {useFocusEffect, useNavigation, useRoute, type RouteProp} from '@react-na
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   Easing,
   Image,
   KeyboardAvoidingView,
@@ -19,6 +21,8 @@ import {
   TextInput,
   View,
   type ImageSourcePropType,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
@@ -39,8 +43,21 @@ const MASK_SINGER_GAME_ID = 86;
 const EXECUTIVE_GAME_ID = 106;
 const countingLottie = require('../assets/lotties/Counting.json');
 const participantTones = ['#E50914', '#3F8CFF', '#F4B740', '#21B37B', '#B05CFF'];
-const INDIVIDUAL_CHOICE_CARD_HEIGHT = 222;
-const INDIVIDUAL_CHOICE_CARD_GAP = 14;
+const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('window');
+const MAIN_POSTER_CARD_WIDTH = 327;
+const MAIN_POSTER_CARD_HEIGHT = 474;
+const MAIN_POSTER_ASPECT_RATIO = MAIN_POSTER_CARD_WIDTH / MAIN_POSTER_CARD_HEIGHT;
+const PARTICIPANT_POSTER_MAX_HEIGHT = Math.min(MAIN_POSTER_CARD_HEIGHT, Math.max(240, SCREEN_HEIGHT * 0.38));
+const PARTICIPANT_POSTER_MAX_WIDTH = Math.min(MAIN_POSTER_CARD_WIDTH, SCREEN_WIDTH - 48);
+const PARTICIPANT_POSTER_CARD_WIDTH = Math.round(
+  Math.min(PARTICIPANT_POSTER_MAX_WIDTH, PARTICIPANT_POSTER_MAX_HEIGHT * MAIN_POSTER_ASPECT_RATIO),
+);
+const PARTICIPANT_POSTER_CARD_HEIGHT = Math.round(PARTICIPANT_POSTER_CARD_WIDTH / MAIN_POSTER_ASPECT_RATIO);
+const PARTICIPANT_POSTER_CARD_GAP = 18;
+const PARTICIPANT_POSTER_ITEM_WIDTH = PARTICIPANT_POSTER_CARD_WIDTH + PARTICIPANT_POSTER_CARD_GAP;
+const PARTICIPANT_POSTER_SNAP_INTERVAL = PARTICIPANT_POSTER_ITEM_WIDTH;
+const PARTICIPANT_POSTER_STAGE_HEIGHT = PARTICIPANT_POSTER_CARD_HEIGHT + 36;
+const PARTICIPANT_POSTER_SIDE_PADDING = (SCREEN_WIDTH - PARTICIPANT_POSTER_ITEM_WIDTH) / 2;
 
 const teams = [
   {
@@ -411,6 +428,7 @@ export function PredictionDetailScreen(): JSX.Element {
   });
   const stepTransition = useRef(new Animated.Value(1)).current;
   const stageIntroProgress = useRef(new Animated.Value(0)).current;
+  const participantPosterScrollX = useRef(new Animated.Value(0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
   const isSelectedTeamInfoPending =
@@ -422,15 +440,11 @@ export function PredictionDetailScreen(): JSX.Element {
   const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '경기 정보';
   const isIndividualMatch =
     !isMaskSingerGame && (matchType === 'INDIVIDUAL' || isExecutiveGame || predictionTeams.length > 2);
-  const isVoteOnlyGame = isMaskSingerGame || isIndividualMatch;
+  const isVoteOnlyGame = isMaskSingerGame;
   const maskSingerTeams = predictionTeams.slice(0, 4);
   const individualStageStyle = isIndividualMatch
     ? {
-        height: Math.max(
-          INDIVIDUAL_CHOICE_CARD_HEIGHT,
-          predictionTeams.length * INDIVIDUAL_CHOICE_CARD_HEIGHT +
-            Math.max(predictionTeams.length - 1, 0) * INDIVIDUAL_CHOICE_CARD_GAP,
-        ),
+        height: PARTICIPANT_POSTER_STAGE_HEIGHT,
       }
     : undefined;
   const pickedTeamInfo =
@@ -507,6 +521,136 @@ export function PredictionDetailScreen(): JSX.Element {
   const matchupIdleStyle = {
     opacity: 1,
   };
+  const renderParticipantPosterCard = useCallback(
+    ({item: team, index}: {item: PredictionTeam; index: number}) => {
+      const inputRange = [
+        (index - 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
+        index * PARTICIPANT_POSTER_SNAP_INTERVAL,
+        (index + 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
+      ];
+      const scale = participantPosterScrollX.interpolate({
+        inputRange,
+        outputRange: [0.92, 1, 0.92],
+        extrapolate: 'clamp',
+      });
+      const opacity = participantPosterScrollX.interpolate({
+        inputRange,
+        outputRange: [0.72, 1, 0.72],
+        extrapolate: 'clamp',
+      });
+      const translateY = participantPosterScrollX.interpolate({
+        inputRange,
+        outputRange: [14, 0, 14],
+        extrapolate: 'clamp',
+      });
+      const rotate = participantPosterScrollX.interpolate({
+        inputRange,
+        outputRange: ['5deg', '0deg', '-5deg'],
+        extrapolate: 'clamp',
+      });
+      const selectionRingOpacity = participantPosterScrollX.interpolate({
+        inputRange,
+        outputRange: [0, 1, 0],
+        extrapolate: 'clamp',
+      });
+      return (
+        <View style={styles.participantPosterItem}>
+          <AnimatedPressable
+            accessibilityRole="button"
+            onPress={() => setSelectedTeam(team.id)}
+            style={styles.participantPosterPressable}>
+            <Animated.View
+              style={[
+                styles.participantPosterCard,
+                {
+                  opacity,
+                  transform: [{translateY}, {scale}, {rotate}],
+                },
+              ]}>
+              <View style={styles.participantPosterFace}>
+                {team.imageSource ? (
+                  <Image resizeMode="cover" source={team.imageSource} style={styles.participantPosterImage} />
+                ) : (
+                  <View style={styles.participantPosterPlaceholder}>
+                    <Text style={styles.participantPosterInitial}>{team.name.trim().slice(0, 1)}</Text>
+                  </View>
+                )}
+                <View style={styles.participantPosterNoise} />
+                <View pointerEvents="none" style={styles.participantPosterTextBlock}>
+                  <Text numberOfLines={2} adjustsFontSizeToFit style={styles.participantPosterName}>
+                    {team.name}
+                  </Text>
+                  <Text numberOfLines={2} adjustsFontSizeToFit style={styles.participantPosterDepartment}>
+                    {team.department ?? team.members.join(' / ')}
+                  </Text>
+                </View>
+              </View>
+            </Animated.View>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.participantPosterSelectionRing,
+                {
+                  opacity: selectionRingOpacity,
+                },
+              ]}
+            />
+          </AnimatedPressable>
+        </View>
+      );
+    },
+    [participantPosterScrollX],
+  );
+  const selectCenteredParticipantPoster = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>, teamsToSelect: PredictionTeam[]) => {
+      if (!teamsToSelect.length) {
+        return;
+      }
+
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const centeredIndex = Math.max(
+        0,
+        Math.min(teamsToSelect.length - 1, Math.round(offsetX / PARTICIPANT_POSTER_SNAP_INTERVAL)),
+      );
+      const centeredTeam = teamsToSelect[centeredIndex];
+
+      if (centeredTeam && centeredTeam.id !== selectedTeam) {
+        setSelectedTeam(centeredTeam.id);
+      }
+    },
+    [selectedTeam],
+  );
+  const renderParticipantPosterPagination = useCallback(
+    (teamsToRender: PredictionTeam[]) => (
+      <View style={styles.participantPosterPagination}>
+        {teamsToRender.map((team, index) => {
+          const inputRange = [
+            (index - 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
+            index * PARTICIPANT_POSTER_SNAP_INTERVAL,
+            (index + 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
+          ];
+          const opacity = participantPosterScrollX.interpolate({
+            inputRange,
+            outputRange: [0.3, 1, 0.3],
+            extrapolate: 'clamp',
+          });
+
+          return (
+            <Animated.View
+              key={team.id}
+              style={[
+                styles.participantPosterPaginationDot,
+                {
+                  opacity,
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
+    ),
+    [participantPosterScrollX],
+  );
 
   const playStageIntro = useCallback(() => {
     if (step !== 'select' || !predictionTeams.length) {
@@ -529,6 +673,20 @@ export function PredictionDetailScreen(): JSX.Element {
   useEffect(() => {
     playStageIntro();
   }, [playStageIntro]);
+
+  useEffect(() => {
+    if (step !== 'select') {
+      return;
+    }
+
+    const posterTeams = isMaskSingerGame ? maskSingerTeams : isIndividualMatch ? predictionTeams : [];
+
+    if (!posterTeams.length || posterTeams.some(team => team.id === selectedTeam)) {
+      return;
+    }
+
+    setSelectedTeam(posterTeams[0].id);
+  }, [isIndividualMatch, isMaskSingerGame, maskSingerTeams, predictionTeams, selectedTeam, step]);
 
   useEffect(() => {
     if (!isVoteOnlyGame) {
@@ -1193,7 +1351,10 @@ export function PredictionDetailScreen(): JSX.Element {
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                   style={styles.voteInputScroll}
-                  contentContainerStyle={styles.voteInputContent}>
+                  contentContainerStyle={[
+                    styles.voteInputContent,
+                    (isIndividualMatch || isMaskSingerGame) && styles.participantPosterSelectContent,
+                  ]}>
                   <View style={styles.heroBlock}>
                     <Text style={styles.heroTitle}>{displayGameTitle}</Text>
                     <Text style={styles.heroSubtitle}>
@@ -1217,143 +1378,67 @@ export function PredictionDetailScreen(): JSX.Element {
                         styles.matchupStageWrapper,
                         isMaskSingerGame && styles.maskSingerStageWrapper,
                         isIndividualMatch && styles.individualStageWrapper,
+                        (isMaskSingerGame || isIndividualMatch) && styles.participantPosterStageWrapper,
                         individualStageStyle,
                       ]}>
                       <View style={styles.matchupStage}>
                         {isIndividualMatch ? (
-                          <Animated.View style={[styles.individualChoiceStack, matchupIdleStyle]}>
-                            {predictionTeams.map(team => {
-                              const isSelected = selectedTeam === team.id;
-
-                              return (
-                                <AnimatedPressable
-                                  key={team.id}
-                                  accessibilityRole="button"
-                                  onPress={() => setSelectedTeam(team.id)}
-                                  style={styles.individualChoicePressable}>
-                                  <Animated.View
-                                    style={[
-                                      styles.individualChoiceCard,
-                                      !isSelected && styles.choiceCardMuted,
-                                      isSelected && styles.choiceCardSelected,
-                                      isSelected && {borderColor: team.tone},
-                                    ]}>
-                                    <View style={[styles.individualCardWash, {backgroundColor: team.tone}]} />
-                                    <View style={styles.individualCharacterStage}>
-                                      {team.imageSource ? (
-                                        <Image
-                                          resizeMode="contain"
-                                          source={team.imageSource}
-                                          style={[
-                                            styles.individualCharacterImage,
-                                            !isSelected && styles.teamCardImageMuted,
-                                          ]}
-                                        />
-                                      ) : (
-                                        <View style={[styles.individualCharacterPlaceholder, {borderColor: team.tone}]}>
-                                          <Text style={styles.individualCharacterInitial}>
-                                            {team.name.trim().slice(0, 1)}
-                                          </Text>
-                                        </View>
-                                      )}
-                                    </View>
-                                    <View style={styles.individualTextBlock}>
-                                      <Text style={styles.individualLabel}>EXECUTIVE PICK</Text>
-                                      <Text
-                                        numberOfLines={2}
-                                        adjustsFontSizeToFit
-                                        style={[styles.individualName, !isSelected && styles.teamCardNameMuted]}>
-                                        {team.name}
-                                      </Text>
-                                      <Text
-                                        numberOfLines={2}
-                                        adjustsFontSizeToFit
-                                        style={[
-                                          styles.individualDepartment,
-                                          !isSelected && styles.teamCardMembersMuted,
-                                        ]}>
-                                        {team.department ?? team.members.join(' / ')}
-                                      </Text>
-                                    </View>
-                                    <View
-                                      style={[
-                                        styles.individualSelectChip,
-                                        !isSelected && styles.selectChipMuted,
-                                        isSelected && {backgroundColor: team.tone},
-                                      ]}>
-                                      <Text style={styles.selectChipText}>{isSelected ? '선택됨' : '응원'}</Text>
-                                    </View>
-                                  </Animated.View>
-                                </AnimatedPressable>
-                              );
-                            })}
+                          <Animated.View style={[styles.participantPosterChoiceStage, matchupIdleStyle]}>
+                            <Animated.FlatList
+                              data={predictionTeams}
+                              decelerationRate="fast"
+                              disableIntervalMomentum
+                              getItemLayout={(_, index) => ({
+                                index,
+                                length: PARTICIPANT_POSTER_SNAP_INTERVAL,
+                                offset: PARTICIPANT_POSTER_SNAP_INTERVAL * index,
+                              })}
+                              horizontal
+                              initialNumToRender={predictionTeams.length}
+                              keyExtractor={team => team.id}
+                              nestedScrollEnabled
+                              onScroll={Animated.event(
+                                [{nativeEvent: {contentOffset: {x: participantPosterScrollX}}}],
+                                {useNativeDriver: true},
+                              )}
+                              onMomentumScrollEnd={event => selectCenteredParticipantPoster(event, predictionTeams)}
+                              onScrollEndDrag={event => selectCenteredParticipantPoster(event, predictionTeams)}
+                              renderItem={renderParticipantPosterCard}
+                              showsHorizontalScrollIndicator={false}
+                              snapToInterval={PARTICIPANT_POSTER_SNAP_INTERVAL}
+                              style={styles.participantPosterList}
+                              contentContainerStyle={styles.participantPosterListContent}
+                            />
+                            {renderParticipantPosterPagination(predictionTeams)}
                           </Animated.View>
                         ) : isMaskSingerGame ? (
-                          <Animated.View style={[styles.maskSingerPortraitGrid, matchupIdleStyle]}>
-                            {maskSingerTeams.map(team => {
-                              const isSelected = selectedTeam === team.id;
-
-                              return (
-                                <AnimatedPressable
-                                  key={team.id}
-                                  accessibilityRole="button"
-                                  onPress={() => setSelectedTeam(team.id)}
-                                  style={[
-                                    styles.maskSingerPortraitPressable,
-                                    maskSingerTeams.length === 1 && styles.maskSingerPortraitPressableSingle,
-                                  ]}>
-                                  <Animated.View
-                                    style={[
-                                      styles.maskSingerPortraitCard,
-                                      !isSelected && styles.choiceCardMuted,
-                                      isSelected && styles.choiceCardSelected,
-                                    ]}>
-                                    <View
-                                      style={[
-                                        styles.maskSingerPortraitImageBox,
-                                        maskSingerTeams.length === 1 && styles.maskSingerPortraitImageBoxSingle,
-                                      ]}>
-                                      <Image
-                                        source={team.imageSource ?? image.profile}
-                                        resizeMode="cover"
-                                        style={[
-                                          styles.maskSingerPortraitImage,
-                                          !isSelected && styles.teamCardImageMuted,
-                                        ]}
-                                      />
-                                    </View>
-                                    <View style={styles.maskSingerPortraitTextBlock}>
-                                      <Text
-                                        numberOfLines={1}
-                                        adjustsFontSizeToFit
-                                        style={[
-                                          styles.maskSingerPortraitName,
-                                          !isSelected && styles.teamCardNameMuted,
-                                        ]}>
-                                        {team.name}
-                                      </Text>
-                                      <Text
-                                        numberOfLines={1}
-                                        adjustsFontSizeToFit
-                                        style={[
-                                          styles.maskSingerPortraitMembers,
-                                          !isSelected && styles.teamCardMembersMuted,
-                                        ]}>
-                                        {team.members.join(' / ')}
-                                      </Text>
-                                    </View>
-                                    <View
-                                      style={[
-                                        styles.maskSingerSelectChip,
-                                        !isSelected && styles.selectChipMuted,
-                                        isSelected && styles.selectChipSelected,
-                                      ]}>
-                                      <Text style={styles.selectChipText}>{isSelected ? '선택됨' : '선택'}</Text>
-                                    </View>
-                                  </Animated.View>
-                                </AnimatedPressable>
-                              );
-                            })}
+                          <Animated.View style={[styles.participantPosterChoiceStage, matchupIdleStyle]}>
+                            <Animated.FlatList
+                              data={maskSingerTeams}
+                              decelerationRate="fast"
+                              disableIntervalMomentum
+                              getItemLayout={(_, index) => ({
+                                index,
+                                length: PARTICIPANT_POSTER_SNAP_INTERVAL,
+                                offset: PARTICIPANT_POSTER_SNAP_INTERVAL * index,
+                              })}
+                              horizontal
+                              initialNumToRender={maskSingerTeams.length}
+                              keyExtractor={team => team.id}
+                              nestedScrollEnabled
+                              onScroll={Animated.event(
+                                [{nativeEvent: {contentOffset: {x: participantPosterScrollX}}}],
+                                {useNativeDriver: true},
+                              )}
+                              onMomentumScrollEnd={event => selectCenteredParticipantPoster(event, maskSingerTeams)}
+                              onScrollEndDrag={event => selectCenteredParticipantPoster(event, maskSingerTeams)}
+                              renderItem={renderParticipantPosterCard}
+                              showsHorizontalScrollIndicator={false}
+                              snapToInterval={PARTICIPANT_POSTER_SNAP_INTERVAL}
+                              style={styles.participantPosterList}
+                              contentContainerStyle={styles.participantPosterListContent}
+                            />
+                            {renderParticipantPosterPagination(maskSingerTeams)}
                           </Animated.View>
                         ) : (
                           <Animated.View style={[styles.matchupChoiceStack, matchupIdleStyle]}>
@@ -1479,14 +1564,18 @@ export function PredictionDetailScreen(): JSX.Element {
                   )}
                 </ScrollView>
 
-                <View style={styles.bottomActionWrap}>
+                <View
+                  style={[
+                    styles.bottomActionWrap,
+                    (isIndividualMatch || isMaskSingerGame) && styles.participantPosterBottomActionWrap,
+                  ]}>
                   <AnimatedPressable
                     accessibilityRole="button"
                     disabled={!canProceedToComment}
                     onPress={handleSelectNext}
                     style={[styles.nextButton, !canProceedToComment && styles.nextButtonDisabled]}>
                     <Text style={[styles.nextButtonText, !canProceedToComment && styles.nextButtonTextDisabled]}>
-                      {isIndividualMatch ? '응원하기' : isMaskSingerGame ? '투표하기' : '다음'}
+                      {isMaskSingerGame ? '투표하기' : '다음'}
                     </Text>
                   </AnimatedPressable>
                 </View>
@@ -1606,6 +1695,14 @@ export function PredictionDetailScreen(): JSX.Element {
                   </Text>
                 ) : null}
                 {predictionSubmitError ? <Text style={styles.confirmErrorText}>{predictionSubmitError}</Text> : null}
+                {isSubmittingPrediction ? (
+                  <View style={styles.confirmLoadingRow}>
+                    <ActivityIndicator color="#E50914" size="small" />
+                    <Text style={styles.confirmLoadingText}>
+                      {isMaskSingerGame ? '투표를 등록하고 있어요' : '응원을 등록하고 있어요'}
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.confirmActions}>
                   <AnimatedPressable
@@ -1694,6 +1791,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 28,
   },
+  participantPosterSelectContent: {
+    flexGrow: 0,
+    paddingBottom: 6,
+  },
   backRow: {
     height: 56,
     paddingHorizontal: 20,
@@ -1746,10 +1847,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   maskSingerStageWrapper: {
-    height: 492,
+    height: PARTICIPANT_POSTER_STAGE_HEIGHT,
   },
   individualStageWrapper: {
-    height: INDIVIDUAL_CHOICE_CARD_HEIGHT,
+    height: PARTICIPANT_POSTER_STAGE_HEIGHT,
   },
   matchupStage: {
     height: '100%',
@@ -1764,210 +1865,106 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  maskSingerChoiceRow: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: 12,
+  participantPosterStageWrapper: {
+    marginHorizontal: 0,
   },
-  maskSingerChoiceShell: {
+  participantPosterChoiceStage: {
     flex: 1,
   },
-  maskSingerPortraitGrid: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignContent: 'flex-start',
-    gap: 12,
+  participantPosterList: {
+    height: PARTICIPANT_POSTER_CARD_HEIGHT + 8,
   },
-  maskSingerPortraitPressable: {
-    width: '48.2%',
-    height: 240,
+  participantPosterListContent: {
+    paddingTop: 8,
+    paddingHorizontal: PARTICIPANT_POSTER_SIDE_PADDING,
   },
-  maskSingerPortraitPressableSingle: {
-    width: '100%',
-    height: 392,
+  participantPosterItem: {
+    width: PARTICIPANT_POSTER_ITEM_WIDTH,
+    alignItems: 'center',
   },
-  maskSingerPortraitCard: {
-    flex: 1,
+  participantPosterPressable: {
+    width: PARTICIPANT_POSTER_CARD_WIDTH,
+    height: PARTICIPANT_POSTER_CARD_HEIGHT,
+    position: 'relative',
+  },
+  participantPosterCard: {
+    width: PARTICIPANT_POSTER_CARD_WIDTH,
+    height: PARTICIPANT_POSTER_CARD_HEIGHT,
     borderRadius: 12,
-    backgroundColor: '#111111',
-    overflow: 'hidden',
+    backgroundColor: '#171717',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  maskSingerPortraitImageBox: {
-    height: 158,
-    backgroundColor: '#18181C',
+    borderColor: '#E5091455',
     overflow: 'hidden',
+    position: 'relative',
   },
-  maskSingerPortraitImageBoxSingle: {
-    height: 296,
+  participantPosterFace: {
+    ...StyleSheet.absoluteFillObject,
+    backfaceVisibility: 'hidden',
   },
-  maskSingerPortraitImage: {
+  participantPosterImage: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
-  maskSingerPortraitTextBlock: {
-    minHeight: 50,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 8,
-  },
-  maskSingerPortraitName: {
-    width: '100%',
-    color: '#FFFFFF',
-    textAlign: 'left',
-    ...FONTS.font17B,
-    lineHeight: 22,
-  },
-  maskSingerPortraitMembers: {
-    width: '100%',
-    marginTop: 4,
-    color: '#C9CBD2',
-    textAlign: 'left',
-    ...FONTS.font11M,
-    lineHeight: 15,
-  },
-  maskSingerChoiceCard: {
-    flex: 1,
-    minHeight: 332,
-    borderRadius: 12,
-    backgroundColor: '#111111',
-    overflow: 'hidden',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 18,
-    paddingBottom: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  maskSingerImageBox: {
-    width: '100%',
-    height: 154,
+  participantPosterPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#18181C',
   },
-  maskSingerImage: {
-    width: '100%',
-    height: 142,
-  },
-  maskSingerName: {
-    width: '100%',
-    marginTop: 14,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    ...FONTS.font18B,
-    lineHeight: 24,
-  },
-  maskSingerMembers: {
-    width: '100%',
-    marginTop: 7,
-    color: '#C9CBD2',
-    textAlign: 'center',
-    ...FONTS.font12M,
-    lineHeight: 17,
-  },
-  maskSingerSelectChip: {
-    marginTop: 'auto',
-    marginLeft: 12,
-    marginBottom: 12,
-    alignSelf: 'flex-start',
-    minWidth: 68,
-    height: 32,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E50914',
-  },
-  individualChoiceStack: {
-    flex: 1,
-    gap: INDIVIDUAL_CHOICE_CARD_GAP,
-  },
-  individualChoicePressable: {
-    width: '100%',
-    height: INDIVIDUAL_CHOICE_CARD_HEIGHT,
-  },
-  individualChoiceCard: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: '#111114',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  individualCardWash: {
-    position: 'absolute',
-    right: -42,
-    top: -28,
-    width: 210,
-    height: 286,
-    borderRadius: 42,
-    opacity: 0.26,
-    transform: [{rotate: '10deg'}],
-  },
-  individualCharacterStage: {
-    position: 'absolute',
-    top: 14,
-    right: 0,
-    bottom: 0,
-    width: '58%',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    overflow: 'visible',
-  },
-  individualCharacterImage: {
-    width: '106%',
-    height: '98%',
-  },
-  individualCharacterPlaceholder: {
-    width: 132,
-    height: 132,
-    borderRadius: 66,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  individualCharacterInitial: {
+  participantPosterInitial: {
     color: '#FFFFFF',
     ...FONTS.font40B,
     lineHeight: 48,
   },
-  individualTextBlock: {
+  participantPosterNoise: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  participantPosterSelectionRing: {
     position: 'absolute',
-    left: 18,
-    right: '44%',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E50914',
+  },
+  participantPosterTextBlock: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
     bottom: 18,
   },
-  individualLabel: {
-    marginBottom: 8,
-    color: '#E50914',
-    ...FONTS.font11B,
-    lineHeight: 15,
-  },
-  individualName: {
+  participantPosterName: {
     color: '#FFFFFF',
     ...FONTS.font24B,
     lineHeight: 30,
+    textShadowColor: 'rgba(0,0,0,0.72)',
+    textShadowOffset: {width: 0, height: 2},
+    textShadowRadius: 6,
   },
-  individualDepartment: {
-    marginTop: 7,
-    color: '#C9CBD2',
-    ...FONTS.font13M,
+  participantPosterDepartment: {
+    marginTop: 6,
+    color: '#FFFFFF',
+    ...FONTS.font13B,
     lineHeight: 18,
+    textShadowColor: 'rgba(0,0,0,0.78)',
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 5,
   },
-  individualSelectChip: {
-    position: 'absolute',
-    right: 16,
-    bottom: 16,
-    minWidth: 70,
-    height: 32,
-    borderRadius: 16,
-    paddingHorizontal: 12,
+  participantPosterPagination: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  participantPosterPaginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
     backgroundColor: '#E50914',
   },
   teamInfoBlock: {
@@ -2233,6 +2230,23 @@ const styles = StyleSheet.create({
     ...FONTS.font12M,
     lineHeight: 17,
   },
+  confirmLoadingRow: {
+    marginTop: 14,
+    minHeight: 38,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0B0B0D',
+    borderWidth: 1,
+    borderColor: '#25252A',
+  },
+  confirmLoadingText: {
+    marginLeft: 10,
+    color: '#D6D8DE',
+    ...FONTS.font13B,
+    lineHeight: 18,
+  },
   confirmActions: {
     marginTop: 18,
     flexDirection: 'row',
@@ -2393,6 +2407,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderTopWidth: 1,
     borderTopColor: '#171717',
+  },
+  participantPosterBottomActionWrap: {
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 18 : 14,
   },
   nextButton: {
     height: 54,
