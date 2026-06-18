@@ -196,7 +196,7 @@ export function PredictionSelectScreen(): JSX.Element {
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
                   {isExecutiveGame
-                    ? '응원할 라운드를 선택해주세요.'
+                    ? '투표할 라운드를 선택해주세요.'
                     : isMaskSingerGame
                     ? '투표할 무대를 선택해주세요.'
                     : '팀 선택으로 이동할 라운드를 선택해주세요.'}
@@ -212,7 +212,7 @@ export function PredictionSelectScreen(): JSX.Element {
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
                   {isExecutiveGame
-                    ? '응원할 라운드를 선택해주세요.'
+                    ? '투표할 라운드를 선택해주세요.'
                     : isMaskSingerGame
                     ? '투표할 무대를 선택해주세요.'
                     : '팀 선택으로 이동할 라운드를 선택해주세요.'}
@@ -228,7 +228,7 @@ export function PredictionSelectScreen(): JSX.Element {
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
                   {isExecutiveGame
-                    ? '응원할 라운드를 선택해주세요.'
+                    ? '투표할 라운드를 선택해주세요.'
                     : isMaskSingerGame
                     ? '투표할 무대를 선택해주세요.'
                     : '팀 선택으로 이동할 라운드를 선택해주세요.'}
@@ -278,7 +278,7 @@ export function PredictionSelectScreen(): JSX.Element {
                   {isVoteOnlyGame && selectedMatch?.matchStatus === 'FINISHED'
                     ? '결과 보기'
                     : isExecutiveGame
-                    ? '응원하기'
+                    ? '투표하기'
                     : isMaskSingerGame
                     ? '투표하기'
                     : '팀 선택하기'}

@@ -58,6 +58,9 @@ const PARTICIPANT_POSTER_ITEM_WIDTH = PARTICIPANT_POSTER_CARD_WIDTH + PARTICIPAN
 const PARTICIPANT_POSTER_SNAP_INTERVAL = PARTICIPANT_POSTER_ITEM_WIDTH;
 const PARTICIPANT_POSTER_STAGE_HEIGHT = PARTICIPANT_POSTER_CARD_HEIGHT + 36;
 const PARTICIPANT_POSTER_SIDE_PADDING = (SCREEN_WIDTH - PARTICIPANT_POSTER_ITEM_WIDTH) / 2;
+const EXECUTIVE_PROFILE_AVAILABLE_HEIGHT = Math.max(300, SCREEN_HEIGHT - 314);
+const EXECUTIVE_PROFILE_CARD_HEIGHT = Math.round(Math.min(372, EXECUTIVE_PROFILE_AVAILABLE_HEIGHT));
+const EXECUTIVE_RESULT_BAR_MAX_HEIGHT = 136;
 
 const teams = [
   {
@@ -88,6 +91,21 @@ type PredictionTeam = {
   participantId?: number;
   predictionRate?: number;
   tone: string;
+};
+
+type ExecutiveProfile = {
+  department?: string;
+  imageSource?: ImageSourcePropType;
+  name: string;
+  participantId?: number;
+};
+
+type MatchParticipant = {
+  department?: string;
+  logoImageUrl?: string;
+  name?: string;
+  participantName?: string;
+  participantId?: number;
 };
 
 type GameDetailMatch = {
@@ -251,13 +269,13 @@ function normalizeMatchStatus(value: unknown): string {
 function getInitialPredictionStep(
   startStep: PredictionStep | undefined,
   matchStatus: unknown,
-  isMaskSingerGame: boolean,
+  isVoteOnlyGame: boolean,
 ): PredictionStep {
   if (startStep === 'comment' || startStep === 'counting' || startStep === 'result') {
     return startStep;
   }
 
-  if (!isMaskSingerGame) {
+  if (!isVoteOnlyGame) {
     return 'select';
   }
 
@@ -302,10 +320,49 @@ function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
   };
 }
 
+function getSeparatedParticipantName(participant: MatchParticipant, preferNameField: boolean): string | undefined {
+  const department = participant.department?.trim();
+  const rawName = preferNameField
+    ? participant.name?.trim() || participant.participantName?.trim()
+    : participant.participantName?.trim() || participant.name?.trim();
+
+  if (!rawName || !department) {
+    return rawName;
+  }
+
+  return (
+    rawName
+      .replace(department, '')
+      .replace(/\(\s*\)|\[\s*\]|\s*[-/|·]\s*$/g, '')
+      .trim() || rawName
+  );
+}
+
+function toExecutiveProfile(participant: MatchParticipant | undefined): ExecutiveProfile | null {
+  if (!participant) {
+    return null;
+  }
+
+  const name = getSeparatedParticipantName(participant, true);
+  const logoImageUrl = participant.logoImageUrl?.trim();
+
+  if (!name) {
+    return null;
+  }
+
+  return {
+    department: participant.department?.trim(),
+    imageSource: logoImageUrl ? {uri: logoImageUrl} : image.human,
+    name,
+    participantId: participant.participantId,
+  };
+}
+
 function toPredictionTeam(
   participant: NonNullable<NonNullable<MatchDetailApiResponse['data']>['participants']>[number],
   index = 0,
   matchType?: string,
+  isExecutiveGame = false,
 ): PredictionTeam | null {
   if (typeof participant.participantId !== 'number') {
     return null;
@@ -319,6 +376,8 @@ function toPredictionTeam(
   const fallbackTeam = teamId === 'team-black' ? teams[1] : teams[0];
   const logoImageUrl = participant.logoImageUrl?.trim();
   const department = participant.department?.trim();
+  const fallbackName = isExecutiveGame && index === 1 ? '일반사원' : `참가자 ${index + 1}`;
+  const displayName = getSeparatedParticipantName(participant, isExecutiveGame);
 
   return {
     department,
@@ -330,7 +389,7 @@ function toPredictionTeam(
       : (participant.participantMembers ?? [])
           .map(member => member.nickname?.trim())
           .filter((nickname): nickname is string => Boolean(nickname)),
-    name: participant.participantName?.trim() || participant.name?.trim() || `참가팀 ${index + 1}`,
+    name: displayName || fallbackName,
     participantId: participant.participantId,
     predictionRate: toPredictionRate(participant.predictionRate),
     tone: isIndividual ? participantTones[index % participantTones.length] : fallbackTeam.tone,
@@ -386,13 +445,14 @@ export function PredictionDetailScreen(): JSX.Element {
   const routeMatchId = route.params?.matchId;
   const isMaskSingerGame = routeGameId === MASK_SINGER_GAME_ID;
   const isExecutiveGame = routeGameId === EXECUTIVE_GAME_ID || routeGameTitle?.includes('임원') === true;
+  const isVoteOnlyGame = isMaskSingerGame || isExecutiveGame;
   const profileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const myName = auth?.name ?? '이인철';
   const initialSelectedTeam = route.params?.selectedTeamId ?? '';
   const isParticipatedDetail = route.params?.mode === 'participated';
   const [step, setStep] = useState<PredictionStep>(() =>
-    getInitialPredictionStep(route.params?.startStep, route.params?.matchStatus, isMaskSingerGame),
+    getInitialPredictionStep(route.params?.startStep, route.params?.matchStatus, isVoteOnlyGame),
   );
   const [selectedTeam, setSelectedTeam] = useState<string>(initialSelectedTeam);
   const [matchStatus, setMatchStatus] = useState(() => normalizeMatchStatus(route.params?.matchStatus));
@@ -404,6 +464,7 @@ export function PredictionDetailScreen(): JSX.Element {
   const [cheerComments, setCheerComments] = useState<CheerComment[]>([]);
   const [gameDetail, setGameDetail] = useState<GameDetail | null>(null);
   const [predictionTeams, setPredictionTeams] = useState<PredictionTeam[]>([]);
+  const [executiveProfile, setExecutiveProfile] = useState<ExecutiveProfile | null>(null);
   const [isGameDetailLoading, setIsGameDetailLoading] = useState(false);
   const [isMatchDetailLoading, setIsMatchDetailLoading] = useState(false);
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
@@ -437,10 +498,12 @@ export function PredictionDetailScreen(): JSX.Element {
   const canProceedToComment = Boolean(selectedTeamInfo && typeof selectedTeamInfo.participantId === 'number');
   const leftTeamInfo = predictionTeams[0] ?? null;
   const rightTeamInfo = predictionTeams[1] ?? null;
+  const executiveTeamInfo = isExecutiveGame ? predictionTeams[0] ?? null : null;
+  const employeeTeamInfo = isExecutiveGame ? predictionTeams[1] ?? null : null;
+  const executiveDisplayProfile = executiveProfile;
   const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '경기 정보';
   const isIndividualMatch =
-    !isMaskSingerGame && (matchType === 'INDIVIDUAL' || isExecutiveGame || predictionTeams.length > 2);
-  const isVoteOnlyGame = isMaskSingerGame;
+    !isMaskSingerGame && !isExecutiveGame && (matchType === 'INDIVIDUAL' || predictionTeams.length > 2);
   const maskSingerTeams = predictionTeams.slice(0, 4);
   const individualStageStyle = isIndividualMatch
     ? {
@@ -451,15 +514,54 @@ export function PredictionDetailScreen(): JSX.Element {
     pickedParticipantId !== null
       ? predictionTeams.find(team => team.participantId === pickedParticipantId) ?? selectedTeamInfo
       : selectedTeamInfo;
+  const getExecutiveVoteOptionLabel = useCallback(
+    (team: PredictionTeam | null | undefined) => {
+      if (!team) {
+        return '참가자';
+      }
+
+      if (!isExecutiveGame) {
+        return team.name;
+      }
+
+      if (team.participantId === executiveTeamInfo?.participantId) {
+        return 'O';
+      }
+
+      if (team.participantId === employeeTeamInfo?.participantId) {
+        return 'X';
+      }
+
+      return team.name;
+    },
+    [employeeTeamInfo?.participantId, executiveTeamInfo?.participantId, isExecutiveGame],
+  );
   const displayTeamName = useCallback(
-    (teamId: string) => predictionTeams.find(team => team.id === teamId)?.name ?? '참가팀',
-    [predictionTeams],
+    (teamId: string) => getExecutiveVoteOptionLabel(predictionTeams.find(team => team.id === teamId)) ?? '참가팀',
+    [getExecutiveVoteOptionLabel, predictionTeams],
   );
   const getTeamTone = useCallback(
     (teamId: string) => predictionTeams.find(team => team.id === teamId)?.tone ?? '#E50914',
     [predictionTeams],
   );
+  const executiveVoteResultTeams = [executiveTeamInfo, employeeTeamInfo].filter(
+    (team): team is PredictionTeam => Boolean(team),
+  );
   const hasVoteRate = predictionTeams.some(team => (team.predictionRate ?? 0) > 0);
+  const getExecutiveVoteBarStyle = useCallback(
+    (team: PredictionTeam, index: number) => {
+      const rate = hasVoteRate ? Math.max(team.predictionRate ?? 0, 0) : 50;
+
+      return [
+        styles.executiveResultBarFill,
+        {
+          backgroundColor: index === 0 ? '#E50914' : '#3A3B40',
+          height: Math.max(8, Math.round((Math.min(rate, 100) / 100) * EXECUTIVE_RESULT_BAR_MAX_HEIGHT)),
+        },
+      ];
+    },
+    [hasVoteRate],
+  );
   const getVoteGraphSegmentStyle = useCallback(
     (team: PredictionTeam) => [
       styles.voteGraphSegment,
@@ -743,7 +845,7 @@ export function PredictionDetailScreen(): JSX.Element {
     if (responseBody.data?.matchStatus) {
       setMatchStatus(nextStatus);
 
-      if (isMaskSingerGame && nextStatus === 'FINISHED') {
+      if (isVoteOnlyGame && nextStatus === 'FINISHED') {
         setStep('result');
       }
     }
@@ -752,9 +854,15 @@ export function PredictionDetailScreen(): JSX.Element {
       setMatchType(responseBody.data.matchType.trim().toUpperCase());
     }
 
+    const responseParticipants = responseBody.data?.participants ?? [];
+
+    if (isExecutiveGame) {
+      setExecutiveProfile(toExecutiveProfile(responseParticipants[0]));
+    }
+
     const responseMatchType = responseBody.data?.matchType?.trim().toUpperCase() ?? matchType;
-    const nextTeams = (responseBody.data?.participants ?? [])
-      .map((participant, index) => toPredictionTeam(participant, index, responseMatchType))
+    const nextTeams = responseParticipants
+      .map((participant, index) => toPredictionTeam(participant, index, responseMatchType, isExecutiveGame))
       .filter((team): team is PredictionTeam => Boolean(team));
 
     if (nextTeams.length) {
@@ -789,7 +897,16 @@ export function PredictionDetailScreen(): JSX.Element {
     }
 
     return true;
-  }, [auth?.accessToken, auth?.employeeId, auth?.name, isMaskSingerGame, matchType, routeGameId, routeMatchId]);
+  }, [
+    auth?.accessToken,
+    auth?.employeeId,
+    auth?.name,
+    isExecutiveGame,
+    isVoteOnlyGame,
+    matchType,
+    routeGameId,
+    routeMatchId,
+  ]);
 
   useEffect(() => {
     const accessToken = auth?.accessToken;
@@ -838,7 +955,7 @@ export function PredictionDetailScreen(): JSX.Element {
           if (currentMatch) {
             setMatchStatus(nextStatus);
 
-            if (isMaskSingerGame && nextStatus === 'FINISHED') {
+            if (isVoteOnlyGame && nextStatus === 'FINISHED') {
               setStep('result');
             }
           }
@@ -857,7 +974,7 @@ export function PredictionDetailScreen(): JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [auth?.accessToken, isMaskSingerGame, routeGameId, routeMatchId]);
+  }, [auth?.accessToken, isVoteOnlyGame, routeGameId, routeMatchId]);
 
   useEffect(() => {
     const accessToken = auth?.accessToken;
@@ -902,7 +1019,7 @@ export function PredictionDetailScreen(): JSX.Element {
         if (isMounted && responseBody.data?.matchStatus) {
           setMatchStatus(nextStatus);
 
-          if (isMaskSingerGame && nextStatus === 'FINISHED') {
+          if (isVoteOnlyGame && nextStatus === 'FINISHED') {
             setStep('result');
           }
         }
@@ -911,9 +1028,15 @@ export function PredictionDetailScreen(): JSX.Element {
           setMatchType(responseBody.data.matchType.trim().toUpperCase());
         }
 
+        const responseParticipants = responseBody.data?.participants ?? [];
+
+        if (isMounted && isExecutiveGame) {
+          setExecutiveProfile(toExecutiveProfile(responseParticipants[0]));
+        }
+
         const responseMatchType = responseBody.data?.matchType?.trim().toUpperCase() ?? matchType;
-        const nextTeams = (responseBody.data?.participants ?? [])
-          .map((participant, index) => toPredictionTeam(participant, index, responseMatchType))
+        const nextTeams = responseParticipants
+          .map((participant, index) => toPredictionTeam(participant, index, responseMatchType, isExecutiveGame))
           .filter((team): team is PredictionTeam => Boolean(team));
 
         if (isMounted && nextTeams.length) {
@@ -953,7 +1076,7 @@ export function PredictionDetailScreen(): JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [auth?.accessToken, isMaskSingerGame, isParticipatedDetail, matchType, routeGameId, routeMatchId]);
+  }, [auth?.accessToken, isExecutiveGame, isParticipatedDetail, isVoteOnlyGame, matchType, routeGameId, routeMatchId]);
 
   useEffect(() => {
     if (!auth?.accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
@@ -1067,6 +1190,23 @@ export function PredictionDetailScreen(): JSX.Element {
     }
 
     transitionToStep('comment');
+  };
+
+  const handleExecutiveVotePress = (team: PredictionTeam | null) => {
+    if (!team || typeof team.participantId !== 'number') {
+      setPredictionSubmitError('투표지 정보를 확인할 수 없습니다.');
+      return;
+    }
+
+    if (matchStatus === 'FINISHED') {
+      setSelectedTeam(team.id);
+      transitionToStep('result');
+      return;
+    }
+
+    setSelectedTeam(team.id);
+    setPredictionSubmitError(null);
+    setIsConfirmVisible(true);
   };
 
   const openSubmitConfirm = () => {
@@ -1197,7 +1337,7 @@ export function PredictionDetailScreen(): JSX.Element {
         console.log('[PredictionDetailScreen] overview refresh after submit failed', overviewError);
       }
 
-      if (didRefreshOverview) {
+      if (isVoteOnlyGame || didRefreshOverview) {
         setSubmittedComment(null);
       } else {
         setSubmittedComment({
@@ -1213,7 +1353,7 @@ export function PredictionDetailScreen(): JSX.Element {
 
       setIsConfirmVisible(false);
       showSubmitToast(
-        isIndividualMatch ? '응원이 완료됐어요' : isMaskSingerGame ? '투표가 완료됐어요' : '응원댓글이 등록됐어요',
+        isVoteOnlyGame ? '투표가 완료됐어요' : isIndividualMatch ? '응원이 완료됐어요' : '응원댓글이 등록됐어요',
       );
       transitionToStep(isVoteOnlyGame ? 'counting' : 'result');
     } catch (error) {
@@ -1262,7 +1402,7 @@ export function PredictionDetailScreen(): JSX.Element {
                   {pickedTeamInfo ? (
                     <View style={styles.countingSelectionBox}>
                       <Text style={styles.countingSelectionLabel}>{isIndividualMatch ? '내 응원' : '내 투표'}</Text>
-                      <Text style={styles.countingSelectionName}>{pickedTeamInfo.name}</Text>
+                      <Text style={styles.countingSelectionName}>{getExecutiveVoteOptionLabel(pickedTeamInfo)}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -1271,9 +1411,11 @@ export function PredictionDetailScreen(): JSX.Element {
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
                 <View style={styles.resultHero}>
                   <Text style={styles.resultEyebrow}>
-                    {isIndividualMatch ? '내 응원' : isMaskSingerGame ? '내 투표' : '내 선택'}
+                    {isVoteOnlyGame ? '내 투표' : isIndividualMatch ? '내 응원' : '내 선택'}
                   </Text>
-                  <Text style={styles.resultTitle}>{pickedTeamInfo?.name ?? displayTeamName(selectedTeam)}</Text>
+                  <Text style={styles.resultTitle}>
+                    {pickedTeamInfo ? getExecutiveVoteOptionLabel(pickedTeamInfo) : displayTeamName(selectedTeam)}
+                  </Text>
                   <Text style={styles.resultSubtitle}>
                     {isVoteOnlyGame
                       ? '종료되어 결과를 확인할 수 있어요'
@@ -1281,29 +1423,64 @@ export function PredictionDetailScreen(): JSX.Element {
                   </Text>
                 </View>
 
-                <View style={styles.voteCard}>
-                  <View style={styles.voteHeader}>
-                    <Text style={styles.voteTitle}>{isIndividualMatch ? '응원 결과' : '투표 결과'}</Text>
-                    <Text style={styles.voteTotal}>최종 {isIndividualMatch ? '응원율' : '투표율'}</Text>
-                  </View>
+                {isExecutiveGame ? (
+                  <View style={[styles.voteCard, styles.executiveResultCard]}>
+                    <View style={styles.voteHeader}>
+                      <Text style={styles.voteTitle}>OX 투표 결과</Text>
+                      <Text style={styles.voteTotal}>최종 투표율</Text>
+                    </View>
 
-                  <View style={styles.voteGraphTrack}>
-                    {predictionTeams.map(team => (
-                      <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
-                    ))}
+                    <View style={styles.executiveResultChart}>
+                      {executiveVoteResultTeams.map((team, index) => (
+                        <View key={team.id} style={styles.executiveResultColumn}>
+                          <Text style={styles.executiveResultRate}>{team.predictionRate ?? 0}%</Text>
+                          <View style={styles.executiveResultBarTrack}>
+                            <View style={getExecutiveVoteBarStyle(team, index)} />
+                          </View>
+                          <View
+                            style={[
+                              styles.executiveResultMarkBadge,
+                              index === 0 ? styles.executiveResultMarkBadgeO : styles.executiveResultMarkBadgeX,
+                            ]}>
+                            <Text style={styles.executiveResultMark}>{getExecutiveVoteOptionLabel(team)}</Text>
+                          </View>
+                          <Text style={styles.executiveResultLabel}>
+                            {index === 0 ? '임원 승리' : '일반사원 승리'}
+                          </Text>
+                        </View>
+                      ))}
+                      {executiveVoteResultTeams.length === 2 ? (
+                        <View pointerEvents="none" style={styles.executiveResultVsBadge}>
+                          <Text style={styles.executiveResultVsText}>VS</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
+                ) : (
+                  <View style={styles.voteCard}>
+                    <View style={styles.voteHeader}>
+                      <Text style={styles.voteTitle}>{isIndividualMatch ? '응원 결과' : '투표 결과'}</Text>
+                      <Text style={styles.voteTotal}>최종 {isIndividualMatch ? '응원율' : '투표율'}</Text>
+                    </View>
 
-                  <View style={styles.voteLegendRow}>
-                    {predictionTeams.map(team => (
-                      <View key={team.id} style={styles.voteLegendItem}>
-                        <View style={[styles.voteDot, {backgroundColor: team.tone}]} />
-                        <Text style={styles.voteLegendText}>
-                          {team.name} {team.predictionRate ?? 0}%
-                        </Text>
-                      </View>
-                    ))}
+                    <View style={styles.voteGraphTrack}>
+                      {predictionTeams.map(team => (
+                        <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
+                      ))}
+                    </View>
+
+                    <View style={styles.voteLegendRow}>
+                      {predictionTeams.map(team => (
+                        <View key={team.id} style={styles.voteLegendItem}>
+                          <View style={[styles.voteDot, {backgroundColor: team.tone}]} />
+                          <Text style={styles.voteLegendText}>
+                            {getExecutiveVoteOptionLabel(team)} {team.predictionRate ?? 0}%
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                </View>
+                )}
 
                 {!isVoteOnlyGame ? (
                   <>
@@ -1353,13 +1530,15 @@ export function PredictionDetailScreen(): JSX.Element {
                   style={styles.voteInputScroll}
                   contentContainerStyle={[
                     styles.voteInputContent,
-                    (isIndividualMatch || isMaskSingerGame) && styles.participantPosterSelectContent,
+                    (isExecutiveGame || isIndividualMatch || isMaskSingerGame) && styles.participantPosterSelectContent,
                   ]}>
                   <View style={styles.heroBlock}>
                     <Text style={styles.heroTitle}>{displayGameTitle}</Text>
                     <Text style={styles.heroSubtitle}>
                       {isGameDetailLoading || isMatchDetailLoading
                         ? '경기 정보를 불러오는 중...'
+                        : isExecutiveGame
+                        ? '임원이 승리한다고 생각하면 O, 일반사원이 승리한다고 생각하면 X를 선택하세요.'
                         : isIndividualMatch
                         ? '응원할 임원을 선택해주세요.'
                         : isMaskSingerGame
@@ -1368,21 +1547,50 @@ export function PredictionDetailScreen(): JSX.Element {
                     </Text>
                   </View>
 
-                  {isMatchDetailLoading && !predictionTeams.length ? (
+                  {(isMatchDetailLoading && !predictionTeams.length) || (isExecutiveGame && !executiveDisplayProfile) ? (
                     <View style={styles.teamStateCenter}>
                       <AppLoading label="참가팀을 불러오는 중..." />
                     </View>
-                  ) : predictionTeams.length && leftTeamInfo ? (
+                  ) : predictionTeams.length && leftTeamInfo && (!isExecutiveGame || executiveDisplayProfile) ? (
                     <View
                       style={[
                         styles.matchupStageWrapper,
                         isMaskSingerGame && styles.maskSingerStageWrapper,
+                        isExecutiveGame && styles.executiveVoteStageWrapper,
                         isIndividualMatch && styles.individualStageWrapper,
-                        (isMaskSingerGame || isIndividualMatch) && styles.participantPosterStageWrapper,
-                        individualStageStyle,
+                        (isExecutiveGame || isMaskSingerGame || isIndividualMatch) && styles.participantPosterStageWrapper,
+                        !isExecutiveGame && individualStageStyle,
                       ]}>
                       <View style={styles.matchupStage}>
-                        {isIndividualMatch ? (
+                        {isExecutiveGame && executiveDisplayProfile ? (
+                          <View style={styles.executiveVoteCardShell}>
+                            <View style={styles.executiveProfileImageContainer}>
+                              {executiveDisplayProfile.imageSource ? (
+                                <Image
+                                  resizeMode="cover"
+                                  source={executiveDisplayProfile.imageSource}
+                                  style={styles.executiveProfileImage}
+                                />
+                              ) : (
+                                <View style={styles.executiveProfilePlaceholder}>
+                                  <Text style={styles.participantPosterInitial}>
+                                    {executiveDisplayProfile.name.trim().slice(0, 1)}
+                                  </Text>
+                                </View>
+                              )}
+                              <View pointerEvents="none" style={styles.executiveProfileNameBadge}>
+                                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.executiveProfileName}>
+                                  {executiveDisplayProfile.name}
+                                </Text>
+                              </View>
+                              {executiveDisplayProfile.department ? (
+                                <Text numberOfLines={1} pointerEvents="none" style={styles.executiveProfileDepartment}>
+                                  {executiveDisplayProfile.department}
+                                </Text>
+                              ) : null}
+                            </View>
+                          </View>
+                        ) : isIndividualMatch ? (
                           <Animated.View style={[styles.participantPosterChoiceStage, matchupIdleStyle]}>
                             <Animated.FlatList
                               data={predictionTeams}
@@ -1567,17 +1775,58 @@ export function PredictionDetailScreen(): JSX.Element {
                 <View
                   style={[
                     styles.bottomActionWrap,
-                    (isIndividualMatch || isMaskSingerGame) && styles.participantPosterBottomActionWrap,
+                    (isExecutiveGame || isIndividualMatch || isMaskSingerGame) && styles.participantPosterBottomActionWrap,
                   ]}>
-                  <AnimatedPressable
-                    accessibilityRole="button"
-                    disabled={!canProceedToComment}
-                    onPress={handleSelectNext}
-                    style={[styles.nextButton, !canProceedToComment && styles.nextButtonDisabled]}>
-                    <Text style={[styles.nextButtonText, !canProceedToComment && styles.nextButtonTextDisabled]}>
-                      {isMaskSingerGame ? '투표하기' : '다음'}
-                    </Text>
-                  </AnimatedPressable>
+                  {isExecutiveGame ? (
+                    <View style={styles.executiveVoteButtonRow}>
+                      <AnimatedPressable
+                        accessibilityLabel="임원이 승리한다 O"
+                        accessibilityRole="button"
+                        disabled={!executiveTeamInfo}
+                        onPress={() => handleExecutiveVotePress(executiveTeamInfo)}
+                        style={[
+                          styles.executiveVoteButton,
+                          styles.executiveVoteButtonO,
+                          !executiveTeamInfo && styles.nextButtonDisabled,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.executiveVoteButtonMark,
+                            !executiveTeamInfo && styles.nextButtonTextDisabled,
+                          ]}>
+                          O
+                        </Text>
+                      </AnimatedPressable>
+                      <AnimatedPressable
+                        accessibilityLabel="일반사원이 승리한다 X"
+                        accessibilityRole="button"
+                        disabled={!employeeTeamInfo}
+                        onPress={() => handleExecutiveVotePress(employeeTeamInfo)}
+                        style={[
+                          styles.executiveVoteButton,
+                          styles.executiveVoteButtonX,
+                          !employeeTeamInfo && styles.nextButtonDisabled,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.executiveVoteButtonMark,
+                            !employeeTeamInfo && styles.nextButtonTextDisabled,
+                          ]}>
+                          X
+                        </Text>
+                      </AnimatedPressable>
+                    </View>
+                  ) : (
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      disabled={!canProceedToComment}
+                      onPress={handleSelectNext}
+                      style={[styles.nextButton, !canProceedToComment && styles.nextButtonDisabled]}>
+                      <Text style={[styles.nextButtonText, !canProceedToComment && styles.nextButtonTextDisabled]}>
+                        {isMaskSingerGame ? '투표하기' : '다음'}
+                      </Text>
+                    </AnimatedPressable>
+                  )}
                 </View>
               </KeyboardAvoidingView>
             ) : (
@@ -1680,10 +1929,12 @@ export function PredictionDetailScreen(): JSX.Element {
               />
               <View style={styles.confirmCard}>
                 <Text style={styles.confirmEyebrow}>
-                  {isIndividualMatch ? '응원 확인' : isMaskSingerGame ? '투표 확인' : '승부예측 확인'}
+                  {isVoteOnlyGame ? '투표 확인' : isIndividualMatch ? '응원 확인' : '승부예측 확인'}
                 </Text>
                 <Text style={styles.confirmTitle}>
-                  {isIndividualMatch
+                  {isExecutiveGame
+                    ? `${getExecutiveVoteOptionLabel(selectedTeamInfo)}에 투표할까요?`
+                    : isIndividualMatch
                     ? `${selectedTeamInfo?.name ?? '참가자'}님을 응원할까요?`
                     : isMaskSingerGame
                     ? `${selectedTeamInfo?.name ?? '참가자'}에게 투표할까요?`
@@ -1699,7 +1950,7 @@ export function PredictionDetailScreen(): JSX.Element {
                   <View style={styles.confirmLoadingRow}>
                     <ActivityIndicator color="#E50914" size="small" />
                     <Text style={styles.confirmLoadingText}>
-                      {isMaskSingerGame ? '투표를 등록하고 있어요' : '응원을 등록하고 있어요'}
+                      {isVoteOnlyGame ? '투표를 등록하고 있어요' : '응원을 등록하고 있어요'}
                     </Text>
                   </View>
                 ) : null}
@@ -1724,10 +1975,10 @@ export function PredictionDetailScreen(): JSX.Element {
                     <Text style={styles.confirmSubmitText}>
                       {isSubmittingPrediction
                         ? '처리 중...'
+                        : isVoteOnlyGame
+                        ? '투표'
                         : isIndividualMatch
                         ? '응원'
-                        : isMaskSingerGame
-                        ? '투표'
                         : '등록'}
                     </Text>
                   </AnimatedPressable>
@@ -1852,6 +2103,9 @@ const styles = StyleSheet.create({
   individualStageWrapper: {
     height: PARTICIPANT_POSTER_STAGE_HEIGHT,
   },
+  executiveVoteStageWrapper: {
+    height: EXECUTIVE_PROFILE_CARD_HEIGHT + 10,
+  },
   matchupStage: {
     height: '100%',
     position: 'relative',
@@ -1870,6 +2124,63 @@ const styles = StyleSheet.create({
   },
   participantPosterChoiceStage: {
     flex: 1,
+  },
+  executiveVoteCardShell: {
+    height: EXECUTIVE_PROFILE_CARD_HEIGHT + 10,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  executiveProfileImageContainer: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  executiveProfileImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  executiveProfilePlaceholder: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#18181C',
+  },
+  executiveProfileNameBadge: {
+    position: 'absolute',
+    left: 18,
+    top: 18,
+    minHeight: 34,
+    maxWidth: SCREEN_WIDTH - 72,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 18,
+    backgroundColor: 'rgba(11,11,13,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  executiveProfileName: {
+    maxWidth: SCREEN_WIDTH - 100,
+    color: '#F9F9F9',
+    textAlign: 'left',
+    ...FONTS.font18B,
+    lineHeight: 22,
+  },
+  executiveProfileDepartment: {
+    position: 'absolute',
+    left: 18,
+    top: 62,
+    maxWidth: SCREEN_WIDTH - 76,
+    color: 'rgba(249,249,249,0.76)',
+    textAlign: 'left',
+    ...FONTS.font15R,
+    lineHeight: 22,
   },
   participantPosterList: {
     height: PARTICIPANT_POSTER_CARD_HEIGHT + 8,
@@ -2412,6 +2723,30 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 18 : 14,
   },
+  executiveVoteButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  executiveVoteButton: {
+    flex: 1,
+    height: 54,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  executiveVoteButtonO: {
+    backgroundColor: '#E50914',
+  },
+  executiveVoteButtonX: {
+    backgroundColor: '#242428',
+  },
+  executiveVoteButtonMark: {
+    color: '#FFFFFF',
+    ...FONTS.font24B,
+    lineHeight: 30,
+  },
   nextButton: {
     height: 54,
     borderRadius: 10,
@@ -2469,6 +2804,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#242428',
   },
+  executiveResultCard: {
+    paddingBottom: 22,
+  },
   voteHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2518,6 +2856,86 @@ const styles = StyleSheet.create({
   voteLegendText: {
     color: '#D6D8DE',
     ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  executiveResultChart: {
+    marginTop: 20,
+    minHeight: 232,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 42,
+    position: 'relative',
+  },
+  executiveResultColumn: {
+    width: 104,
+    alignItems: 'center',
+  },
+  executiveResultRate: {
+    marginBottom: 10,
+    color: '#FFFFFF',
+    ...FONTS.font28B,
+    lineHeight: 34,
+  },
+  executiveResultBarTrack: {
+    width: 52,
+    height: EXECUTIVE_RESULT_BAR_MAX_HEIGHT,
+    borderRadius: 26,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    backgroundColor: '#242428',
+    borderWidth: 1,
+    borderColor: '#323238',
+  },
+  executiveResultBarFill: {
+    width: '100%',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+  },
+  executiveResultMarkBadge: {
+    width: 58,
+    height: 58,
+    marginTop: 14,
+    borderRadius: 29,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  executiveResultMarkBadgeO: {
+    backgroundColor: '#E50914',
+    borderColor: '#FF6B72',
+  },
+  executiveResultMarkBadgeX: {
+    backgroundColor: '#242428',
+    borderColor: '#5A5C65',
+  },
+  executiveResultMark: {
+    color: '#FFFFFF',
+    ...FONTS.font30B,
+    lineHeight: 36,
+  },
+  executiveResultLabel: {
+    marginTop: 8,
+    color: '#D6D8DE',
+    textAlign: 'center',
+    ...FONTS.font13B,
+    lineHeight: 18,
+  },
+  executiveResultVsBadge: {
+    position: 'absolute',
+    top: 82,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0B0B0D',
+    borderWidth: 1,
+    borderColor: '#34343A',
+  },
+  executiveResultVsText: {
+    color: '#8A8D95',
+    ...FONTS.font13B,
     lineHeight: 18,
   },
   commentSectionHeader: {
