@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Dimensions,
   Easing,
   Image,
   KeyboardAvoidingView,
@@ -21,8 +20,6 @@ import {
   TextInput,
   View,
   type ImageSourcePropType,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
@@ -36,6 +33,12 @@ import type {PredictionStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 import {withMinimumLoadingTime} from '../utils/loading';
 import {getProfileImageUriFromRecord} from '../utils/profileImage';
+import {
+  ExecutivePredictionSelector,
+  EXECUTIVE_SELECTOR_STAGE_HEIGHT,
+} from './predictionDetail/ExecutivePredictionSelector';
+import {MaskSingerPredictionSelector} from './predictionDetail/MaskSingerPredictionSelector';
+import {ParticipantPosterCarousel, PARTICIPANT_POSTER_STAGE_HEIGHT} from './predictionDetail/ParticipantPosterCarousel';
 
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
@@ -43,24 +46,6 @@ const MASK_SINGER_GAME_ID = 86;
 const EXECUTIVE_GAME_ID = 106;
 const countingLottie = require('../assets/lotties/Counting.json');
 const participantTones = ['#E50914', '#3F8CFF', '#F4B740', '#21B37B', '#B05CFF'];
-const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('window');
-const MAIN_POSTER_CARD_WIDTH = 327;
-const MAIN_POSTER_CARD_HEIGHT = 474;
-const MAIN_POSTER_ASPECT_RATIO = MAIN_POSTER_CARD_WIDTH / MAIN_POSTER_CARD_HEIGHT;
-const PARTICIPANT_POSTER_MAX_HEIGHT = Math.min(MAIN_POSTER_CARD_HEIGHT, Math.max(240, SCREEN_HEIGHT * 0.38));
-const PARTICIPANT_POSTER_MAX_WIDTH = Math.min(MAIN_POSTER_CARD_WIDTH, SCREEN_WIDTH - 48);
-const PARTICIPANT_POSTER_CARD_WIDTH = Math.round(
-  Math.min(PARTICIPANT_POSTER_MAX_WIDTH, PARTICIPANT_POSTER_MAX_HEIGHT * MAIN_POSTER_ASPECT_RATIO),
-);
-const PARTICIPANT_POSTER_CARD_HEIGHT = Math.round(PARTICIPANT_POSTER_CARD_WIDTH / MAIN_POSTER_ASPECT_RATIO);
-const PARTICIPANT_POSTER_CARD_GAP = 18;
-const PARTICIPANT_POSTER_ITEM_WIDTH = PARTICIPANT_POSTER_CARD_WIDTH + PARTICIPANT_POSTER_CARD_GAP;
-const PARTICIPANT_POSTER_SNAP_INTERVAL = PARTICIPANT_POSTER_ITEM_WIDTH;
-const PARTICIPANT_POSTER_STAGE_HEIGHT = PARTICIPANT_POSTER_CARD_HEIGHT + 36;
-const PARTICIPANT_POSTER_SIDE_PADDING = (SCREEN_WIDTH - PARTICIPANT_POSTER_ITEM_WIDTH) / 2;
-const EXECUTIVE_PROFILE_AVAILABLE_HEIGHT = Math.max(300, SCREEN_HEIGHT - 314);
-const EXECUTIVE_PROFILE_CARD_HEIGHT = Math.round(Math.min(372, EXECUTIVE_PROFILE_AVAILABLE_HEIGHT));
-const EXECUTIVE_RESULT_BAR_MAX_HEIGHT = 136;
 
 const teams = [
   {
@@ -320,14 +305,44 @@ function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
   };
 }
 
+function splitInlineNameAndDepartment(rawName: string): {department?: string; name: string} {
+  const trimmedName = rawName.trim();
+  const wrappedDepartmentMatch = trimmedName.match(/^(.+?)\s*[\(\[]\s*([^\)\]]+)\s*[\)\]]$/);
+
+  if (wrappedDepartmentMatch) {
+    return {
+      department: wrappedDepartmentMatch[2].trim(),
+      name: wrappedDepartmentMatch[1].trim(),
+    };
+  }
+
+  const compactDepartmentMatch =
+    trimmedName.match(/^([가-힣]{3})(.+(?:부문|본부|팀|실|센터|그룹|파트|담당|장).*)$/) ??
+    trimmedName.match(/^([가-힣]{2})(.+(?:부문|본부|팀|실|센터|그룹|파트|담당|장).*)$/) ??
+    trimmedName.match(/^([가-힣]{4})([A-Za-z0-9].+(?:부문|본부|팀|실|센터|그룹|파트|담당|장).*)$/);
+
+  if (compactDepartmentMatch) {
+    return {
+      department: compactDepartmentMatch[2].trim(),
+      name: compactDepartmentMatch[1].trim(),
+    };
+  }
+
+  return {name: trimmedName};
+}
+
 function getSeparatedParticipantName(participant: MatchParticipant, preferNameField: boolean): string | undefined {
   const department = participant.department?.trim();
   const rawName = preferNameField
     ? participant.name?.trim() || participant.participantName?.trim()
     : participant.participantName?.trim() || participant.name?.trim();
 
-  if (!rawName || !department) {
-    return rawName;
+  if (!rawName) {
+    return undefined;
+  }
+
+  if (!department) {
+    return splitInlineNameAndDepartment(rawName).name;
   }
 
   return (
@@ -345,13 +360,15 @@ function toExecutiveProfile(participant: MatchParticipant | undefined): Executiv
 
   const name = getSeparatedParticipantName(participant, true);
   const logoImageUrl = participant.logoImageUrl?.trim();
+  const rawName = participant.name?.trim() || participant.participantName?.trim() || '';
+  const parsedName = rawName ? splitInlineNameAndDepartment(rawName) : null;
 
   if (!name) {
     return null;
   }
 
   return {
-    department: participant.department?.trim(),
+    department: participant.department?.trim() || parsedName?.department,
     imageSource: logoImageUrl ? {uri: logoImageUrl} : image.human,
     name,
     participantId: participant.participantId,
@@ -375,7 +392,9 @@ function toPredictionTeam(
     : getTeamIdFromParticipantType(participant.participantType, participant.participantId, index);
   const fallbackTeam = teamId === 'team-black' ? teams[1] : teams[0];
   const logoImageUrl = participant.logoImageUrl?.trim();
-  const department = participant.department?.trim();
+  const rawName = (isExecutiveGame ? participant.name?.trim() : participant.participantName?.trim()) || '';
+  const parsedName = rawName ? splitInlineNameAndDepartment(rawName) : null;
+  const department = participant.department?.trim() || parsedName?.department;
   const fallbackName = isExecutiveGame && index === 1 ? '일반사원' : `참가자 ${index + 1}`;
   const displayName = getSeparatedParticipantName(participant, isExecutiveGame);
 
@@ -489,7 +508,6 @@ export function PredictionDetailScreen(): JSX.Element {
   });
   const stepTransition = useRef(new Animated.Value(1)).current;
   const stageIntroProgress = useRef(new Animated.Value(0)).current;
-  const participantPosterScrollX = useRef(new Animated.Value(0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
   const isSelectedTeamInfoPending =
@@ -504,6 +522,7 @@ export function PredictionDetailScreen(): JSX.Element {
   const displayGameTitle = gameDetail?.gameTitle ?? routeGameTitle ?? '경기 정보';
   const isIndividualMatch =
     !isMaskSingerGame && !isExecutiveGame && (matchType === 'INDIVIDUAL' || predictionTeams.length > 2);
+  const isCheerSelectionGame = isIndividualMatch;
   const maskSingerTeams = predictionTeams.slice(0, 4);
   const individualStageStyle = isIndividualMatch
     ? {
@@ -544,24 +563,7 @@ export function PredictionDetailScreen(): JSX.Element {
     (teamId: string) => predictionTeams.find(team => team.id === teamId)?.tone ?? '#E50914',
     [predictionTeams],
   );
-  const executiveVoteResultTeams = [executiveTeamInfo, employeeTeamInfo].filter(
-    (team): team is PredictionTeam => Boolean(team),
-  );
   const hasVoteRate = predictionTeams.some(team => (team.predictionRate ?? 0) > 0);
-  const getExecutiveVoteBarStyle = useCallback(
-    (team: PredictionTeam, index: number) => {
-      const rate = hasVoteRate ? Math.max(team.predictionRate ?? 0, 0) : 50;
-
-      return [
-        styles.executiveResultBarFill,
-        {
-          backgroundColor: index === 0 ? '#E50914' : '#3A3B40',
-          height: Math.max(8, Math.round((Math.min(rate, 100) / 100) * EXECUTIVE_RESULT_BAR_MAX_HEIGHT)),
-        },
-      ];
-    },
-    [hasVoteRate],
-  );
   const getVoteGraphSegmentStyle = useCallback(
     (team: PredictionTeam) => [
       styles.voteGraphSegment,
@@ -623,137 +625,6 @@ export function PredictionDetailScreen(): JSX.Element {
   const matchupIdleStyle = {
     opacity: 1,
   };
-  const renderParticipantPosterCard = useCallback(
-    ({item: team, index}: {item: PredictionTeam; index: number}) => {
-      const inputRange = [
-        (index - 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
-        index * PARTICIPANT_POSTER_SNAP_INTERVAL,
-        (index + 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
-      ];
-      const scale = participantPosterScrollX.interpolate({
-        inputRange,
-        outputRange: [0.92, 1, 0.92],
-        extrapolate: 'clamp',
-      });
-      const opacity = participantPosterScrollX.interpolate({
-        inputRange,
-        outputRange: [0.72, 1, 0.72],
-        extrapolate: 'clamp',
-      });
-      const translateY = participantPosterScrollX.interpolate({
-        inputRange,
-        outputRange: [14, 0, 14],
-        extrapolate: 'clamp',
-      });
-      const rotate = participantPosterScrollX.interpolate({
-        inputRange,
-        outputRange: ['5deg', '0deg', '-5deg'],
-        extrapolate: 'clamp',
-      });
-      const selectionRingOpacity = participantPosterScrollX.interpolate({
-        inputRange,
-        outputRange: [0, 1, 0],
-        extrapolate: 'clamp',
-      });
-      return (
-        <View style={styles.participantPosterItem}>
-          <AnimatedPressable
-            accessibilityRole="button"
-            onPress={() => setSelectedTeam(team.id)}
-            style={styles.participantPosterPressable}>
-            <Animated.View
-              style={[
-                styles.participantPosterCard,
-                {
-                  opacity,
-                  transform: [{translateY}, {scale}, {rotate}],
-                },
-              ]}>
-              <View style={styles.participantPosterFace}>
-                {team.imageSource ? (
-                  <Image resizeMode="cover" source={team.imageSource} style={styles.participantPosterImage} />
-                ) : (
-                  <View style={styles.participantPosterPlaceholder}>
-                    <Text style={styles.participantPosterInitial}>{team.name.trim().slice(0, 1)}</Text>
-                  </View>
-                )}
-                <View style={styles.participantPosterNoise} />
-                <View pointerEvents="none" style={styles.participantPosterTextBlock}>
-                  <Text numberOfLines={2} adjustsFontSizeToFit style={styles.participantPosterName}>
-                    {team.name}
-                  </Text>
-                  <Text numberOfLines={2} adjustsFontSizeToFit style={styles.participantPosterDepartment}>
-                    {team.department ?? team.members.join(' / ')}
-                  </Text>
-                </View>
-              </View>
-            </Animated.View>
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.participantPosterSelectionRing,
-                {
-                  opacity: selectionRingOpacity,
-                },
-              ]}
-            />
-          </AnimatedPressable>
-        </View>
-      );
-    },
-    [participantPosterScrollX],
-  );
-  const selectCenteredParticipantPoster = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>, teamsToSelect: PredictionTeam[]) => {
-      if (!teamsToSelect.length) {
-        return;
-      }
-
-      const offsetX = event.nativeEvent.contentOffset.x;
-      const centeredIndex = Math.max(
-        0,
-        Math.min(teamsToSelect.length - 1, Math.round(offsetX / PARTICIPANT_POSTER_SNAP_INTERVAL)),
-      );
-      const centeredTeam = teamsToSelect[centeredIndex];
-
-      if (centeredTeam && centeredTeam.id !== selectedTeam) {
-        setSelectedTeam(centeredTeam.id);
-      }
-    },
-    [selectedTeam],
-  );
-  const renderParticipantPosterPagination = useCallback(
-    (teamsToRender: PredictionTeam[]) => (
-      <View style={styles.participantPosterPagination}>
-        {teamsToRender.map((team, index) => {
-          const inputRange = [
-            (index - 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
-            index * PARTICIPANT_POSTER_SNAP_INTERVAL,
-            (index + 1) * PARTICIPANT_POSTER_SNAP_INTERVAL,
-          ];
-          const opacity = participantPosterScrollX.interpolate({
-            inputRange,
-            outputRange: [0.3, 1, 0.3],
-            extrapolate: 'clamp',
-          });
-
-          return (
-            <Animated.View
-              key={team.id}
-              style={[
-                styles.participantPosterPaginationDot,
-                {
-                  opacity,
-                },
-              ]}
-            />
-          );
-        })}
-      </View>
-    ),
-    [participantPosterScrollX],
-  );
-
   const playStageIntro = useCallback(() => {
     if (step !== 'select' || !predictionTeams.length) {
       stageIntroProgress.setValue(0);
@@ -775,20 +646,6 @@ export function PredictionDetailScreen(): JSX.Element {
   useEffect(() => {
     playStageIntro();
   }, [playStageIntro]);
-
-  useEffect(() => {
-    if (step !== 'select') {
-      return;
-    }
-
-    const posterTeams = isMaskSingerGame ? maskSingerTeams : isIndividualMatch ? predictionTeams : [];
-
-    if (!posterTeams.length || posterTeams.some(team => team.id === selectedTeam)) {
-      return;
-    }
-
-    setSelectedTeam(posterTeams[0].id);
-  }, [isIndividualMatch, isMaskSingerGame, maskSingerTeams, predictionTeams, selectedTeam, step]);
 
   useEffect(() => {
     if (!isVoteOnlyGame) {
@@ -1353,7 +1210,7 @@ export function PredictionDetailScreen(): JSX.Element {
 
       setIsConfirmVisible(false);
       showSubmitToast(
-        isVoteOnlyGame ? '투표가 완료됐어요' : isIndividualMatch ? '응원이 완료됐어요' : '응원댓글이 등록됐어요',
+        isVoteOnlyGame ? '투표가 완료됐어요' : isCheerSelectionGame ? '응원이 완료됐어요' : '응원댓글이 등록됐어요',
       );
       transitionToStep(isVoteOnlyGame ? 'counting' : 'result');
     } catch (error) {
@@ -1411,7 +1268,7 @@ export function PredictionDetailScreen(): JSX.Element {
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
                 <View style={styles.resultHero}>
                   <Text style={styles.resultEyebrow}>
-                    {isVoteOnlyGame ? '내 투표' : isIndividualMatch ? '내 응원' : '내 선택'}
+                    {isVoteOnlyGame ? '내 투표' : isCheerSelectionGame ? '내 응원' : '내 선택'}
                   </Text>
                   <Text style={styles.resultTitle}>
                     {pickedTeamInfo ? getExecutiveVoteOptionLabel(pickedTeamInfo) : displayTeamName(selectedTeam)}
@@ -1423,64 +1280,29 @@ export function PredictionDetailScreen(): JSX.Element {
                   </Text>
                 </View>
 
-                {isExecutiveGame ? (
-                  <View style={[styles.voteCard, styles.executiveResultCard]}>
-                    <View style={styles.voteHeader}>
-                      <Text style={styles.voteTitle}>OX 투표 결과</Text>
-                      <Text style={styles.voteTotal}>최종 투표율</Text>
-                    </View>
-
-                    <View style={styles.executiveResultChart}>
-                      {executiveVoteResultTeams.map((team, index) => (
-                        <View key={team.id} style={styles.executiveResultColumn}>
-                          <Text style={styles.executiveResultRate}>{team.predictionRate ?? 0}%</Text>
-                          <View style={styles.executiveResultBarTrack}>
-                            <View style={getExecutiveVoteBarStyle(team, index)} />
-                          </View>
-                          <View
-                            style={[
-                              styles.executiveResultMarkBadge,
-                              index === 0 ? styles.executiveResultMarkBadgeO : styles.executiveResultMarkBadgeX,
-                            ]}>
-                            <Text style={styles.executiveResultMark}>{getExecutiveVoteOptionLabel(team)}</Text>
-                          </View>
-                          <Text style={styles.executiveResultLabel}>
-                            {index === 0 ? '임원 승리' : '일반사원 승리'}
-                          </Text>
-                        </View>
-                      ))}
-                      {executiveVoteResultTeams.length === 2 ? (
-                        <View pointerEvents="none" style={styles.executiveResultVsBadge}>
-                          <Text style={styles.executiveResultVsText}>VS</Text>
-                        </View>
-                      ) : null}
-                    </View>
+                <View style={styles.voteCard}>
+                  <View style={styles.voteHeader}>
+                    <Text style={styles.voteTitle}>{isCheerSelectionGame ? '응원 결과' : '투표 결과'}</Text>
+                    <Text style={styles.voteTotal}>최종 {isCheerSelectionGame ? '응원율' : '투표율'}</Text>
                   </View>
-                ) : (
-                  <View style={styles.voteCard}>
-                    <View style={styles.voteHeader}>
-                      <Text style={styles.voteTitle}>{isIndividualMatch ? '응원 결과' : '투표 결과'}</Text>
-                      <Text style={styles.voteTotal}>최종 {isIndividualMatch ? '응원율' : '투표율'}</Text>
-                    </View>
 
-                    <View style={styles.voteGraphTrack}>
-                      {predictionTeams.map(team => (
-                        <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
-                      ))}
-                    </View>
-
-                    <View style={styles.voteLegendRow}>
-                      {predictionTeams.map(team => (
-                        <View key={team.id} style={styles.voteLegendItem}>
-                          <View style={[styles.voteDot, {backgroundColor: team.tone}]} />
-                          <Text style={styles.voteLegendText}>
-                            {getExecutiveVoteOptionLabel(team)} {team.predictionRate ?? 0}%
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
+                  <View style={styles.voteGraphTrack}>
+                    {predictionTeams.map(team => (
+                      <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
+                    ))}
                   </View>
-                )}
+
+                  <View style={styles.voteLegendRow}>
+                    {predictionTeams.map(team => (
+                      <View key={team.id} style={styles.voteLegendItem}>
+                        <View style={[styles.voteDot, {backgroundColor: team.tone}]} />
+                        <Text style={styles.voteLegendText}>
+                          {getExecutiveVoteOptionLabel(team)} {team.predictionRate ?? 0}%
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
 
                 {!isVoteOnlyGame ? (
                   <>
@@ -1547,7 +1369,8 @@ export function PredictionDetailScreen(): JSX.Element {
                     </Text>
                   </View>
 
-                  {(isMatchDetailLoading && !predictionTeams.length) || (isExecutiveGame && !executiveDisplayProfile) ? (
+                  {(isMatchDetailLoading && !predictionTeams.length) ||
+                  (isExecutiveGame && !executiveDisplayProfile) ? (
                     <View style={styles.teamStateCenter}>
                       <AppLoading label="참가팀을 불러오는 중..." />
                     </View>
@@ -1558,96 +1381,31 @@ export function PredictionDetailScreen(): JSX.Element {
                         isMaskSingerGame && styles.maskSingerStageWrapper,
                         isExecutiveGame && styles.executiveVoteStageWrapper,
                         isIndividualMatch && styles.individualStageWrapper,
-                        (isExecutiveGame || isMaskSingerGame || isIndividualMatch) && styles.participantPosterStageWrapper,
+                        (isExecutiveGame || isMaskSingerGame || isIndividualMatch) &&
+                          styles.participantPosterStageWrapper,
                         !isExecutiveGame && individualStageStyle,
                       ]}>
                       <View style={styles.matchupStage}>
                         {isExecutiveGame && executiveDisplayProfile ? (
-                          <View style={styles.executiveVoteCardShell}>
-                            <View style={styles.executiveProfileImageContainer}>
-                              {executiveDisplayProfile.imageSource ? (
-                                <Image
-                                  resizeMode="cover"
-                                  source={executiveDisplayProfile.imageSource}
-                                  style={styles.executiveProfileImage}
-                                />
-                              ) : (
-                                <View style={styles.executiveProfilePlaceholder}>
-                                  <Text style={styles.participantPosterInitial}>
-                                    {executiveDisplayProfile.name.trim().slice(0, 1)}
-                                  </Text>
-                                </View>
-                              )}
-                              <View pointerEvents="none" style={styles.executiveProfileNameBadge}>
-                                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.executiveProfileName}>
-                                  {executiveDisplayProfile.name}
-                                </Text>
-                              </View>
-                              {executiveDisplayProfile.department ? (
-                                <Text numberOfLines={1} pointerEvents="none" style={styles.executiveProfileDepartment}>
-                                  {executiveDisplayProfile.department}
-                                </Text>
-                              ) : null}
-                            </View>
-                          </View>
+                          <ExecutivePredictionSelector
+                            employeeTeam={employeeTeamInfo}
+                            executiveTeam={executiveTeamInfo}
+                            onVote={handleExecutiveVotePress}
+                            profile={executiveDisplayProfile}
+                            selectedTeamId={selectedTeam}
+                          />
                         ) : isIndividualMatch ? (
-                          <Animated.View style={[styles.participantPosterChoiceStage, matchupIdleStyle]}>
-                            <Animated.FlatList
-                              data={predictionTeams}
-                              decelerationRate="fast"
-                              disableIntervalMomentum
-                              getItemLayout={(_, index) => ({
-                                index,
-                                length: PARTICIPANT_POSTER_SNAP_INTERVAL,
-                                offset: PARTICIPANT_POSTER_SNAP_INTERVAL * index,
-                              })}
-                              horizontal
-                              initialNumToRender={predictionTeams.length}
-                              keyExtractor={team => team.id}
-                              nestedScrollEnabled
-                              onScroll={Animated.event(
-                                [{nativeEvent: {contentOffset: {x: participantPosterScrollX}}}],
-                                {useNativeDriver: true},
-                              )}
-                              onMomentumScrollEnd={event => selectCenteredParticipantPoster(event, predictionTeams)}
-                              onScrollEndDrag={event => selectCenteredParticipantPoster(event, predictionTeams)}
-                              renderItem={renderParticipantPosterCard}
-                              showsHorizontalScrollIndicator={false}
-                              snapToInterval={PARTICIPANT_POSTER_SNAP_INTERVAL}
-                              style={styles.participantPosterList}
-                              contentContainerStyle={styles.participantPosterListContent}
-                            />
-                            {renderParticipantPosterPagination(predictionTeams)}
-                          </Animated.View>
+                          <ParticipantPosterCarousel
+                            teams={predictionTeams}
+                            selectedTeamId={selectedTeam}
+                            onSelectTeam={setSelectedTeam}
+                          />
                         ) : isMaskSingerGame ? (
-                          <Animated.View style={[styles.participantPosterChoiceStage, matchupIdleStyle]}>
-                            <Animated.FlatList
-                              data={maskSingerTeams}
-                              decelerationRate="fast"
-                              disableIntervalMomentum
-                              getItemLayout={(_, index) => ({
-                                index,
-                                length: PARTICIPANT_POSTER_SNAP_INTERVAL,
-                                offset: PARTICIPANT_POSTER_SNAP_INTERVAL * index,
-                              })}
-                              horizontal
-                              initialNumToRender={maskSingerTeams.length}
-                              keyExtractor={team => team.id}
-                              nestedScrollEnabled
-                              onScroll={Animated.event(
-                                [{nativeEvent: {contentOffset: {x: participantPosterScrollX}}}],
-                                {useNativeDriver: true},
-                              )}
-                              onMomentumScrollEnd={event => selectCenteredParticipantPoster(event, maskSingerTeams)}
-                              onScrollEndDrag={event => selectCenteredParticipantPoster(event, maskSingerTeams)}
-                              renderItem={renderParticipantPosterCard}
-                              showsHorizontalScrollIndicator={false}
-                              snapToInterval={PARTICIPANT_POSTER_SNAP_INTERVAL}
-                              style={styles.participantPosterList}
-                              contentContainerStyle={styles.participantPosterListContent}
-                            />
-                            {renderParticipantPosterPagination(maskSingerTeams)}
-                          </Animated.View>
+                          <MaskSingerPredictionSelector
+                            teams={maskSingerTeams}
+                            selectedTeamId={selectedTeam}
+                            onSelectTeam={setSelectedTeam}
+                          />
                         ) : (
                           <Animated.View style={[styles.matchupChoiceStack, matchupIdleStyle]}>
                             <Animated.View style={[styles.choiceCardShell, leftLogoIntroStyle]}>
@@ -1772,51 +1530,12 @@ export function PredictionDetailScreen(): JSX.Element {
                   )}
                 </ScrollView>
 
-                <View
-                  style={[
-                    styles.bottomActionWrap,
-                    (isExecutiveGame || isIndividualMatch || isMaskSingerGame) && styles.participantPosterBottomActionWrap,
-                  ]}>
-                  {isExecutiveGame ? (
-                    <View style={styles.executiveVoteButtonRow}>
-                      <AnimatedPressable
-                        accessibilityLabel="임원이 승리한다 O"
-                        accessibilityRole="button"
-                        disabled={!executiveTeamInfo}
-                        onPress={() => handleExecutiveVotePress(executiveTeamInfo)}
-                        style={[
-                          styles.executiveVoteButton,
-                          styles.executiveVoteButtonO,
-                          !executiveTeamInfo && styles.nextButtonDisabled,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.executiveVoteButtonMark,
-                            !executiveTeamInfo && styles.nextButtonTextDisabled,
-                          ]}>
-                          O
-                        </Text>
-                      </AnimatedPressable>
-                      <AnimatedPressable
-                        accessibilityLabel="일반사원이 승리한다 X"
-                        accessibilityRole="button"
-                        disabled={!employeeTeamInfo}
-                        onPress={() => handleExecutiveVotePress(employeeTeamInfo)}
-                        style={[
-                          styles.executiveVoteButton,
-                          styles.executiveVoteButtonX,
-                          !employeeTeamInfo && styles.nextButtonDisabled,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.executiveVoteButtonMark,
-                            !employeeTeamInfo && styles.nextButtonTextDisabled,
-                          ]}>
-                          X
-                        </Text>
-                      </AnimatedPressable>
-                    </View>
-                  ) : (
+                {!isExecutiveGame ? (
+                  <View
+                    style={[
+                      styles.bottomActionWrap,
+                      (isIndividualMatch || isMaskSingerGame) && styles.participantPosterBottomActionWrap,
+                    ]}>
                     <AnimatedPressable
                       accessibilityRole="button"
                       disabled={!canProceedToComment}
@@ -1826,8 +1545,8 @@ export function PredictionDetailScreen(): JSX.Element {
                         {isMaskSingerGame ? '투표하기' : '다음'}
                       </Text>
                     </AnimatedPressable>
-                  )}
-                </View>
+                  </View>
+                ) : null}
               </KeyboardAvoidingView>
             ) : (
               <KeyboardAvoidingView
@@ -1855,7 +1574,7 @@ export function PredictionDetailScreen(): JSX.Element {
                       )}
                       <View style={styles.selectedTeamTextBlock}>
                         <Text style={styles.selectedTeamEyebrow}>
-                          {isIndividualMatch ? '내가 응원할 임원' : '내가 선택한 팀'}
+                          {isCheerSelectionGame ? '내가 응원할 임원' : '내가 선택한 팀'}
                         </Text>
                         <Text adjustsFontSizeToFit numberOfLines={1} style={styles.selectedTeamName}>
                           {selectedTeamInfo.name}
@@ -1929,7 +1648,7 @@ export function PredictionDetailScreen(): JSX.Element {
               />
               <View style={styles.confirmCard}>
                 <Text style={styles.confirmEyebrow}>
-                  {isVoteOnlyGame ? '투표 확인' : isIndividualMatch ? '응원 확인' : '승부예측 확인'}
+                  {isVoteOnlyGame ? '투표 확인' : isCheerSelectionGame ? '응원 확인' : '승부예측 확인'}
                 </Text>
                 <Text style={styles.confirmTitle}>
                   {isExecutiveGame
@@ -1977,7 +1696,7 @@ export function PredictionDetailScreen(): JSX.Element {
                         ? '처리 중...'
                         : isVoteOnlyGame
                         ? '투표'
-                        : isIndividualMatch
+                        : isCheerSelectionGame
                         ? '응원'
                         : '등록'}
                     </Text>
@@ -2104,7 +1823,7 @@ const styles = StyleSheet.create({
     height: PARTICIPANT_POSTER_STAGE_HEIGHT,
   },
   executiveVoteStageWrapper: {
-    height: EXECUTIVE_PROFILE_CARD_HEIGHT + 10,
+    height: EXECUTIVE_SELECTOR_STAGE_HEIGHT,
   },
   matchupStage: {
     height: '100%',
@@ -2121,162 +1840,6 @@ const styles = StyleSheet.create({
   },
   participantPosterStageWrapper: {
     marginHorizontal: 0,
-  },
-  participantPosterChoiceStage: {
-    flex: 1,
-  },
-  executiveVoteCardShell: {
-    height: EXECUTIVE_PROFILE_CARD_HEIGHT + 10,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  executiveProfileImageContainer: {
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  executiveProfileImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  executiveProfilePlaceholder: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#18181C',
-  },
-  executiveProfileNameBadge: {
-    position: 'absolute',
-    left: 18,
-    top: 18,
-    minHeight: 34,
-    maxWidth: SCREEN_WIDTH - 72,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 18,
-    backgroundColor: 'rgba(11,11,13,0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  executiveProfileName: {
-    maxWidth: SCREEN_WIDTH - 100,
-    color: '#F9F9F9',
-    textAlign: 'left',
-    ...FONTS.font18B,
-    lineHeight: 22,
-  },
-  executiveProfileDepartment: {
-    position: 'absolute',
-    left: 18,
-    top: 62,
-    maxWidth: SCREEN_WIDTH - 76,
-    color: 'rgba(249,249,249,0.76)',
-    textAlign: 'left',
-    ...FONTS.font15R,
-    lineHeight: 22,
-  },
-  participantPosterList: {
-    height: PARTICIPANT_POSTER_CARD_HEIGHT + 8,
-  },
-  participantPosterListContent: {
-    paddingTop: 8,
-    paddingHorizontal: PARTICIPANT_POSTER_SIDE_PADDING,
-  },
-  participantPosterItem: {
-    width: PARTICIPANT_POSTER_ITEM_WIDTH,
-    alignItems: 'center',
-  },
-  participantPosterPressable: {
-    width: PARTICIPANT_POSTER_CARD_WIDTH,
-    height: PARTICIPANT_POSTER_CARD_HEIGHT,
-    position: 'relative',
-  },
-  participantPosterCard: {
-    width: PARTICIPANT_POSTER_CARD_WIDTH,
-    height: PARTICIPANT_POSTER_CARD_HEIGHT,
-    borderRadius: 12,
-    backgroundColor: '#171717',
-    borderWidth: 1,
-    borderColor: '#E5091455',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  participantPosterFace: {
-    ...StyleSheet.absoluteFillObject,
-    backfaceVisibility: 'hidden',
-  },
-  participantPosterImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  participantPosterPlaceholder: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#18181C',
-  },
-  participantPosterInitial: {
-    color: '#FFFFFF',
-    ...FONTS.font40B,
-    lineHeight: 48,
-  },
-  participantPosterNoise: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  participantPosterSelectionRing: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#E50914',
-  },
-  participantPosterTextBlock: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 18,
-  },
-  participantPosterName: {
-    color: '#FFFFFF',
-    ...FONTS.font24B,
-    lineHeight: 30,
-    textShadowColor: 'rgba(0,0,0,0.72)',
-    textShadowOffset: {width: 0, height: 2},
-    textShadowRadius: 6,
-  },
-  participantPosterDepartment: {
-    marginTop: 6,
-    color: '#FFFFFF',
-    ...FONTS.font13B,
-    lineHeight: 18,
-    textShadowColor: 'rgba(0,0,0,0.78)',
-    textShadowOffset: {width: 0, height: 1},
-    textShadowRadius: 5,
-  },
-  participantPosterPagination: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 10,
-  },
-  participantPosterPaginationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: '#E50914',
   },
   teamInfoBlock: {
     position: 'absolute',
@@ -2723,30 +2286,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 18 : 14,
   },
-  executiveVoteButtonRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  executiveVoteButton: {
-    flex: 1,
-    height: 54,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  executiveVoteButtonO: {
-    backgroundColor: '#E50914',
-  },
-  executiveVoteButtonX: {
-    backgroundColor: '#242428',
-  },
-  executiveVoteButtonMark: {
-    color: '#FFFFFF',
-    ...FONTS.font24B,
-    lineHeight: 30,
-  },
   nextButton: {
     height: 54,
     borderRadius: 10,
@@ -2804,9 +2343,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#242428',
   },
-  executiveResultCard: {
-    paddingBottom: 22,
-  },
   voteHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2847,95 +2383,9 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 7,
   },
-  voteDotRed: {
-    backgroundColor: '#E50914',
-  },
-  voteDotBlack: {
-    backgroundColor: '#8A8D95',
-  },
   voteLegendText: {
     color: '#D6D8DE',
     ...FONTS.font13M,
-    lineHeight: 18,
-  },
-  executiveResultChart: {
-    marginTop: 20,
-    minHeight: 232,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 42,
-    position: 'relative',
-  },
-  executiveResultColumn: {
-    width: 104,
-    alignItems: 'center',
-  },
-  executiveResultRate: {
-    marginBottom: 10,
-    color: '#FFFFFF',
-    ...FONTS.font28B,
-    lineHeight: 34,
-  },
-  executiveResultBarTrack: {
-    width: 52,
-    height: EXECUTIVE_RESULT_BAR_MAX_HEIGHT,
-    borderRadius: 26,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-    backgroundColor: '#242428',
-    borderWidth: 1,
-    borderColor: '#323238',
-  },
-  executiveResultBarFill: {
-    width: '100%',
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-  },
-  executiveResultMarkBadge: {
-    width: 58,
-    height: 58,
-    marginTop: 14,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  executiveResultMarkBadgeO: {
-    backgroundColor: '#E50914',
-    borderColor: '#FF6B72',
-  },
-  executiveResultMarkBadgeX: {
-    backgroundColor: '#242428',
-    borderColor: '#5A5C65',
-  },
-  executiveResultMark: {
-    color: '#FFFFFF',
-    ...FONTS.font30B,
-    lineHeight: 36,
-  },
-  executiveResultLabel: {
-    marginTop: 8,
-    color: '#D6D8DE',
-    textAlign: 'center',
-    ...FONTS.font13B,
-    lineHeight: 18,
-  },
-  executiveResultVsBadge: {
-    position: 'absolute',
-    top: 82,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0B0B0D',
-    borderWidth: 1,
-    borderColor: '#34343A',
-  },
-  executiveResultVsText: {
-    color: '#8A8D95',
-    ...FONTS.font13B,
     lineHeight: 18,
   },
   commentSectionHeader: {
