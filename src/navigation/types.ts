@@ -47,5 +47,8 @@ export type RootStackParamList = {
   Login: undefined;
   Main: NavigatorScreenParams<MainStackParamList> | undefined;
   ProfileSetup: undefined;
+  QrPaymentRequest: {
+    qrValue: string;
+  };
   QrScan: undefined;
 };

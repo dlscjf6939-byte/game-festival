@@ -1,10 +1,11 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {Animated, Image, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View} from 'react-native';
+import {Animated, Image, RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View} from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
+import {SlidingSegmentedTabs, SwipeableTabView} from '../components/SlidingSegmentedTabs';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {image} from '../assets/images';
 import {useAuth} from '../auth/AuthProvider';
@@ -16,6 +17,7 @@ import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
 const MASK_SINGER_GAME_ID = 86;
+const EXECUTIVE_GAME_ID = 106;
 const participantTones = ['#E50914', '#8A8D95', '#3F8CFF', '#F4B740', '#21B37B'];
 
 type PredictionCardItem = {
@@ -91,12 +93,7 @@ type MatchDetailApiResponse = {
   data?: {
     matchStatus?: string;
     matchType?: string;
-    participants?: Array<{
-      participantId?: number;
-      participantName?: string;
-      name?: string;
-      predictionRate?: number;
-    }>;
+    participants?: PredictionParticipant[];
     pickedParticipant?: {
       participantId?: number;
       participantName?: string;
@@ -106,6 +103,37 @@ type MatchDetailApiResponse = {
   };
   message?: string;
   success?: boolean;
+};
+
+type MatchOverviewApiResponse = {
+  data?: {
+    matchStatus?: string;
+    matchType?: string;
+    participants?: PredictionParticipant[];
+    pickedParticipant?: {
+      participantId?: number;
+      participantName?: string;
+      name?: string;
+    } | null;
+    pickedParticipantId?: number | null;
+  };
+  message?: string;
+  success?: boolean;
+};
+
+type PredictionParticipant = {
+  participantId?: number;
+  participantName?: string;
+  name?: string;
+  predictionPercentage?: number | string | null;
+  predictionPercent?: number | string | null;
+  predictionRate?: number | string | null;
+  predictionRatio?: number | string | null;
+  rate?: number | string | null;
+  ratio?: number | string | null;
+  votePercentage?: number | string | null;
+  voteRate?: number | string | null;
+  voteRatio?: number | string | null;
 };
 
 const tabs = [
@@ -190,14 +218,66 @@ function getParticipatedStatusLabel(status: string): string {
   return '참여 완료';
 }
 
-function toRate(value: unknown): number {
-  const numericValue = typeof value === 'string' ? Number(value) : value;
+function toFiniteNumber(value: unknown): number | null {
+  const numericValue = typeof value === 'string' ? Number(value.trim().replace(/%$/, '')) : value;
 
   if (typeof numericValue !== 'number' || !Number.isFinite(numericValue)) {
-    return 0;
+    return null;
   }
 
-  return Math.max(0, Math.min(100, numericValue));
+  return numericValue;
+}
+
+function clampRate(value: number): number {
+  return Math.round(Math.max(0, Math.min(100, value)) * 10) / 10;
+}
+
+function toRateFromParticipant(participant: PredictionParticipant): number {
+  const rateCandidate =
+    participant.predictionRate ??
+    participant.predictionPercent ??
+    participant.predictionPercentage ??
+    participant.voteRate ??
+    participant.votePercentage ??
+    participant.rate;
+  const numericRate = toFiniteNumber(rateCandidate);
+
+  if (numericRate !== null) {
+    return clampRate(numericRate);
+  }
+
+  const ratioCandidate = participant.predictionRatio ?? participant.voteRatio ?? participant.ratio;
+  const numericRatio = toFiniteNumber(ratioCandidate);
+
+  if (numericRatio !== null) {
+    return clampRate(numericRatio <= 1 ? numericRatio * 100 : numericRatio);
+  }
+
+  return 0;
+}
+
+function getParticipantDisplayName(participant: Pick<PredictionParticipant, 'name' | 'participantName'>): string | null {
+  const displayName = participant.participantName?.trim() || participant.name?.trim() || '';
+  const hasVisibleName = displayName.replace(/[\s()[\]{}]/g, '').length > 0;
+
+  return hasVisibleName ? displayName : null;
+}
+
+function isExecutiveParticipatedGame(game: NonNullable<GameDetailApiResponse['data']>): boolean {
+  const gameTitle = game.gameTitle?.trim() ?? '';
+  return game.gameId === EXECUTIVE_GAME_ID || gameTitle.includes('임원');
+}
+
+function canShowCountingForParticipatedPrediction(item: Pick<ParticipatedPrediction, 'gameId' | 'title'>): boolean {
+  return item.gameId === MASK_SINGER_GAME_ID || item.title.includes('복면');
+}
+
+function getParticipatedDetailStartStep(item: ParticipatedPrediction): 'counting' | 'result' {
+  if (normalizeMatchStatus(item.matchStatus) === 'FINISHED') {
+    return 'result';
+  }
+
+  return canShowCountingForParticipatedPrediction(item) ? 'counting' : 'result';
 }
 
 function getPickedParticipantId(data: MatchDetailApiResponse['data']): number | null {
@@ -209,29 +289,37 @@ function toParticipatedPrediction(
   game: NonNullable<GameDetailApiResponse['data']>,
   match: NonNullable<NonNullable<GameDetailApiResponse['data']>['matches']>[number],
   detail: MatchDetailApiResponse['data'],
+  overview?: MatchOverviewApiResponse['data'],
 ): ParticipatedPrediction | null {
   if (typeof game.gameId !== 'number' || typeof match.matchId !== 'number') {
     return null;
   }
 
-  const pickedParticipantId = getPickedParticipantId(detail);
+  const pickedParticipantId = getPickedParticipantId(overview) ?? getPickedParticipantId(detail);
 
   if (pickedParticipantId === null) {
     return null;
   }
 
-  const participants = detail?.participants ?? [];
+  const rawParticipants = overview?.participants?.length ? overview.participants : detail?.participants ?? [];
+  const shouldHideNamelessParticipants = isExecutiveParticipatedGame(game);
+  const participants = shouldHideNamelessParticipants
+    ? rawParticipants.filter(participant => Boolean(getParticipantDisplayName(participant)))
+    : rawParticipants;
   const pickedParticipant =
-    participants.find(participant => participant.participantId === pickedParticipantId) ?? detail?.pickedParticipant;
+    rawParticipants.find(participant => participant.participantId === pickedParticipantId) ??
+    overview?.pickedParticipant ??
+    detail?.pickedParticipant;
   const selectedTeam =
-    pickedParticipant?.participantName?.trim() || pickedParticipant?.name?.trim() || `참가자 ${pickedParticipantId}`;
+    (pickedParticipant ? getParticipantDisplayName(pickedParticipant) : null) ??
+    (shouldHideNamelessParticipants ? '선택 완료' : `참가자 ${pickedParticipantId}`);
   const segments = participants.map((participant, index) => ({
     id: String(participant.participantId ?? index),
-    name: participant.participantName?.trim() || participant.name?.trim() || `참가자 ${index + 1}`,
-    rate: toRate(participant.predictionRate),
+    name: getParticipantDisplayName(participant) ?? `참가자 ${index + 1}`,
+    rate: toRateFromParticipant(participant),
     tone: participantTones[index % participantTones.length],
   }));
-  const matchStatus = detail?.matchStatus ?? match.matchStatus;
+  const matchStatus = overview?.matchStatus ?? detail?.matchStatus ?? match.matchStatus;
 
   return {
     gameId: game.gameId,
@@ -239,7 +327,7 @@ function toParticipatedPrediction(
     matchId: match.matchId,
     matchName: match.matchName?.trim() || '경기',
     matchStatus,
-    matchType: detail?.matchType ?? game.matchType,
+    matchType: overview?.matchType ?? detail?.matchType ?? game.matchType,
     roundName: match.roundName?.trim() || '라운드',
     selectedParticipantId: pickedParticipantId,
     selectedTeam,
@@ -454,6 +542,7 @@ export function PredictionScreen(): JSX.Element {
   const [participatedPredictions, setParticipatedPredictions] = useState<ParticipatedPrediction[]>([]);
   const [isGamesLoading, setIsGamesLoading] = useState(true);
   const [isParticipatedLoading, setIsParticipatedLoading] = useState(true);
+  const [isRefreshingPrediction, setIsRefreshingPrediction] = useState(false);
   const [gamesErrorMessage, setGamesErrorMessage] = useState<string | null>(null);
   const [participatedErrorMessage, setParticipatedErrorMessage] = useState<string | null>(null);
   const tabContentTranslateY = tabContentProgress.interpolate({
@@ -471,7 +560,7 @@ export function PredictionScreen(): JSX.Element {
     }).start();
   }, [activeTab, tabContentProgress]);
 
-  useEffect(() => {
+  const fetchPredictionData = useCallback(async (showLoading = true) => {
     const accessToken = auth?.accessToken;
 
     if (!accessToken) {
@@ -480,125 +569,190 @@ export function PredictionScreen(): JSX.Element {
       return;
     }
 
-    let isMounted = true;
-
-    async function fetchGames(): Promise<void> {
+    if (showLoading) {
       setIsGamesLoading(true);
       setIsParticipatedLoading(true);
-      setGamesErrorMessage(null);
-      setParticipatedErrorMessage(null);
-
-      try {
-        const response = await withMinimumLoadingTime(
-          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games`, {
-            headers: {
-              Accept: 'application/json',
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }),
-        );
-        const responseText = await response.text();
-        let responseBody: GamesApiResponse | null = null;
-
-        try {
-          responseBody = JSON.parse(responseText) as GamesApiResponse;
-        } catch {
-          throw new Error('게임 목록 응답을 해석하지 못했습니다.');
-        }
-
-        if (!response.ok || responseBody.success === false) {
-          throw new Error(responseBody.message || '게임 목록 조회에 실패했습니다.');
-        }
-
-        const nextCards = (responseBody.data ?? [])
-          .map(toPredictionCard)
-          .filter((card): card is PredictionCardItem => Boolean(card));
-
-        if (isMounted) {
-          setPredictionCards(nextCards);
-        }
-
-        const participatedResults = await Promise.allSettled(
-          (responseBody.data ?? [])
-            .filter((game): game is GameApiItem & {gameId: number} => typeof game.gameId === 'number')
-            .map(async game => {
-              const gameDetailResponse = await fetch(
-                `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}`,
-                {
-                  headers: {
-                    Accept: 'application/json',
-                    Authorization: `Bearer ${accessToken}`,
-                  },
-                },
-              );
-              const gameDetailBody = (await gameDetailResponse.json()) as GameDetailApiResponse;
-
-              if (!gameDetailResponse.ok || gameDetailBody.success === false || !gameDetailBody.data) {
-                throw new Error(gameDetailBody.message || '게임 상세 조회에 실패했습니다.');
-              }
-
-              const matchResults = await Promise.allSettled(
-                (gameDetailBody.data.matches ?? [])
-                  .filter(match => typeof match.matchId === 'number')
-                  .map(async match => {
-                    const matchDetailResponse = await fetch(
-                      `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}`,
-                      {
-                        headers: {
-                          Accept: 'application/json',
-                          Authorization: `Bearer ${accessToken}`,
-                        },
-                      },
-                    );
-                    const matchDetailBody = (await matchDetailResponse.json()) as MatchDetailApiResponse;
-
-                    if (!matchDetailResponse.ok || matchDetailBody.success === false) {
-                      throw new Error(matchDetailBody.message || '경기 상세 조회에 실패했습니다.');
-                    }
-
-                    return toParticipatedPrediction(gameDetailBody.data!, match, matchDetailBody.data);
-                  }),
-              );
-
-              return matchResults
-                .filter(
-                  (result): result is PromiseFulfilledResult<ParticipatedPrediction | null> =>
-                    result.status === 'fulfilled',
-                )
-                .map(result => result.value)
-                .filter((item): item is ParticipatedPrediction => Boolean(item));
-            }),
-        );
-
-        const nextParticipatedPredictions = participatedResults
-          .filter((result): result is PromiseFulfilledResult<ParticipatedPrediction[]> => result.status === 'fulfilled')
-          .flatMap(result => result.value);
-
-        if (isMounted) {
-          setParticipatedPredictions(nextParticipatedPredictions);
-        }
-      } catch (error) {
-        console.log('[PredictionScreen] games request failed', error);
-        if (isMounted) {
-          setPredictionCards([]);
-          setParticipatedPredictions([]);
-          setGamesErrorMessage(error instanceof Error ? error.message : '게임 목록 조회에 실패했습니다.');
-          setParticipatedErrorMessage('참여예측을 불러오지 못했습니다.');
-        }
-      } finally {
-        if (isMounted) {
-          setIsGamesLoading(false);
-          setIsParticipatedLoading(false);
-        }
-      }
     }
 
-    fetchGames();
+    setGamesErrorMessage(null);
+    setParticipatedErrorMessage(null);
 
-    return () => {
-      isMounted = false;
-    };
+    try {
+      const response = await withMinimumLoadingTime(
+        fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      let responseBody: GamesApiResponse | null = null;
+
+      try {
+        responseBody = JSON.parse(responseText) as GamesApiResponse;
+      } catch {
+        throw new Error('게임 목록 응답을 해석하지 못했습니다.');
+      }
+
+      if (!response.ok || responseBody.success === false) {
+        throw new Error(responseBody.message || '게임 목록 조회에 실패했습니다.');
+      }
+
+      const gamesWithId = (responseBody.data ?? []).filter(
+        (game): game is GameApiItem & {gameId: number} => typeof game.gameId === 'number',
+      );
+      const nextCards = (responseBody.data ?? [])
+        .map(toPredictionCard)
+        .filter((card): card is PredictionCardItem => Boolean(card));
+
+      setPredictionCards(nextCards);
+
+      const gameDetailResults = await Promise.allSettled(
+        gamesWithId.map(async game => {
+          const gameDetailResponse = await fetch(
+            `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}`,
+            {
+              headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+              },
+            },
+          );
+          const gameDetailBody = (await gameDetailResponse.json()) as GameDetailApiResponse;
+
+          if (!gameDetailResponse.ok || gameDetailBody.success === false || !gameDetailBody.data) {
+            throw new Error(gameDetailBody.message || '게임 상세 조회에 실패했습니다.');
+          }
+
+          return {
+            detail: gameDetailBody.data,
+            game,
+          };
+        }),
+      );
+      const validGameDetails = gameDetailResults
+        .filter(
+          (
+            result,
+          ): result is PromiseFulfilledResult<{
+            detail: NonNullable<GameDetailApiResponse['data']>;
+            game: GameApiItem & {gameId: number};
+          }> => result.status === 'fulfilled',
+        )
+        .map(result => result.value);
+
+      gameDetailResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.log('[PredictionScreen] skipped participated game detail', {
+            error: result.reason,
+            gameId: gamesWithId[index]?.gameId,
+          });
+        }
+      });
+
+      const participatedResults = await Promise.allSettled(
+        validGameDetails.map(async ({detail: gameDetail, game}) => {
+          const matchResults = await Promise.allSettled(
+            (gameDetail.matches ?? [])
+              .filter(match => typeof match.matchId === 'number')
+              .map(async match => {
+                const matchDetailResponse = await fetch(
+                  `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}`,
+                  {
+                    headers: {
+                      Accept: 'application/json',
+                      Authorization: `Bearer ${accessToken}`,
+                    },
+                  },
+                );
+                const matchDetailBody = (await matchDetailResponse.json()) as MatchDetailApiResponse;
+
+                if (!matchDetailResponse.ok || matchDetailBody.success === false) {
+                  throw new Error(matchDetailBody.message || '경기 상세 조회에 실패했습니다.');
+                }
+
+                let overviewData: MatchOverviewApiResponse['data'] | undefined;
+
+                try {
+                  const matchOverviewResponse = await fetch(
+                    `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}/overview`,
+                    {
+                      headers: {
+                        Accept: 'application/json',
+                        Authorization: `Bearer ${accessToken}`,
+                      },
+                    },
+                  );
+                  const matchOverviewBody = (await matchOverviewResponse.json()) as MatchOverviewApiResponse;
+
+                  if (matchOverviewResponse.ok && matchOverviewBody.success !== false) {
+                    overviewData = matchOverviewBody.data;
+                  }
+                } catch (error) {
+                  console.log('[PredictionScreen] match overview request failed', {
+                    error,
+                    gameId: game.gameId,
+                    matchId: match.matchId,
+                  });
+                }
+
+                return toParticipatedPrediction(gameDetail, match, matchDetailBody.data, overviewData);
+              }),
+          );
+
+          return matchResults
+            .filter(
+              (result): result is PromiseFulfilledResult<ParticipatedPrediction | null> =>
+                result.status === 'fulfilled',
+            )
+            .map(result => result.value)
+            .filter((item): item is ParticipatedPrediction => Boolean(item));
+        }),
+      );
+
+      const nextParticipatedPredictions = participatedResults
+        .filter((result): result is PromiseFulfilledResult<ParticipatedPrediction[]> => result.status === 'fulfilled')
+        .flatMap(result => result.value);
+
+      setParticipatedPredictions(nextParticipatedPredictions);
+    } catch (error) {
+      console.log('[PredictionScreen] games request failed', error);
+
+      if (showLoading) {
+          setPredictionCards([]);
+          setParticipatedPredictions([]);
+      }
+
+      setGamesErrorMessage(error instanceof Error ? error.message : '게임 목록 조회에 실패했습니다.');
+      setParticipatedErrorMessage('참여예측을 불러오지 못했습니다.');
+    } finally {
+      if (showLoading) {
+        setIsGamesLoading(false);
+        setIsParticipatedLoading(false);
+      }
+    }
   }, [auth?.accessToken]);
+
+  useEffect(() => {
+    fetchPredictionData().catch(error => {
+      console.log('[PredictionScreen] games effect failed', error);
+    });
+  }, [fetchPredictionData]);
+
+  const handlePredictionRefresh = useCallback(async () => {
+    if (isRefreshingPrediction) {
+      return;
+    }
+
+    setIsRefreshingPrediction(true);
+
+    try {
+      await fetchPredictionData(false);
+    } finally {
+      setIsRefreshingPrediction(false);
+    }
+  }, [fetchPredictionData, isRefreshingPrediction]);
 
   useEffect(() => {
     return registerScrollToTopHandler('Prediction', () => {
@@ -626,8 +780,17 @@ export function PredictionScreen(): JSX.Element {
 
         <Animated.ScrollView
           ref={scrollRef}
-          bounces={false}
+          bounces
           contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl
+              colors={['#E50914']}
+              progressBackgroundColor="#151519"
+              refreshing={isRefreshingPrediction}
+              tintColor="#FFFFFF"
+              onRefresh={handlePredictionRefresh}
+            />
+          }
           showsVerticalScrollIndicator={false}
           onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
           scrollEventThrottle={16}>
@@ -636,79 +799,73 @@ export function PredictionScreen(): JSX.Element {
           </View>
 
           <View style={styles.tabRow}>
-            {tabs.map(tab => (
-              <AnimatedPressable
-                key={tab.id}
-                accessibilityRole="button"
-                onPress={() => setActiveTab(tab.id)}
-                style={[styles.tabChip, activeTab === tab.id && styles.tabChipActive]}>
-                <Text style={[styles.tabChipText, activeTab === tab.id && styles.tabChipTextActive]}>{tab.label}</Text>
-              </AnimatedPressable>
-            ))}
+            <SlidingSegmentedTabs activeTab={activeTab} onTabPress={setActiveTab} tabs={tabs} />
           </View>
 
-          <Animated.View
-            style={{
-              opacity: tabContentProgress,
-              transform: [{translateY: tabContentTranslateY}],
-            }}>
-            {activeTab === 'prediction' ? (
-              <View style={styles.cardStack}>
-                {isGamesLoading ? (
-                  <View style={styles.loadingCenterState}>
-                    <AppLoading label="게임 목록을 불러오는 중..." />
-                  </View>
-                ) : predictionCards.length ? (
-                  predictionCards.map((card, index) => (
-                    <PredictionCard
-                      key={card.id}
-                      card={card}
-                      disabled={typeof card.gameId !== 'number'}
-                      index={index}
-                      onPress={() => handlePredictionPress(card)}
-                    />
-                  ))
-                ) : (
-                  <View style={styles.emptyCenterState}>
-                    <Text style={styles.emptyText}>{gamesErrorMessage ?? '예측 가능한 게임이 없습니다.'}</Text>
-                  </View>
-                )}
-              </View>
-            ) : (
-              <View style={styles.participatedStack}>
-                {isParticipatedLoading ? (
-                  <View style={styles.loadingCenterState}>
-                    <AppLoading label="참여예측을 불러오는 중..." />
-                  </View>
-                ) : participatedPredictions.length ? (
-                  participatedPredictions.map((item, index) => (
-                    <ParticipatedPredictionCard
-                      key={item.id}
-                      index={index}
-                      item={item}
-                      isActive={activePredictionId === item.id}
-                      onPress={() => setActivePredictionId(item.id)}
-                      onDetailPress={() =>
-                        navigation.navigate('PredictionDetail', {
-                          gameId: item.gameId,
-                          gameTitle: item.title,
-                          matchId: item.matchId,
-                          matchStatus: item.matchStatus,
-                          matchType: item.matchType,
-                          pickedParticipantId: item.selectedParticipantId,
-                          startStep: normalizeMatchStatus(item.matchStatus) === 'FINISHED' ? 'result' : 'counting',
-                        })
-                      }
-                    />
-                  ))
-                ) : (
-                  <View style={styles.emptyCenterState}>
-                    <Text style={styles.emptyText}>{participatedErrorMessage ?? '참여한 예측이 없습니다.'}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </Animated.View>
+          <SwipeableTabView activeTab={activeTab} onTabPress={setActiveTab} tabs={tabs}>
+            <Animated.View
+              style={{
+                opacity: tabContentProgress,
+                transform: [{translateY: tabContentTranslateY}],
+              }}>
+              {activeTab === 'prediction' ? (
+                <View style={styles.cardStack}>
+                  {isGamesLoading ? (
+                    <View style={styles.loadingCenterState}>
+                      <AppLoading label="게임 목록을 불러오는 중..." />
+                    </View>
+                  ) : predictionCards.length ? (
+                    predictionCards.map((card, index) => (
+                      <PredictionCard
+                        key={card.id}
+                        card={card}
+                        disabled={typeof card.gameId !== 'number'}
+                        index={index}
+                        onPress={() => handlePredictionPress(card)}
+                      />
+                    ))
+                  ) : (
+                    <View style={styles.emptyCenterState}>
+                      <Text style={styles.emptyText}>{gamesErrorMessage ?? '예측 가능한 게임이 없습니다.'}</Text>
+                    </View>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.participatedStack}>
+                  {isParticipatedLoading ? (
+                    <View style={styles.loadingCenterState}>
+                      <AppLoading label="참여예측을 불러오는 중..." />
+                    </View>
+                  ) : participatedPredictions.length ? (
+                    participatedPredictions.map((item, index) => (
+                      <ParticipatedPredictionCard
+                        key={item.id}
+                        index={index}
+                        item={item}
+                        isActive={activePredictionId === item.id}
+                        onPress={() => setActivePredictionId(item.id)}
+                        onDetailPress={() =>
+                          navigation.navigate('PredictionDetail', {
+                            gameId: item.gameId,
+                            gameTitle: item.title,
+                            matchId: item.matchId,
+                            matchStatus: item.matchStatus,
+                            matchType: item.matchType,
+                            pickedParticipantId: item.selectedParticipantId,
+                            startStep: getParticipatedDetailStartStep(item),
+                          })
+                        }
+                      />
+                    ))
+                  ) : (
+                    <View style={styles.emptyCenterState}>
+                      <Text style={styles.emptyText}>{participatedErrorMessage ?? '참여한 예측이 없습니다.'}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </Animated.View>
+          </SwipeableTabView>
         </Animated.ScrollView>
       </SafeAreaView>
     </TabSceneTransition>
@@ -734,34 +891,8 @@ const styles = StyleSheet.create({
     lineHeight: 29,
   },
   tabRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     paddingHorizontal: 20,
     marginBottom: 22,
-  },
-  tabChip: {
-    minWidth: 71,
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2D2D2D',
-    backgroundColor: '#111114',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabChipActive: {
-    backgroundColor: '#E50914',
-    borderColor: '#E50914',
-  },
-  tabChipText: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-    lineHeight: 18,
-  },
-  tabChipTextActive: {
-    color: '#FFFFFF',
   },
   cardStack: {
     paddingHorizontal: 20,

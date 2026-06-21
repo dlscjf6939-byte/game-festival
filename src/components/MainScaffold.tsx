@@ -1,7 +1,9 @@
 import React, {useRef} from 'react';
 import {
   Animated,
+  RefreshControl,
   SafeAreaView,
+  type ScrollView,
   StatusBar,
   StyleSheet,
   View,
@@ -16,16 +18,20 @@ import type {MainStackParamList} from '../navigation/types';
 type MainScaffoldProps = {
   children: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  onRefresh?: () => void;
+  refreshing?: boolean;
   scrollToTopRouteName?: keyof MainStackParamList;
 };
 
 export function MainScaffold({
   children,
   contentContainerStyle,
+  onRefresh,
+  refreshing = false,
   scrollToTopRouteName,
 }: MainScaffoldProps): JSX.Element {
   const scrollY = useRef(new Animated.Value(0)).current;
-  const scrollRef = useRef<Animated.ScrollView | null>(null);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   React.useEffect(() => {
     if (!scrollToTopRouteName) {
@@ -46,8 +52,19 @@ export function MainScaffold({
 
         <Animated.ScrollView
           ref={scrollRef}
-          bounces={false}
+          bounces={Boolean(onRefresh)}
           contentContainerStyle={[styles.content, contentContainerStyle]}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                colors={['#E50914']}
+                progressBackgroundColor="#151519"
+                refreshing={refreshing}
+                tintColor="#FFFFFF"
+                onRefresh={onRefresh}
+              />
+            ) : undefined
+          }
           showsVerticalScrollIndicator={false}
           onScroll={Animated.event(
             [{nativeEvent: {contentOffset: {y: scrollY}}}],

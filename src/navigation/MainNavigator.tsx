@@ -66,6 +66,43 @@ const styles = StyleSheet.create({
   tabLabelDimmed: {
     opacity: 0.82,
   },
+  homeTabVisual: {
+    minWidth: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{translateY: -14}],
+  },
+  homeTabCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E50914',
+    borderWidth: 4,
+    borderColor: '#000000',
+    shadowColor: '#000000',
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 10,
+  },
+  homeTabCircleDimmed: {
+    backgroundColor: '#2A2A2D',
+    shadowOpacity: 0.12,
+  },
+  homeTabIcon: {
+    width: 25,
+    height: 25,
+  },
+  homeTabIconWhite: {
+    tintColor: '#FFFFFF',
+  },
+  homeTabLabel: {
+    marginTop: 3,
+    color: '#FFFFFF',
+    ...FONTS.font11B,
+  },
   tabIconFocused: {
     opacity: 1,
   },
@@ -88,6 +125,17 @@ function TabVisual({
   focused: boolean;
   routeName: VisibleTabRoute;
 }): JSX.Element {
+  if (routeName === 'Home') {
+    return (
+      <Animated.View style={styles.homeTabVisual}>
+        <Animated.View style={[styles.homeTabCircle, !focused && styles.homeTabCircleDimmed]}>
+          <Image resizeMode="contain" source={TAB_ICONS.Home} style={[styles.homeTabIcon, styles.homeTabIconWhite]} />
+        </Animated.View>
+        <Animated.Text style={[styles.homeTabLabel, !focused && {color}]}>홈</Animated.Text>
+      </Animated.View>
+    );
+  }
+
   return (
     <Animated.View style={styles.tabVisual}>
       <Image
@@ -230,6 +278,7 @@ export function MainNavigator(): JSX.Element {
     borderTopColor: '#161616',
     borderTopWidth: 1,
     height: 56 + insets.bottom + 10,
+    overflow: 'visible' as const,
     paddingTop: 10,
     paddingBottom: Math.max(insets.bottom, 12),
   };
@@ -250,11 +299,6 @@ export function MainNavigator(): JSX.Element {
           },
         }}>
         <Tab.Screen
-          component={MainScreen}
-          name="Home"
-          options={{tabBarButton: renderHomeTabButton, tabBarIcon: HomeTabIcon}}
-        />
-        <Tab.Screen
           component={CoinsScreen}
           name="Coins"
           options={{tabBarButton: renderCoinsTabButton, tabBarIcon: CoinsTabIcon}}
@@ -263,6 +307,11 @@ export function MainNavigator(): JSX.Element {
           component={FeedTabScreen}
           name="Feed"
           options={{tabBarButton: renderFeedTabButton, tabBarIcon: FeedTabIcon}}
+        />
+        <Tab.Screen
+          component={MainScreen}
+          name="Home"
+          options={{tabBarButton: renderHomeTabButton, tabBarIcon: HomeTabIcon}}
         />
         <Tab.Screen
           component={CoinBattleNavigator}

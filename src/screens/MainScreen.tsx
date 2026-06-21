@@ -10,10 +10,13 @@ import {
   Animated,
   Dimensions,
   Easing,
+  FlatList,
   Image,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -77,7 +80,51 @@ const storyCards = [
     accent: '#E50914',
     tag: 'RISING PICK',
   },
+  {
+    id: 'maskSinger',
+    posterImage: image.poster4,
+    title: 'MASK SINGER',
+    subtitle: '복면가왕',
+    accent: '#E50914',
+    tag: 'MYSTERY SHOW',
+  },
+  {
+    id: 'executiveLineup',
+    posterImage: image.poster5,
+    title: 'SSR LINE-UP',
+    subtitle: '임원전',
+    accent: '#E50914',
+    tag: 'SPECIAL EVENT',
+  },
 ];
+type StoryCard = (typeof storyCards)[number];
+const LOOPED_STORY_CARDS: StoryCard[] = [...storyCards, ...storyCards, ...storyCards, ...storyCards, ...storyCards];
+const STORY_LOOP_MIDDLE_START_INDEX = storyCards.length * 2;
+const STORY_LOOP_SAFE_START_INDEX = storyCards.length;
+const STORY_LOOP_SAFE_END_INDEX = storyCards.length * 4;
+const INITIAL_STORY_INDEX = STORY_LOOP_MIDDLE_START_INDEX + 1;
+const STORY_BACKGROUND_OPACITY_RANGES = storyCards.reduce((ranges, card) => {
+  const inputRange: number[] = [];
+  const outputRange: number[] = [];
+
+  LOOPED_STORY_CARDS.forEach((loopedCard, loopIndex) => {
+    if (loopedCard.id !== card.id) {
+      return;
+    }
+
+    inputRange.push(
+      (loopIndex - 1) * STORY_SNAP_INTERVAL,
+      loopIndex * STORY_SNAP_INTERVAL,
+      (loopIndex + 1) * STORY_SNAP_INTERVAL,
+    );
+    outputRange.push(0, 0.5, 0);
+  });
+
+  return {
+    ...ranges,
+    [card.id]: {inputRange, outputRange},
+  };
+}, {} as Record<StoryCard['id'], {inputRange: number[]; outputRange: number[]}>);
 
 const bracketRoundsByStory = {
   left: [
@@ -186,9 +233,11 @@ function MainScreen(): JSX.Element {
     refreshAllCoins,
   } = useCoin();
   const {attendance, checkInNotice, dismissCheckInNotice, isChecking, refreshAttendance} = useAttendance();
-  const scrollX = useRef(new Animated.Value(STORY_SNAP_INTERVAL)).current;
+  const scrollX = useRef(new Animated.Value(INITIAL_STORY_INDEX * STORY_SNAP_INTERVAL)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
-  const mainScrollRef = useRef<Animated.ScrollView | null>(null);
+  const mainScrollRef = useRef<ScrollView | null>(null);
+  const storyListRef = useRef<FlatList<StoryCard> | null>(null);
+  const currentStoryIndexRef = useRef(INITIAL_STORY_INDEX);
   const refreshProfileRef = useRef(refreshProfile);
   const refreshAllCoinsRef = useRef(refreshAllCoins);
   const refreshAttendanceRef = useRef(refreshAttendance);
@@ -201,7 +250,10 @@ function MainScreen(): JSX.Element {
     }, {} as Record<(typeof storyCards)[number]['id'], Animated.Value>),
   ).current;
   const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
+  const [activeStoryIndex, setActiveStoryIndex] = useState(INITIAL_STORY_INDEX % storyCards.length);
+  const [isStoryUserScrolling, setIsStoryUserScrolling] = useState(false);
   const [isAttendanceSummaryModalVisible, setIsAttendanceSummaryModalVisible] = useState(false);
+  const [isRefreshingHome, setIsRefreshingHome] = useState(false);
   const [isProfileTipVisible, setIsProfileTipVisible] = useState(false);
   const activeCheckInNotice = checkInNotice;
   const isAttendanceModalVisible = Boolean(activeCheckInNotice || isAttendanceSummaryModalVisible);
@@ -348,6 +400,28 @@ function MainScreen(): JSX.Element {
     });
   }, []);
 
+  const refreshHomeData = React.useCallback(async () => {
+    return Promise.allSettled([
+      refreshProfileRef.current(),
+      refreshAllCoinsRef.current(),
+      refreshAttendanceRef.current(),
+    ]);
+  }, []);
+
+  const handleHomeRefresh = React.useCallback(async () => {
+    if (isRefreshingHome) {
+      return;
+    }
+
+    setIsRefreshingHome(true);
+
+    try {
+      await refreshHomeData();
+    } finally {
+      setIsRefreshingHome(false);
+    }
+  }, [isRefreshingHome, refreshHomeData]);
+
   React.useEffect(() => {
     if (!isAttendanceModalVisible) {
       attendanceModalProgress.setValue(0);
@@ -397,11 +471,7 @@ function MainScreen(): JSX.Element {
 
   useFocusEffect(
     React.useCallback(() => {
-      Promise.allSettled([
-        refreshProfileRef.current(),
-        refreshAllCoinsRef.current(),
-        refreshAttendanceRef.current(),
-      ]).then(results => {
+      refreshHomeData().then(results => {
         results.forEach((result, index) => {
           if (result.status === 'rejected') {
             console.log('[MainScreen] focus refresh failed', {
@@ -411,7 +481,7 @@ function MainScreen(): JSX.Element {
           }
         });
       });
-    }, []),
+    }, [refreshHomeData]),
   );
 
   const animateFlip = React.useCallback(
@@ -455,21 +525,51 @@ function MainScreen(): JSX.Element {
 
   const handleStoryListMomentumEnd = React.useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!flippedCardId) {
-        return;
-      }
+      setIsStoryUserScrolling(false);
 
       const offsetX = event.nativeEvent.contentOffset.x;
       const nextIndex = Math.round(offsetX / STORY_SNAP_INTERVAL);
-      const nextCard = storyCards[nextIndex];
+      const nextCard = LOOPED_STORY_CARDS[nextIndex];
 
-      if (!nextCard || nextCard.id === flippedCardId) {
+      if (nextCard) {
+        currentStoryIndexRef.current = nextIndex;
+        setActiveStoryIndex(nextIndex % storyCards.length);
+      }
+
+      if (!flippedCardId) {
+        if (nextCard && (nextIndex < STORY_LOOP_SAFE_START_INDEX || nextIndex >= STORY_LOOP_SAFE_END_INDEX)) {
+          const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (nextIndex % storyCards.length);
+          currentStoryIndexRef.current = normalizedIndex;
+          requestAnimationFrame(() => {
+            storyListRef.current?.scrollToIndex({animated: false, index: normalizedIndex});
+          });
+        }
         return;
       }
 
-      animateFlip(flippedCardId, 0, () => setFlippedCardId(null));
+      if (nextCard && nextCard.id !== flippedCardId) {
+        animateFlip(flippedCardId, 0, () => setFlippedCardId(null));
+      }
+
+      if (nextCard && (nextIndex < STORY_LOOP_SAFE_START_INDEX || nextIndex >= STORY_LOOP_SAFE_END_INDEX)) {
+        const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (nextIndex % storyCards.length);
+        currentStoryIndexRef.current = normalizedIndex;
+        requestAnimationFrame(() => {
+          storyListRef.current?.scrollToIndex({animated: false, index: normalizedIndex});
+        });
+      }
     },
     [animateFlip, flippedCardId],
+  );
+  const moveStoryListWithoutAnimation = React.useCallback(
+    (index: number) => {
+      const offset = index * STORY_SNAP_INTERVAL;
+
+      scrollX.stopAnimation();
+      scrollX.setValue(offset);
+      storyListRef.current?.scrollToOffset({animated: false, offset});
+    },
+    [scrollX],
   );
   const handleCoinCardPress = React.useCallback(() => {
     navigation.navigate('Coins');
@@ -485,8 +585,40 @@ function MainScreen(): JSX.Element {
     navigation.navigate('ProfileSetup');
   }, [dismissProfileTip, navigation]);
 
+  React.useEffect(() => {
+    if (flippedCardId || isStoryUserScrolling || storyCards.length < 2) {
+      return undefined;
+    }
+
+    const autoScrollTimer = setInterval(() => {
+      let currentIndex = currentStoryIndexRef.current;
+
+      if (currentIndex >= STORY_LOOP_SAFE_END_INDEX - 1) {
+        currentIndex = STORY_LOOP_MIDDLE_START_INDEX + (currentIndex % storyCards.length);
+        currentStoryIndexRef.current = currentIndex;
+        moveStoryListWithoutAnimation(currentIndex);
+      }
+
+      let nextIndex = currentIndex + 1;
+
+      if (nextIndex >= LOOPED_STORY_CARDS.length) {
+        const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (currentIndex % storyCards.length);
+        currentStoryIndexRef.current = normalizedIndex;
+        moveStoryListWithoutAnimation(normalizedIndex);
+        nextIndex = normalizedIndex + 1;
+      }
+
+      currentStoryIndexRef.current = nextIndex;
+      setActiveStoryIndex(nextIndex % storyCards.length);
+      storyListRef.current?.scrollToIndex({animated: true, index: nextIndex});
+    }, 4000);
+
+    return () => clearInterval(autoScrollTimer);
+  }, [flippedCardId, isStoryUserScrolling, moveStoryListWithoutAnimation]);
+
   const renderStoryCard = React.useCallback(
     ({item, index}: {item: (typeof storyCards)[number]; index: number}): JSX.Element => {
+      const isCardFlipped = flippedCardId === item.id;
       const inputRange = [
         (index - 1) * STORY_SNAP_INTERVAL,
         index * STORY_SNAP_INTERVAL,
@@ -533,7 +665,7 @@ function MainScreen(): JSX.Element {
         inputRange: [0, 0.49, 0.5, 1],
         outputRange: [0, 0, 1, 1],
       });
-      const cardRounds = bracketRoundsByStory[item.id as keyof typeof bracketRoundsByStory];
+      const cardRounds = bracketRoundsByStory[item.id as keyof typeof bracketRoundsByStory] ?? [];
 
       return (
         <View style={styles.storyItem}>
@@ -552,7 +684,7 @@ function MainScreen(): JSX.Element {
                 },
               ]}>
               <Animated.View
-                pointerEvents={flippedCardId === item.id ? 'none' : 'auto'}
+                pointerEvents={isCardFlipped ? 'none' : 'auto'}
                 style={[
                   styles.storyFace,
                   {
@@ -564,121 +696,134 @@ function MainScreen(): JSX.Element {
                 <View style={styles.storyNoise} />
               </Animated.View>
 
-              <Animated.View
-                pointerEvents={flippedCardId === item.id ? 'auto' : 'none'}
-                style={[
-                  styles.storyFace,
-                  styles.storyBackFace,
-                  {
-                    opacity: backOpacity,
-                    transform: [{perspective: 1200}, {rotateY: backRotateY}],
-                  },
-                ]}>
-                <View style={styles.storyBackHeader}>
-                  <View>
-                    <Text style={styles.storyBackEyebrow}>{item.tag}</Text>
-                    <Text style={styles.storyBackTitle}>{item.subtitle} 대진표</Text>
-                  </View>
-                  <AnimatedPressable onPress={() => handleStoryCardPress(item.id)} style={styles.storyBackCloseButton}>
-                    <Text style={styles.storyBackCloseButtonText}>닫기</Text>
-                  </AnimatedPressable>
-                </View>
-
-                <ScrollView
-                  bounces={false}
-                  contentContainerStyle={styles.storyBackRoundsContent}
-                  nestedScrollEnabled
-                  style={styles.storyBackScroll}
-                  showsVerticalScrollIndicator={false}>
-                  {cardRounds.map((round, roundIndex) => (
-                    <View
-                      key={round.id}
-                      style={[
-                        styles.storyBackRound,
-                        roundIndex === cardRounds.length - 1 && styles.storyBackRoundFinal,
-                      ]}>
-                      <View style={styles.storyBackRoundHeader}>
-                        <View style={styles.storyBackRoundTitleWrap}>
-                          <View
-                            style={[
-                              styles.storyBackRoundIndex,
-                              roundIndex === cardRounds.length - 1 && styles.storyBackRoundIndexFinal,
-                            ]}>
-                            <Text style={styles.storyBackRoundIndexText}>{roundIndex + 1}</Text>
-                          </View>
-                          <Text style={styles.storyBackRoundLabel}>{round.label}</Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.storyBackRoundMetaBadge,
-                            roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaBadgeFinal,
-                          ]}>
-                          <Text
-                            style={[
-                              styles.storyBackRoundMeta,
-                              roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaFinal,
-                            ]}>
-                            {roundIndex === cardRounds.length - 1 ? 'FINAL' : `${round.matches.length} MATCH`}
-                          </Text>
-                        </View>
-                      </View>
-                      {round.matches.map(match => {
-                        const leftWon = match.leftScore >= match.rightScore;
-                        const winnerName = leftWon ? match.left : match.right;
-
-                        return (
-                          <View
-                            key={match.id}
-                            style={[
-                              styles.storyBackMatch,
-                              roundIndex === cardRounds.length - 1 && styles.storyBackMatchFinal,
-                            ]}>
-                            {roundIndex === cardRounds.length - 1 ? (
-                              <View style={styles.storyBackChampionPill}>
-                                <Text numberOfLines={1} style={styles.storyBackChampionText}>
-                                  WINNER · {winnerName}
-                                </Text>
-                              </View>
-                            ) : null}
-                            <View style={[styles.storyBackTeamRow, leftWon && styles.storyBackTeamRowWinner]}>
-                              <View style={styles.storyBackTeamNameWrap}>
-                                <View style={[styles.storyBackSeedDot, leftWon && styles.storyBackSeedDotWinner]} />
-                                <Text
-                                  numberOfLines={1}
-                                  style={[styles.storyBackTeamName, !leftWon && styles.storyBackTeamNameMuted]}>
-                                  {match.left}
-                                </Text>
-                              </View>
-                              <Text style={[styles.storyBackTeamScore, leftWon && styles.storyBackTeamScoreWinner]}>
-                                {match.leftScore}
-                              </Text>
-                            </View>
-                            <View style={styles.storyBackVsRow}>
-                              <View style={styles.storyBackLine} />
-                              <Text style={styles.storyBackVsText}>VS</Text>
-                              <View style={styles.storyBackLine} />
-                            </View>
-                            <View style={[styles.storyBackTeamRow, !leftWon && styles.storyBackTeamRowWinner]}>
-                              <View style={styles.storyBackTeamNameWrap}>
-                                <View style={[styles.storyBackSeedDot, !leftWon && styles.storyBackSeedDotWinner]} />
-                                <Text
-                                  numberOfLines={1}
-                                  style={[styles.storyBackTeamName, leftWon && styles.storyBackTeamNameMuted]}>
-                                  {match.right}
-                                </Text>
-                              </View>
-                              <Text style={[styles.storyBackTeamScore, !leftWon && styles.storyBackTeamScoreWinner]}>
-                                {match.rightScore}
-                              </Text>
-                            </View>
-                          </View>
-                        );
-                      })}
-                      {roundIndex < cardRounds.length - 1 ? <View style={styles.storyBackRoundConnector} /> : null}
+              {isCardFlipped ? (
+                <Animated.View
+                  pointerEvents="auto"
+                  style={[
+                    styles.storyFace,
+                    styles.storyBackFace,
+                    {
+                      opacity: backOpacity,
+                      transform: [{perspective: 1200}, {rotateY: backRotateY}],
+                    },
+                  ]}>
+                  <View style={styles.storyBackHeader}>
+                    <View>
+                      <Text style={styles.storyBackEyebrow}>{item.tag}</Text>
+                      <Text style={styles.storyBackTitle}>{item.subtitle} 대진표</Text>
                     </View>
-                  ))}
-                </ScrollView>
-              </Animated.View>
+                    <AnimatedPressable onPress={() => handleStoryCardPress(item.id)} style={styles.storyBackCloseButton}>
+                      <Text style={styles.storyBackCloseButtonText}>닫기</Text>
+                    </AnimatedPressable>
+                  </View>
+
+                  <ScrollView
+                    bounces={false}
+                    contentContainerStyle={styles.storyBackRoundsContent}
+                    nestedScrollEnabled
+                    style={styles.storyBackScroll}
+                    showsVerticalScrollIndicator={false}>
+                    {cardRounds.length ? (
+                      cardRounds.map((round, roundIndex) => (
+                        <View
+                          key={round.id}
+                          style={[
+                            styles.storyBackRound,
+                            roundIndex === cardRounds.length - 1 && styles.storyBackRoundFinal,
+                          ]}>
+                          <View style={styles.storyBackRoundHeader}>
+                            <View style={styles.storyBackRoundTitleWrap}>
+                              <View
+                                style={[
+                                  styles.storyBackRoundIndex,
+                                  roundIndex === cardRounds.length - 1 && styles.storyBackRoundIndexFinal,
+                                ]}>
+                                <Text style={styles.storyBackRoundIndexText}>{roundIndex + 1}</Text>
+                              </View>
+                              <Text style={styles.storyBackRoundLabel}>{round.label}</Text>
+                            </View>
+                            <View
+                              style={[
+                                styles.storyBackRoundMetaBadge,
+                                roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaBadgeFinal,
+                              ]}>
+                              <Text
+                                style={[
+                                  styles.storyBackRoundMeta,
+                                  roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaFinal,
+                                ]}>
+                                {roundIndex === cardRounds.length - 1 ? 'FINAL' : `${round.matches.length} MATCH`}
+                              </Text>
+                            </View>
+                          </View>
+                          {round.matches.map(match => {
+                            const leftWon = match.leftScore >= match.rightScore;
+                            const winnerName = leftWon ? match.left : match.right;
+
+                            return (
+                              <View
+                                key={match.id}
+                                style={[
+                                  styles.storyBackMatch,
+                                  roundIndex === cardRounds.length - 1 && styles.storyBackMatchFinal,
+                                ]}>
+                                {roundIndex === cardRounds.length - 1 ? (
+                                  <View style={styles.storyBackChampionPill}>
+                                    <Text numberOfLines={1} style={styles.storyBackChampionText}>
+                                      WINNER · {winnerName}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                <View style={[styles.storyBackTeamRow, leftWon && styles.storyBackTeamRowWinner]}>
+                                  <View style={styles.storyBackTeamNameWrap}>
+                                    <View style={[styles.storyBackSeedDot, leftWon && styles.storyBackSeedDotWinner]} />
+                                    <Text
+                                      numberOfLines={1}
+                                      style={[styles.storyBackTeamName, !leftWon && styles.storyBackTeamNameMuted]}>
+                                      {match.left}
+                                    </Text>
+                                  </View>
+                                  <Text
+                                    style={[styles.storyBackTeamScore, leftWon && styles.storyBackTeamScoreWinner]}>
+                                    {match.leftScore}
+                                  </Text>
+                                </View>
+                                <View style={styles.storyBackVsRow}>
+                                  <View style={styles.storyBackLine} />
+                                  <Text style={styles.storyBackVsText}>VS</Text>
+                                  <View style={styles.storyBackLine} />
+                                </View>
+                                <View style={[styles.storyBackTeamRow, !leftWon && styles.storyBackTeamRowWinner]}>
+                                  <View style={styles.storyBackTeamNameWrap}>
+                                    <View
+                                      style={[styles.storyBackSeedDot, !leftWon && styles.storyBackSeedDotWinner]}
+                                    />
+                                    <Text
+                                      numberOfLines={1}
+                                      style={[styles.storyBackTeamName, leftWon && styles.storyBackTeamNameMuted]}>
+                                      {match.right}
+                                    </Text>
+                                  </View>
+                                  <Text
+                                    style={[styles.storyBackTeamScore, !leftWon && styles.storyBackTeamScoreWinner]}>
+                                    {match.rightScore}
+                                  </Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+                          {roundIndex < cardRounds.length - 1 ? <View style={styles.storyBackRoundConnector} /> : null}
+                        </View>
+                      ))
+                    ) : (
+                      <View style={styles.storyBackEmptyState}>
+                        <Text style={styles.storyBackEmptyTitle}>대진표 준비중</Text>
+                        <Text style={styles.storyBackEmptyDescription}>경기 정보가 공개되면 여기에서 확인할 수 있어요.</Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </Animated.View>
+              ) : null}
             </Animated.View>
           </AnimatedPressable>
         </View>
@@ -692,58 +837,63 @@ function MainScreen(): JSX.Element {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
+        <View pointerEvents="none" style={styles.screenBackgroundLayer}>
+          {storyCards.map(card => {
+            const opacityRange = STORY_BACKGROUND_OPACITY_RANGES[card.id];
+
+            return (
+              <Animated.Image
+                key={`background-${card.id}`}
+                blurRadius={Platform.OS === 'android' ? 12 : 28}
+                resizeMode="cover"
+                source={card.posterImage}
+                style={[
+                  styles.screenPosterBackground,
+                  {
+                    opacity: scrollX.interpolate({
+                      inputRange: opacityRange.inputRange,
+                      outputRange: opacityRange.outputRange,
+                      extrapolate: 'clamp',
+                    }),
+                  },
+                ]}
+              />
+            );
+          })}
+          <View style={styles.screenPosterScrim} />
+          <View style={styles.screenVignette} />
+        </View>
+
         <View style={styles.screen}>
-          <View pointerEvents="none" style={styles.screenBackgroundLayer}>
-            {storyCards.map((card, index) => {
-              const inputRange = [
-                (index - 1) * STORY_SNAP_INTERVAL,
-                index * STORY_SNAP_INTERVAL,
-                (index + 1) * STORY_SNAP_INTERVAL,
-              ];
-
-              const posterOpacity = scrollX.interpolate({
-                inputRange,
-                outputRange: [0, 0.34, 0],
-                extrapolate: 'clamp',
-              });
-              const posterScale = scrollX.interpolate({
-                inputRange,
-                outputRange: [1.08, 1, 1.08],
-                extrapolate: 'clamp',
-              });
-
-              return (
-                <Animated.Image
-                  key={card.id}
-                  blurRadius={32}
-                  resizeMode="cover"
-                  source={card.posterImage}
-                  style={[
-                    styles.screenPosterBackground,
-                    {
-                      opacity: posterOpacity,
-                      transform: [{scale: posterScale}],
-                    },
-                  ]}
-                />
-              );
-            })}
-            <View style={styles.screenPosterScrim} />
-            <View style={styles.screenVignette} />
-          </View>
-
           <View style={styles.mainArea}>
             <AppGnb scrollY={scrollY} />
 
             <Animated.ScrollView
               ref={mainScrollRef}
-              bounces={false}
+              bounces
               contentContainerStyle={styles.content}
+              refreshControl={
+                <RefreshControl
+                  colors={['#E50914']}
+                  progressBackgroundColor="#151519"
+                  refreshing={isRefreshingHome}
+                  tintColor="#FFFFFF"
+                  onRefresh={handleHomeRefresh}
+                />
+              }
               showsVerticalScrollIndicator={false}
               onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {useNativeDriver: true})}
               scrollEventThrottle={16}>
+              <View style={styles.storySectionHeader}>
+                <Text style={styles.storySectionEyebrow}>GAME FESTIVAL</Text>
+                <Text style={styles.storySectionTitle}>게임대회 주요 이벤트</Text>
+                <Text style={styles.storySectionDescription}>
+                  메인 종목과 스페셜 매치를 포스터로 만나보세요
+                </Text>
+              </View>
               <Animated.FlatList
-                data={storyCards}
+                ref={storyListRef}
+                data={LOOPED_STORY_CARDS}
                 decelerationRate="fast"
                 disableIntervalMomentum
                 getItemLayout={(_, index) => ({
@@ -752,42 +902,40 @@ function MainScreen(): JSX.Element {
                   offset: STORY_SNAP_INTERVAL * index,
                 })}
                 horizontal
-                initialNumToRender={storyCards.length}
-                initialScrollIndex={1}
-                keyExtractor={item => item.id}
+                initialNumToRender={5}
+                initialScrollIndex={INITIAL_STORY_INDEX}
+                keyExtractor={(item, index) => `${item.id}-${index}`}
+                maxToRenderPerBatch={5}
                 onScroll={Animated.event([{nativeEvent: {contentOffset: {x: scrollX}}}], {useNativeDriver: true})}
+                onScrollBeginDrag={() => setIsStoryUserScrolling(true)}
+                onScrollEndDrag={() => setIsStoryUserScrolling(false)}
+                onMomentumScrollBegin={() => setIsStoryUserScrolling(true)}
                 onMomentumScrollEnd={handleStoryListMomentumEnd}
                 renderItem={renderStoryCard}
+                removeClippedSubviews={Platform.OS === 'android'}
+                onScrollToIndexFailed={info => {
+                  storyListRef.current?.scrollToOffset({
+                    animated: true,
+                    offset: info.averageItemLength * info.index,
+                  });
+                }}
                 scrollEventThrottle={16}
                 showsHorizontalScrollIndicator={false}
                 snapToAlignment="start"
                 snapToInterval={STORY_SNAP_INTERVAL}
                 bounces={false}
                 contentContainerStyle={styles.storyListContent}
+                updateCellsBatchingPeriod={80}
+                windowSize={5}
               />
               <View style={styles.storyPagination}>
                 {storyCards.map((card, index) => {
-                  const inputRange = [
-                    (index - 1) * STORY_SNAP_INTERVAL,
-                    index * STORY_SNAP_INTERVAL,
-                    (index + 1) * STORY_SNAP_INTERVAL,
-                  ];
-
-                  const opacity = scrollX.interpolate({
-                    inputRange,
-                    outputRange: [0.3, 1, 0.3],
-                    extrapolate: 'clamp',
-                  });
-
                   return (
-                    <Animated.View
+                    <View
                       key={card.id}
                       style={[
                         styles.paginationDot,
-                        {
-                          opacity,
-                          backgroundColor: card.accent,
-                        },
+                        activeStoryIndex === index ? styles.paginationDotActive : styles.paginationDotInactive,
                       ]}
                     />
                   );
@@ -1002,7 +1150,6 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    backgroundColor: '#000000',
   },
   screenBackgroundLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -1016,11 +1163,11 @@ const styles = StyleSheet.create({
   },
   screenPosterScrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.58)',
+    backgroundColor: 'rgba(0,0,0,0.64)',
   },
   screenVignette: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.2)',
   },
   mainArea: {
     flex: 1,
@@ -1068,8 +1215,31 @@ const styles = StyleSheet.create({
   content: {
     paddingBottom: 36,
   },
+  storySectionHeader: {
+    paddingHorizontal: 24,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
+  storySectionEyebrow: {
+    color: '#E50914',
+    letterSpacing: 1.4,
+    ...FONTS.font11B,
+    lineHeight: 15,
+  },
+  storySectionTitle: {
+    marginTop: 6,
+    color: '#FFFFFF',
+    ...FONTS.font24B,
+    lineHeight: 30,
+  },
+  storySectionDescription: {
+    marginTop: 7,
+    color: '#A9ABB2',
+    ...FONTS.font13M,
+    lineHeight: 19,
+  },
   storyListContent: {
-    paddingTop: 8,
+    paddingTop: 4,
     paddingHorizontal: (SCREEN_WIDTH - STORY_ITEM_WIDTH) / 2,
   },
   storyItem: {
@@ -1159,8 +1329,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   storyBackRoundsContent: {
+    flexGrow: 1,
     gap: 10,
     paddingBottom: 12,
+  },
+  storyBackEmptyState: {
+    flex: 1,
+    minHeight: 320,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.055)',
+    padding: 18,
+  },
+  storyBackEmptyTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font18B,
+    lineHeight: 24,
+  },
+  storyBackEmptyDescription: {
+    marginTop: 8,
+    color: '#A9ABB2',
+    textAlign: 'center',
+    ...FONTS.font12M,
+    lineHeight: 18,
   },
   storyBackRound: {
     position: 'relative',
@@ -1249,9 +1443,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
-    backgroundColor: 'rgba(229,9,20,0.22)',
+    backgroundColor: '#E50914',
     borderWidth: 1,
-    borderColor: 'rgba(229,9,20,0.38)',
+    borderColor: '#FF5962',
   },
   storyBackChampionText: {
     color: '#FFFFFF',
@@ -1267,7 +1461,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   storyBackTeamRowWinner: {
-    backgroundColor: 'rgba(229,9,20,0.16)',
+    backgroundColor: '#2A1114',
   },
   storyBackTeamNameWrap: {
     flex: 1,
@@ -1284,7 +1478,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4A4D56',
   },
   storyBackSeedDotWinner: {
-    backgroundColor: '#E50914',
+    backgroundColor: '#FF5962',
   },
   storyBackTeamName: {
     color: '#E8EAF0',
@@ -1336,19 +1530,6 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: 'rgba(0,0,0,0.42)',
   },
-  storyBadge: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  storyBadgeText: {
-    ...FONTS.font10B,
-    letterSpacing: 1.1,
-  },
   storyEyebrow: {
     color: '#F2F3F5',
     ...FONTS.font13M,
@@ -1376,6 +1557,13 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 999,
+    backgroundColor: '#E50914',
+  },
+  paginationDotActive: {
+    opacity: 1,
+  },
+  paginationDotInactive: {
+    opacity: 0.3,
   },
   coinSection: {
     width: 335,

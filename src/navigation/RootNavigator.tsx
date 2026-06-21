@@ -5,6 +5,7 @@ import {useAuth} from '../auth/AuthProvider';
 import {SplashScreen} from '../components/SplashScreen';
 import {LoginScreen} from '../screens/LoginScreen';
 import {ProfileSetupScreen} from '../screens/ProfileSetupScreen';
+import {QrPaymentRequestScreen} from '../screens/QrPaymentRequestScreen';
 import {QrScanScreen} from '../screens/QrScanScreen';
 import {MainNavigator} from './MainNavigator';
 import type {RootStackParamList} from './types';
@@ -83,12 +84,20 @@ export function RootNavigator(): JSX.Element {
                 options={{
                   animation:
                     Platform.OS === 'ios'
-                      ? 'slide_from_bottom'
-                      : 'fade_from_bottom',
-                  gestureDirection:
-                    Platform.OS === 'ios' ? 'vertical' : undefined,
-                  presentation:
-                    Platform.OS === 'ios' ? 'fullScreenModal' : 'card',
+                      ? 'slide_from_right'
+                      : 'fade',
+                  presentation: 'card',
+                }}
+              />
+              <Stack.Screen
+                component={QrPaymentRequestScreen}
+                name="QrPaymentRequest"
+                options={{
+                  animation:
+                    Platform.OS === 'ios'
+                      ? 'slide_from_right'
+                      : 'fade',
+                  presentation: 'card',
                 }}
               />
             </>

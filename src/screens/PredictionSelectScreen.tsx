@@ -1,7 +1,7 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {useNavigation, useRoute, type RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {Image, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View} from 'react-native';
+import {Image, RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View} from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
@@ -92,6 +92,7 @@ export function PredictionSelectScreen(): JSX.Element {
   const {auth} = useAuth();
   const [gameTitle, setGameTitle] = useState(route.params.gameTitle ?? '승부예측');
   const [isGameLoading, setIsGameLoading] = useState(true);
+  const [isRefreshingGame, setIsRefreshingGame] = useState(false);
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const [matches, setMatches] = useState<GameDetailMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null);
@@ -101,7 +102,7 @@ export function PredictionSelectScreen(): JSX.Element {
   const selectedMatch = matches.find(match => match.matchId === selectedMatchId) ?? null;
   const isEmptyMatchState = !isGameLoading && !loadErrorMessage && matches.length === 0;
 
-  useEffect(() => {
+  const fetchGameDetail = useCallback(async (showLoading = true) => {
     const accessToken = auth?.accessToken;
 
     if (!accessToken) {
@@ -109,55 +110,104 @@ export function PredictionSelectScreen(): JSX.Element {
       return;
     }
 
-    let isMounted = true;
-
-    async function fetchGameDetail(): Promise<void> {
+    if (showLoading) {
       setIsGameLoading(true);
-      setLoadErrorMessage(null);
-      setGameTitle(route.params.gameTitle ?? '승부예측');
       setMatches([]);
       setSelectedMatchId(null);
-
-      try {
-        const response = await withMinimumLoadingTime(
-          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${route.params.gameId}`, {
-            headers: {
-              Accept: 'application/json',
-              Authorization: `Bearer ${accessToken}`,
-            },
-          }),
-        );
-        const responseText = await response.text();
-        const responseBody = JSON.parse(responseText) as GameDetailApiResponse;
-
-        if (!response.ok || responseBody.success === false) {
-          throw new Error(responseBody.message || '게임 상세 조회에 실패했습니다.');
-        }
-
-        if (isMounted) {
-          const nextMatches = toMatches(responseBody);
-          setGameTitle(responseBody.data?.gameTitle?.trim() || route.params.gameTitle || '승부예측');
-          setMatches(nextMatches);
-          setSelectedMatchId(nextMatches[0]?.matchId ?? null);
-        }
-      } catch (error) {
-        console.log('[PredictionSelectScreen] game detail request failed', error);
-        if (isMounted) {
-          setLoadErrorMessage('게임 정보를 불러오지 못했습니다.');
-        }
-      } finally {
-        if (isMounted) {
-          setIsGameLoading(false);
-        }
-      }
     }
 
-    fetchGameDetail();
+    setLoadErrorMessage(null);
+    setGameTitle(route.params.gameTitle ?? '승부예측');
 
-    return () => {
-      isMounted = false;
-    };
+    try {
+      const detailUrl = `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${route.params.gameId}`;
+      const response = await withMinimumLoadingTime(
+        fetch(detailUrl, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }),
+      );
+      const responseText = await response.text();
+      const responseBody = JSON.parse(responseText) as GameDetailApiResponse;
+
+      if (!response.ok || responseBody.success === false) {
+        console.log('[PredictionSelectScreen] game detail response failed', {
+          gameId: route.params.gameId,
+          gameTitle: route.params.gameTitle,
+          responseBody,
+          status: response.status,
+          url: detailUrl,
+        });
+        const responseMessage = responseBody.message ?? '';
+        const isMissingGameDetail =
+          response.status === 404 ||
+          responseMessage.includes('찾을수 없습니다') ||
+          responseMessage.includes('찾을 수 없습니다');
+
+        if (isMissingGameDetail) {
+          setMatches([]);
+          setSelectedMatchId(null);
+          return;
+        }
+
+        throw new Error(responseBody.message || '게임 상세 조회에 실패했습니다.');
+      }
+
+      const nextMatches = toMatches(responseBody);
+      setGameTitle(responseBody.data?.gameTitle?.trim() || route.params.gameTitle || '승부예측');
+      setMatches(nextMatches);
+      setSelectedMatchId(currentMatchId => {
+        if (currentMatchId !== null && nextMatches.some(match => match.matchId === currentMatchId)) {
+          return currentMatchId;
+        }
+
+        return nextMatches[0]?.matchId ?? null;
+      });
+    } catch (error) {
+      console.log('[PredictionSelectScreen] game detail request failed', {
+        error,
+        gameId: route.params.gameId,
+        gameTitle: route.params.gameTitle,
+      });
+      setLoadErrorMessage('게임 정보를 불러오지 못했습니다.');
+    } finally {
+      if (showLoading) {
+        setIsGameLoading(false);
+      }
+    }
   }, [auth?.accessToken, route.params.gameId, route.params.gameTitle]);
+
+  useEffect(() => {
+    fetchGameDetail().catch(error => {
+      console.log('[PredictionSelectScreen] game detail effect failed', error);
+    });
+  }, [fetchGameDetail]);
+
+  const handleGameRefresh = useCallback(async () => {
+    if (isRefreshingGame) {
+      return;
+    }
+
+    setIsRefreshingGame(true);
+
+    try {
+      await fetchGameDetail(false);
+    } finally {
+      setIsRefreshingGame(false);
+    }
+  }, [fetchGameDetail, isRefreshingGame]);
+
+  const refreshControl = (
+    <RefreshControl
+      colors={['#E50914']}
+      progressBackgroundColor="#151519"
+      refreshing={isRefreshingGame}
+      tintColor="#FFFFFF"
+      onRefresh={handleGameRefresh}
+    />
+  );
 
   const goNext = () => {
     if (selectedMatchId === null) {
@@ -191,7 +241,10 @@ export function PredictionSelectScreen(): JSX.Element {
           </View>
 
           {isGameLoading && !matches.length ? (
-            <View style={styles.emptyStateScreen}>
+            <ScrollView
+              contentContainerStyle={styles.emptyStateScreen}
+              refreshControl={refreshControl}
+              showsVerticalScrollIndicator={false}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
@@ -205,9 +258,12 @@ export function PredictionSelectScreen(): JSX.Element {
               <View style={styles.emptyMatchState}>
                 <AppLoading label="경기 목록을 불러오는 중..." />
               </View>
-            </View>
+            </ScrollView>
           ) : isEmptyMatchState ? (
-            <View style={styles.emptyStateScreen}>
+            <ScrollView
+              contentContainerStyle={styles.emptyStateScreen}
+              refreshControl={refreshControl}
+              showsVerticalScrollIndicator={false}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>
@@ -221,9 +277,12 @@ export function PredictionSelectScreen(): JSX.Element {
               <View style={styles.emptyMatchState}>
                 <Text style={styles.emptyMatchText}>현재 진행중인 경기가 없습니다.</Text>
               </View>
-            </View>
+            </ScrollView>
           ) : (
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+            <ScrollView
+              contentContainerStyle={styles.content}
+              refreshControl={refreshControl}
+              showsVerticalScrollIndicator={false}>
               <View style={styles.heroBlock}>
                 <Text style={styles.heroTitle}>{gameTitle}</Text>
                 <Text style={styles.heroSubtitle}>

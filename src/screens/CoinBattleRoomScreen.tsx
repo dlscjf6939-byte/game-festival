@@ -841,6 +841,7 @@ function buildTypingRanking(rounds: TypingRound[], finalResults: TypingFinalResu
 
 function TypingGamePanel({
   disabled,
+  isFinished,
   myUserId,
   myUserName,
   onStickySentenceChange,
@@ -848,6 +849,7 @@ function TypingGamePanel({
   state,
 }: {
   disabled?: boolean;
+  isFinished?: boolean;
   myUserId?: null | number | string;
   myUserName?: string;
   onStickySentenceChange?: (sentence: string | null) => void;
@@ -868,7 +870,7 @@ function TypingGamePanel({
   const roundWinner = getTypingRoundWinner(players);
   const hasSubmitted = Boolean(myPlayer?.submittedAt);
   const isJudged = Boolean(currentRound?.judgedAt);
-  const isMatchFinished = finalResults.length > 0;
+  const isMatchFinished = Boolean(isFinished);
   const correctPrefixLength = getCorrectPrefixLength(answerSentence, inputValue);
   const hasMistake = inputValue.length > correctPrefixLength;
   const isComplete = answerSentence.length > 0 && inputValue === answerSentence;
@@ -905,7 +907,7 @@ function TypingGamePanel({
       return;
     }
 
-    if (isInputFocused && answerSentence) {
+    if (!isMatchFinished && isInputFocused && answerSentence) {
       onStickySentenceChange(answerSentence);
       return;
     }
@@ -915,7 +917,7 @@ function TypingGamePanel({
     return () => {
       onStickySentenceChange(null);
     };
-  }, [answerSentence, isInputFocused, onStickySentenceChange]);
+  }, [answerSentence, isInputFocused, isMatchFinished, onStickySentenceChange]);
 
   const handleSubmit = () => {
     if (!isComplete || hasSubmitted || isSubmitPending) {
@@ -937,87 +939,93 @@ function TypingGamePanel({
         title="타자게임"
       />
 
-      <View style={styles.typingSentenceCard}>
-        <Text style={styles.typingSentenceLabel}>출제 문장</Text>
-        <Text style={styles.typingSentence}>{answerSentence || '잠시 후 문장이 표시됩니다.'}</Text>
-      </View>
+      {!isMatchFinished ? (
+        <>
+          <View style={styles.typingSentenceCard}>
+            <Text style={styles.typingSentenceLabel}>출제 문장</Text>
+            <Text style={styles.typingSentence}>{answerSentence || '잠시 후 문장이 표시됩니다.'}</Text>
+          </View>
 
-      <View style={styles.typingProgressTrack}>
-        <View style={[styles.typingProgressFill, {width: `${progressPercent}%`}]} />
-      </View>
+          <View style={styles.typingProgressTrack}>
+            <View style={[styles.typingProgressFill, {width: `${progressPercent}%`}]} />
+          </View>
 
-      <View style={styles.typingStatusRow}>
-        <Text style={[styles.typingStatusText, hasMistake && styles.typingStatusError]}>{statusMessage}</Text>
-        <Text style={styles.typingCountText}>
-          {correctPrefixLength}/{answerSentence.length || 0}
-        </Text>
-      </View>
+          <View style={styles.typingStatusRow}>
+            <Text style={[styles.typingStatusText, hasMistake && styles.typingStatusError]}>{statusMessage}</Text>
+            <Text style={styles.typingCountText}>
+              {correctPrefixLength}/{answerSentence.length || 0}
+            </Text>
+          </View>
 
-      <TextInput
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={editable}
-        blurOnSubmit
-        multiline
-        onChangeText={setInputValue}
-        onBlur={() => setIsInputFocused(false)}
-        onFocus={() => setIsInputFocused(true)}
-        onSubmitEditing={handleSubmit}
-        placeholder="문장을 입력하세요"
-        placeholderTextColor="#777777"
-        returnKeyType="done"
-        style={[
-          styles.typingInput,
-          hasMistake && styles.typingInputError,
-          isComplete && styles.typingInputComplete,
-          !editable && styles.typingInputDisabled,
-        ]}
-        value={inputValue}
-      />
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            blurOnSubmit
+            editable={editable}
+            multiline
+            onBlur={() => setIsInputFocused(false)}
+            onChangeText={setInputValue}
+            onFocus={() => setIsInputFocused(true)}
+            onSubmitEditing={handleSubmit}
+            placeholder="문장을 입력하세요"
+            placeholderTextColor="#777777"
+            returnKeyType="done"
+            style={[
+              styles.typingInput,
+              hasMistake && styles.typingInputError,
+              isComplete && styles.typingInputComplete,
+              !editable && styles.typingInputDisabled,
+            ]}
+            value={inputValue}
+          />
 
-      <View style={styles.typingButtonRow}>
-        <AnimatedPressable
-          disabled={!editable || inputValue.length === 0}
-          onPress={() => setInputValue('')}
-          style={[styles.typingSubButton, (!editable || inputValue.length === 0) && styles.typingButtonDisabled]}>
-          <Text style={styles.typingSubButtonText}>다시 입력</Text>
-        </AnimatedPressable>
-        <AnimatedPressable
-          disabled={!isComplete || hasSubmitted || isSubmitPending}
-          onPress={handleSubmit}
-          style={[
-            styles.typingPrimaryButton,
-            (!isComplete || hasSubmitted || isSubmitPending) && styles.typingButtonDisabled,
-          ]}>
-          <Text style={styles.typingPrimaryButtonText}>{isSubmitPending ? '제출 중' : '제출'}</Text>
-        </AnimatedPressable>
-      </View>
+          <View style={styles.typingButtonRow}>
+            <AnimatedPressable
+              disabled={!editable || inputValue.length === 0}
+              onPress={() => setInputValue('')}
+              style={[styles.typingSubButton, (!editable || inputValue.length === 0) && styles.typingButtonDisabled]}>
+              <Text style={styles.typingSubButtonText}>다시 입력</Text>
+            </AnimatedPressable>
+            <AnimatedPressable
+              disabled={!isComplete || hasSubmitted || isSubmitPending}
+              onPress={handleSubmit}
+              style={[
+                styles.typingPrimaryButton,
+                (!isComplete || hasSubmitted || isSubmitPending) && styles.typingButtonDisabled,
+              ]}>
+              <Text style={styles.typingPrimaryButtonText}>{isSubmitPending ? '제출 중' : '제출'}</Text>
+            </AnimatedPressable>
+          </View>
 
-      <View style={styles.typingPlayersCard}>
-        <Text style={styles.roundHistoryTitle}>참가 현황</Text>
-        {players.length > 0 ? (
-          players.map((player, index) => {
-            const isMine = isSameTypingPlayer(player, myUserId, myUserName);
+          <View style={styles.typingPlayersCard}>
+            <Text style={styles.roundHistoryTitle}>참가 현황</Text>
+            {players.length > 0 ? (
+              players.map((player, index) => {
+                const isMine = isSameTypingPlayer(player, myUserId, myUserName);
 
-            return (
-              <View
-                key={`${player.employeeId ?? player.employeeName ?? 'player'}-${index}`}
-                style={[styles.typingPlayerRow, isMine && styles.typingPlayerRowMine]}>
-                <Text numberOfLines={1} style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
-                  {isMine ? '나' : player.employeeName ?? '참가자'}
-                </Text>
-                <Text style={styles.typingPlayerMeta}>
-                  {isTypingPlayerCompleted(player) ? `완료 · ${formatTypingElapsed(player.elapsedSeconds)}` : '입력중'}
-                </Text>
-              </View>
-            );
-          })
-        ) : (
-          <Text style={styles.roundHistoryEmpty}>아직 제출한 참가자가 없습니다.</Text>
-        )}
-      </View>
+                return (
+                  <View
+                    key={`${player.employeeId ?? player.employeeName ?? 'player'}-${index}`}
+                    style={[styles.typingPlayerRow, isMine && styles.typingPlayerRowMine]}>
+                    <Text numberOfLines={1} style={[styles.typingPlayerName, isMine && styles.typingPlayerNameMine]}>
+                      {isMine ? '나' : player.employeeName ?? '참가자'}
+                    </Text>
+                    <Text style={styles.typingPlayerMeta}>
+                      {isTypingPlayerCompleted(player)
+                        ? `완료 · ${formatTypingElapsed(player.elapsedSeconds)}`
+                        : '입력중'}
+                    </Text>
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={styles.roundHistoryEmpty}>아직 제출한 참가자가 없습니다.</Text>
+            )}
+          </View>
+        </>
+      ) : null}
 
-      {rankingItems.length > 0 ? (
+      {isMatchFinished && rankingItems.length > 0 ? (
         <View style={styles.typingPlayersCard}>
           <Text style={styles.roundHistoryTitle}>최종 순위</Text>
           {rankingItems.map((result, index) => {
@@ -1078,12 +1086,14 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const [startCountdownSeconds, setStartCountdownSeconds] = useState<number | null>(null);
   const [roundResultOverlay, setRoundResultOverlay] = useState<RoundResultOverlay | null>(null);
   const [pendingRpsChoice, setPendingRpsChoice] = useState<RpsChoice | null>(null);
+  const [hasSeenActiveTypingPayload, setHasSeenActiveTypingPayload] = useState(false);
   const [isReturningToWaitingRoom, setIsReturningToWaitingRoom] = useState(false);
   const [stickyTypingSentence, setStickyTypingSentence] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roundResultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startRequestedRef = useRef(false);
+  const inProgressRoomKeyRef = useRef<string | null>(null);
   const latestPresentedRoundRef = useRef(0);
   const latestTypingSyncRequestedRoundRef = useRef(0);
   const coinRefreshRoomIdRef = useRef<string | null>(null);
@@ -1186,10 +1196,27 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const typingFinalResults =
     typingGameState && Array.isArray(typingGameState.finalResults) ? typingGameState.finalResults : [];
   const typingRounds = typingGameState && Array.isArray(typingGameState.rounds) ? typingGameState.rounds : [];
-  const typingTotalRoundCount =
+  const serverTypingRoundCount =
     typingGameState && Array.isArray(typingGameState.roundSentences) && typingGameState.roundSentences.length > 0
       ? typingGameState.roundSentences.length
       : totalRoundCount;
+  const typingTotalRoundCount = Math.min(serverTypingRoundCount, totalRoundCount);
+  const shouldEvaluateTypingMatch = hasGameStarted || Boolean(gameRoomSnapshot) || Boolean(finishedRoomSnapshot);
+  const hasPlayableTypingRound =
+    isTypingGame &&
+    typingRounds.some(round => {
+      return (
+        typeof round.answerSentence === 'string' &&
+        round.answerSentence.trim().length > 0 &&
+        !isTypingRoundCompleted(round)
+      );
+    });
+  const hasActiveTypingPayload =
+    isTypingGame &&
+    typingRounds.some(round => {
+      return typeof round.answerSentence === 'string' && round.answerSentence.trim().length > 0;
+    });
+  const canEvaluateTypingFinish = !hasGameStarted || hasSeenActiveTypingPayload;
   const visibleCompletedTypingRoundCount = typingRounds.reduce((count, round) => {
     return isTypingRoundCompleted(round) ? count + 1 : count;
   }, 0);
@@ -1204,11 +1231,13 @@ export function CoinBattleRoomScreen(): JSX.Element {
     return Math.max(latestTypingRoundNumber, roundNumber);
   }, 0);
   const isTypingMatchFinished =
-    typingFinalResults.length > 0 ||
-    (isTypingGame &&
-      typingTotalRoundCount > 0 &&
-      (completedTypingRoundCount >= typingTotalRoundCount ||
-        latestCompletedTypingRoundNumber >= typingTotalRoundCount));
+    shouldEvaluateTypingMatch &&
+    canEvaluateTypingFinish &&
+    ((typingFinalResults.length > 0 && !hasPlayableTypingRound) ||
+      (isTypingGame &&
+        typingTotalRoundCount > 0 &&
+        (completedTypingRoundCount >= typingTotalRoundCount ||
+          latestCompletedTypingRoundNumber >= typingTotalRoundCount)));
   const isMatchFinished = isRpsGame
     ? isRpsMatchFinished
     : isPictureMatchGame
@@ -1436,11 +1465,34 @@ export function CoinBattleRoomScreen(): JSX.Element {
   ]);
 
   useEffect(() => {
-    if (liveRoom?.roomStatus === 'IN_PROGRESS') {
-      setHasGameStarted(true);
-      setGameRoomSnapshot(liveRoom);
+    if (liveRoom?.roomStatus !== 'IN_PROGRESS') {
+      inProgressRoomKeyRef.current = null;
+      return;
     }
-  }, [liveRoom]);
+
+    const nextInProgressRoomKey = `${roomId}:${liveRoom.realtimeGameId ?? 'unknown'}`;
+
+    if (inProgressRoomKeyRef.current !== nextInProgressRoomKey) {
+      inProgressRoomKeyRef.current = nextInProgressRoomKey;
+
+      if (liveRoom.realtimeGameId === 21) {
+        latestPresentedRoundRef.current = 0;
+        latestTypingSyncRequestedRoundRef.current = 0;
+        setRoundResultOverlay(null);
+        setHasSeenActiveTypingPayload(false);
+        resetTypingGame();
+      }
+    }
+
+    setHasGameStarted(true);
+    setGameRoomSnapshot(liveRoom);
+  }, [liveRoom, resetTypingGame, roomId]);
+
+  useEffect(() => {
+    if (hasActiveTypingPayload) {
+      setHasSeenActiveTypingPayload(true);
+    }
+  }, [hasActiveTypingPayload]);
 
   useEffect(() => {
     if (liveRoom && isMatchFinished) {
@@ -1488,6 +1540,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
     if (startCountdownSeconds === 0) {
       if (canAutoStart && !startRequestedRef.current && currentRoom) {
+        if (currentRoom.realtimeGameId === 21) {
+          latestTypingSyncRequestedRoundRef.current = 0;
+          setHasSeenActiveTypingPayload(false);
+          resetTypingGame();
+        }
+
         startRequestedRef.current = startRoom({
           realtimeGameId: currentRoom.realtimeGameId,
           roomId,
@@ -1504,7 +1562,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [canAutoStart, canStartCountdown, currentRoom, myUserId, roomId, startCountdownSeconds, startRoom]);
+  }, [canAutoStart, canStartCountdown, currentRoom, myUserId, resetTypingGame, roomId, startCountdownSeconds, startRoom]);
 
   useEffect(() => {
     if (startCountdownSeconds === null) {
@@ -1837,9 +1895,11 @@ export function CoinBattleRoomScreen(): JSX.Element {
       setOptimisticReady(null);
       setPendingRpsChoice(null);
       startRequestedRef.current = false;
+      inProgressRoomKeyRef.current = null;
       latestPresentedRoundRef.current = 0;
       latestTypingSyncRequestedRoundRef.current = 0;
       coinRefreshRoomIdRef.current = null;
+      setHasSeenActiveTypingPayload(false);
       resetRpsGame();
       resetPictureMatchGame();
       resetTypingGame();
@@ -1930,6 +1990,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   {isTypingGame ? (
                     <TypingGamePanel
                       disabled={Boolean(roundResultOverlay)}
+                      isFinished={isTypingMatchFinished}
                       myUserId={myUserId}
                       myUserName={auth?.name}
                       onStickySentenceChange={setStickyTypingSentence}

@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import LottieView from 'lottie-react-native';
 import {
   Alert,
   ActivityIndicator,
@@ -8,6 +9,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  type ImageSourcePropType,
   type LayoutChangeEvent,
   Modal,
   Platform,
@@ -34,14 +36,12 @@ import type {CoinBattleStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
 import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 
-const SCREENSHOT_WIDTH = 375;
-const SCREENSHOT_HEIGHT = 812;
 const THUMBNAIL_WIDTH = 143;
 const THUMBNAIL_HEIGHT = 99;
+const infoLottie = require('../assets/lotties/Info.json');
 
 type DisplayRoom = {
   betAmount: number;
-  cropY: number;
   game: string;
   host: string;
   hostProfileImageUri?: string;
@@ -52,6 +52,7 @@ type DisplayRoom = {
   memberNames: string[];
   memberCount: number;
   ownerEmployeeId?: number;
+  realtimeGameId?: number;
   roomStatus?: CoinBattleRoomStatus;
   status: string;
   statusTone: 'playing' | 'waiting';
@@ -90,8 +91,6 @@ const FAB_BOTTOM = 21;
 const QUICK_ACTION_BOTTOM = 93;
 const CONTENT_BOTTOM_PADDING = 138;
 
-const cropOffsets = [169, 270, 371, 472, 573, 674];
-
 const roomStatusLabels: Record<CoinBattleRoomStatus, string> = {
   EXIT: '종료',
   FULL: '정원마감',
@@ -104,6 +103,27 @@ const gameTitleById: Record<number, string> = {
   2: '같은 카드 맞추기',
   21: '타자게임',
 };
+
+function getCoinBattleGameImageSource(realtimeGameId?: number, gameName = ''): ImageSourcePropType {
+  const normalizedGameName = gameName.replace(/\s/g, '').toLowerCase();
+
+  if (realtimeGameId === 21 || normalizedGameName.includes('타자') || normalizedGameName.includes('typing')) {
+    return image.coinBattle3;
+  }
+
+  if (
+    realtimeGameId === 2 ||
+    normalizedGameName.includes('같은그림') ||
+    normalizedGameName.includes('같은카드') ||
+    normalizedGameName.includes('그림') ||
+    normalizedGameName.includes('카드') ||
+    normalizedGameName.includes('match')
+  ) {
+    return image.coinBattle2;
+  }
+
+  return image.coinBattle1;
+}
 
 function getRoomStatusLabel(status?: CoinBattleRoomStatus): string {
   if (!status) {
@@ -144,7 +164,7 @@ function getRoomHostProfileImageUri(room: CoinBattleRoom): string | undefined {
 }
 
 function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
-  return rooms.map((room, index) => {
+  return rooms.map(room => {
     const memberCount = Math.max(room.currentMemberCount, room.roomMembers.length);
     const isFull = memberCount >= room.maxMembers || room.roomStatus === 'FULL';
     const roomStatus = isFull && room.roomStatus === 'WAITING' ? 'FULL' : room.roomStatus;
@@ -153,7 +173,6 @@ function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
 
     return {
       betAmount: room.betAmount ?? MIN_BET_AMOUNT,
-      cropY: cropOffsets[index % cropOffsets.length],
       game: getRoomGameTitle(room),
       host: getRoomHost(room),
       hostProfileImageUri: getRoomHostProfileImageUri(room),
@@ -164,6 +183,7 @@ function mapRealtimeRooms(rooms: CoinBattleRoom[]): DisplayRoom[] {
       memberEmployeeIds: room.roomMembers.map(member => member.employeeId),
       memberNames: room.roomMembers.map(member => member.employeeName),
       ownerEmployeeId: room.ownerEmployeeId,
+      realtimeGameId: room.realtimeGameId,
       roomStatus,
       status,
       statusTone,
@@ -242,23 +262,11 @@ function matchesRoomFilter(room: DisplayRoom, filterId: RoomFilterId): boolean {
 }
 
 function Thumbnail({room}: {room: DisplayRoom}): JSX.Element {
-  const isWaiting = room.statusTone === 'waiting';
+  const thumbnailSource = getCoinBattleGameImageSource(room.realtimeGameId, room.game);
 
   return (
     <View style={styles.thumbnail}>
-      {/* <Image
-        source={image.coinBattle}
-        style={[
-          styles.thumbnailImage,
-          {
-            left: -20,
-            top: -room.cropY,
-          },
-        ]}
-      /> */}
-      <View style={[styles.statusBadge, isWaiting ? styles.statusWaiting : styles.statusPlaying]}>
-        <Text style={styles.statusText}>{room.status}</Text>
-      </View>
+      <Image resizeMode="contain" source={thumbnailSource} style={styles.thumbnailImage} />
     </View>
   );
 }
@@ -630,7 +638,7 @@ export function CoinBattleScreen(): JSX.Element {
                   accessibilityRole="button"
                   onPress={() => setIsCoinInfoVisible(true)}
                   style={styles.headerInfoButton}>
-                  <Image source={icon.info} style={styles.headerInfoIcon} resizeMode="contain" />
+                  <LottieView autoPlay loop source={infoLottie} speed={0.5} style={styles.headerInfoIcon} />
                 </AnimatedPressable>
               </View>
               <View style={styles.titleActions}>
@@ -733,9 +741,18 @@ export function CoinBattleScreen(): JSX.Element {
                           </Text>
                         </View>
 
-                        <Text style={styles.memberCountText}>
-                          {room.memberCount}/{room.maxMembers}
-                        </Text>
+                        <View style={styles.memberStatusRow}>
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              room.statusTone === 'waiting' ? styles.statusWaiting : styles.statusPlaying,
+                            ]}>
+                            <Text style={styles.statusText}>{room.status}</Text>
+                          </View>
+                          <Text style={styles.memberCountText}>
+                            {room.memberCount}/{room.maxMembers}
+                          </Text>
+                        </View>
                       </View>
                     </AnimatedPressable>
                   );
@@ -1050,8 +1067,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerInfoIcon: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
   },
   guideEntryButton: {
     height: 34,
@@ -1162,6 +1179,8 @@ const styles = StyleSheet.create({
   thumbnail: {
     width: THUMBNAIL_WIDTH,
     height: THUMBNAIL_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
     backgroundColor: '#171717',
     borderWidth: 1,
@@ -1169,14 +1188,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   thumbnailImage: {
-    position: 'absolute',
-    width: SCREENSHOT_WIDTH,
-    height: SCREENSHOT_HEIGHT,
+    width: '86%',
+    height: '86%',
   },
   statusBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
     minWidth: 44,
     height: 20,
     borderRadius: 4,
@@ -1240,8 +1255,13 @@ const styles = StyleSheet.create({
     ...FONTS.font11M,
     lineHeight: 15,
   },
-  memberCountText: {
+  memberStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginTop: 5,
+  },
+  memberCountText: {
     color: '#8A8D95',
     ...FONTS.font11M,
     lineHeight: 15,

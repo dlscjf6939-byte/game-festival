@@ -9,6 +9,7 @@ import {AttendanceProvider} from './src/attendance/AttendanceProvider';
 import {AuthProvider} from './src/auth/AuthProvider';
 import {FONT_FAMILY} from './src/constants/theme';
 import {RootNavigator} from './src/navigation/RootNavigator';
+import {requestCoinNotificationPermission} from './src/utils/localCoinNotification';
 
 const navigationTheme = {
   ...DefaultTheme,
@@ -185,6 +186,12 @@ function HotUpdaterPreview(): JSX.Element {
 
 function App(): JSX.Element {
   const updateOverlay = useHotUpdaterOverlaySnapshot();
+
+  useEffect(() => {
+    requestCoinNotificationPermission().catch(error => {
+      console.log('[App] notification permission request failed', error);
+    });
+  }, []);
 
   if (SHOULD_PREVIEW_HOT_UPDATER_SCREEN) {
     return <HotUpdaterPreview />;

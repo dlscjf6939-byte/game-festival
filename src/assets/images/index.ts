@@ -1,18 +1,28 @@
 import type {ImageSourcePropType} from 'react-native';
 
 type ImageMap = {
+  badge: ImageSourcePropType;
   crazyarcade: ImageSourcePropType;
   crazyarcadeLetter: ImageSourcePropType;
+  executiveChooJongWon: ImageSourcePropType;
+  executiveChooYeonJin: ImageSourcePropType;
+  executiveKimHyungSeok: ImageSourcePropType;
+  executiveKimBoRam: ImageSourcePropType;
+  executiveParkSungHo: ImageSourcePropType;
   gameFestival1: ImageSourcePropType;
   gameFestival2: ImageSourcePropType;
   gameFestival3: ImageSourcePropType;
-  // coinBattle: ImageSourcePropType;
+  coinBattle1: ImageSourcePropType;
+  coinBattle2: ImageSourcePropType;
+  coinBattle3: ImageSourcePropType;
   homeBanner: ImageSourcePropType;
   human: ImageSourcePropType;
   logo: ImageSourcePropType;
   poster1: ImageSourcePropType;
   poster2: ImageSourcePropType;
   poster3: ImageSourcePropType;
+  poster4: ImageSourcePropType;
+  poster5: ImageSourcePropType;
   product1: ImageSourcePropType;
   profile: ImageSourcePropType;
   qrCode: ImageSourcePropType;
@@ -29,18 +39,28 @@ type ImageMap = {
 };
 
 export const image: ImageMap = {
+  badge: require('./badge.png'),
   crazyarcade: require('./crazyarcade.png'),
   crazyarcadeLetter: require('./crazyarcade_letter.png'),
+  executiveChooJongWon: require('./4.png'),
+  executiveChooYeonJin: require('./3.png'),
+  executiveKimHyungSeok: require('./2.png'),
+  executiveKimBoRam: require('./5.png'),
+  executiveParkSungHo: require('./1.png'),
   gameFestival1: require('./gameFestival1.jpg'),
   gameFestival2: require('./gameFestival2.jpg'),
   gameFestival3: require('./gameFestival3.jpg'),
-  // coinBattle: require('./코인대전.png'),
+  coinBattle1: require('./coinBattle1.png'),
+  coinBattle2: require('./coinBattle2.png'),
+  coinBattle3: require('./coinBattle3.png'),
   homeBanner: require('./home-banner.png'),
   human: require('./human.png'),
   logo: require('./logo.png'),
   poster1: require('./poster1.png'),
   poster2: require('./poster2.png'),
   poster3: require('./poster3.png'),
+  poster4: require('./poster4.png'),
+  poster5: require('./poster5.png'),
   product1: require('./product1.png'),
   profile: require('./profile.png'),
   qrCode: require('./qrCode.png'),
@@ -53,5 +73,5 @@ export const image: ImageMap = {
   rock: require('./rock.png'),
   scissor: require('./scissor.png'),
   tekken7: require('./tekken7.png'),
-  maskSinger: require('./maskSinger.jpg'),
+  maskSinger: require('./maskSinger.png'),
 };

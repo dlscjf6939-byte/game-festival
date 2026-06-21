@@ -17,6 +17,7 @@ import {image} from '../assets/images';
 import {icon} from '../assets/icons';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
+import {SlidingSegmentedTabs, SwipeableTabView} from '../components/SlidingSegmentedTabs';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {FONTS} from '../constants/theme';
 import type {CoinBattleStackParamList} from '../navigation/types';
@@ -302,6 +303,7 @@ export function CoinBattleGuideScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<CoinBattleStackParamList>>();
   const scrollViewRef = useRef<ScrollView>(null);
   const [selectedGameId, setSelectedGameId] = useState<PracticeGameId>(1);
+  const guideTabOptions = useMemo(() => guideGames.map(game => ({id: game.id, label: game.title})), []);
   const selectedGame = useMemo(() => {
     return guideGames.find(game => game.id === selectedGameId) ?? guideGames[0];
   }, [selectedGameId]);
@@ -339,40 +341,36 @@ export function CoinBattleGuideScreen(): JSX.Element {
               <View style={styles.backButton} />
             </View>
 
-            <View style={styles.tabRow}>
-              {guideGames.map(game => {
-                const active = selectedGame.id === game.id;
+            <SlidingSegmentedTabs
+              activeTab={selectedGame.id}
+              onTabPress={setSelectedGameId}
+              style={styles.tabRow}
+              tabs={guideTabOptions}
+            />
 
-                return (
-                  <AnimatedPressable
-                    key={game.id}
-                    accessibilityRole="button"
-                    onPress={() => setSelectedGameId(game.id)}
-                    style={[styles.tabButton, active && styles.tabButtonActive]}>
-                    <Text style={[styles.tabText, active && styles.tabTextActive]}>{game.title}</Text>
-                  </AnimatedPressable>
-                );
-              })}
-            </View>
-
-            <View style={styles.summaryBand}>
-              <Text style={styles.gameTitle}>{selectedGame.title}</Text>
-              <Text style={styles.summaryText}>{selectedGame.summary}</Text>
-              <View style={styles.roundBadge}>
-                <Text style={styles.roundBadgeText}>최대 {selectedGame.maxRoundCount}라운드</Text>
-              </View>
-            </View>
-
-            <View style={styles.ruleList}>
-              {selectedGame.rules.map((rule, index) => (
-                <View key={rule} style={styles.ruleRow}>
-                  <Text style={styles.ruleIndex}>{index + 1}.</Text>
-                  <Text style={styles.ruleText}>{rule}</Text>
+            <SwipeableTabView
+              activeTab={selectedGame.id}
+              onTabPress={setSelectedGameId}
+              tabs={guideTabOptions}>
+              <View style={styles.summaryBand}>
+                <Text style={styles.gameTitle}>{selectedGame.title}</Text>
+                <Text style={styles.summaryText}>{selectedGame.summary}</Text>
+                <View style={styles.roundBadge}>
+                  <Text style={styles.roundBadgeText}>최대 {selectedGame.maxRoundCount}라운드</Text>
                 </View>
-              ))}
-            </View>
+              </View>
 
-            <PracticeContent gameId={selectedGame.id} onTypingInputFocus={scrollToTypingInput} />
+              <View style={styles.ruleList}>
+                {selectedGame.rules.map((rule, index) => (
+                  <View key={rule} style={styles.ruleRow}>
+                    <Text style={styles.ruleIndex}>{index + 1}.</Text>
+                    <Text style={styles.ruleText}>{rule}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <PracticeContent gameId={selectedGame.id} onTypingInputFocus={scrollToTypingInput} />
+            </SwipeableTabView>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -430,32 +428,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   tabRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
     marginTop: 18,
-  },
-  tabButton: {
-    minHeight: 38,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#252525',
-    backgroundColor: '#111114',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
-  tabButtonActive: {
-    backgroundColor: '#E50914',
-    borderColor: '#E50914',
-  },
-  tabText: {
-    color: '#D7D7D7',
-    ...FONTS.font13B,
-    lineHeight: 18,
-  },
-  tabTextActive: {
-    color: '#FFFFFF',
   },
   summaryBand: {
     marginTop: 18,

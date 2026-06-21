@@ -12,6 +12,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -35,6 +36,7 @@ import {withMinimumLoadingTime} from '../utils/loading';
 import {getProfileImageUriFromRecord} from '../utils/profileImage';
 import {
   ExecutivePredictionSelector,
+  ExecutivePredictionVoteButtons,
   EXECUTIVE_SELECTOR_STAGE_HEIGHT,
 } from './predictionDetail/ExecutivePredictionSelector';
 import {MaskSingerPredictionSelector} from './predictionDetail/MaskSingerPredictionSelector';
@@ -254,24 +256,24 @@ function normalizeMatchStatus(value: unknown): string {
 function getInitialPredictionStep(
   startStep: PredictionStep | undefined,
   matchStatus: unknown,
-  isVoteOnlyGame: boolean,
+  canShowCountingStep: boolean,
 ): PredictionStep {
-  if (startStep === 'comment' || startStep === 'counting' || startStep === 'result') {
+  if (startStep === 'comment' || startStep === 'result') {
     return startStep;
   }
 
-  if (!isVoteOnlyGame) {
-    return 'select';
+  if (startStep === 'counting') {
+    return canShowCountingStep ? 'counting' : 'result';
   }
 
   const normalizedStatus = normalizeMatchStatus(matchStatus);
 
-  if (normalizedStatus === 'COUNTING') {
-    return 'counting';
-  }
-
   if (normalizedStatus === 'FINISHED') {
     return 'result';
+  }
+
+  if (canShowCountingStep && normalizedStatus === 'COUNTING') {
+    return 'counting';
   }
 
   return 'select';
@@ -307,7 +309,8 @@ function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
 
 function splitInlineNameAndDepartment(rawName: string): {department?: string; name: string} {
   const trimmedName = rawName.trim();
-  const wrappedDepartmentMatch = trimmedName.match(/^(.+?)\s*[\(\[]\s*([^\)\]]+)\s*[\)\]]$/);
+  const wrappedDepartmentMatch =
+    trimmedName.match(/^(.+?)\s*\(\s*([^)]+)\s*\)$/) ?? trimmedName.match(/^(.+?)\s*\[\s*([^\]]+)\s*\]$/);
 
   if (wrappedDepartmentMatch) {
     return {
@@ -353,6 +356,11 @@ function getSeparatedParticipantName(participant: MatchParticipant, preferNameFi
   );
 }
 
+function isKimHyungSeokParticipant(participant: MatchParticipant): boolean {
+  const rawName = `${participant.name ?? ''} ${participant.participantName ?? ''}`;
+  return rawName.replace(/\s/g, '').includes('김형석');
+}
+
 function toExecutiveProfile(participant: MatchParticipant | undefined): ExecutiveProfile | null {
   if (!participant) {
     return null;
@@ -369,7 +377,7 @@ function toExecutiveProfile(participant: MatchParticipant | undefined): Executiv
 
   return {
     department: participant.department?.trim() || parsedName?.department,
-    imageSource: logoImageUrl ? {uri: logoImageUrl} : image.human,
+    imageSource: logoImageUrl ? {uri: logoImageUrl} : isKimHyungSeokParticipant(participant) ? image.executiveKimHyungSeok : image.human,
     name,
     participantId: participant.participantId,
   };
@@ -397,11 +405,17 @@ function toPredictionTeam(
   const department = participant.department?.trim() || parsedName?.department;
   const fallbackName = isExecutiveGame && index === 1 ? '일반사원' : `참가자 ${index + 1}`;
   const displayName = getSeparatedParticipantName(participant, isExecutiveGame);
+  const fallbackImageSource =
+    isExecutiveGame && isKimHyungSeokParticipant(participant)
+      ? image.executiveKimHyungSeok
+      : isIndividual
+        ? image.human
+        : fallbackTeam.imageSource;
 
   return {
     department,
     id: isIndividual ? teamId : fallbackTeam.id,
-    imageSource: logoImageUrl ? {uri: logoImageUrl} : isIndividual ? image.human : fallbackTeam.imageSource,
+    imageSource: logoImageUrl ? {uri: logoImageUrl} : fallbackImageSource,
     isIndividual,
     members: department
       ? [department]
@@ -470,8 +484,11 @@ export function PredictionDetailScreen(): JSX.Element {
   const myName = auth?.name ?? '이인철';
   const initialSelectedTeam = route.params?.selectedTeamId ?? '';
   const isParticipatedDetail = route.params?.mode === 'participated';
+  const hasInitialResultPrediction = !isMaskSingerGame && typeof route.params?.pickedParticipantId === 'number';
   const [step, setStep] = useState<PredictionStep>(() =>
-    getInitialPredictionStep(route.params?.startStep, route.params?.matchStatus, isVoteOnlyGame),
+    hasInitialResultPrediction
+      ? 'result'
+      : getInitialPredictionStep(route.params?.startStep, route.params?.matchStatus, isMaskSingerGame),
   );
   const [selectedTeam, setSelectedTeam] = useState<string>(initialSelectedTeam);
   const [matchStatus, setMatchStatus] = useState(() => normalizeMatchStatus(route.params?.matchStatus));
@@ -486,6 +503,7 @@ export function PredictionDetailScreen(): JSX.Element {
   const [executiveProfile, setExecutiveProfile] = useState<ExecutiveProfile | null>(null);
   const [isGameDetailLoading, setIsGameDetailLoading] = useState(false);
   const [isMatchDetailLoading, setIsMatchDetailLoading] = useState(false);
+  const [isRefreshingDetail, setIsRefreshingDetail] = useState(false);
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
   const [isSubmittingPrediction, setIsSubmittingPrediction] = useState(false);
   const [predictionSubmitError, setPredictionSubmitError] = useState<string | null>(null);
@@ -508,6 +526,9 @@ export function PredictionDetailScreen(): JSX.Element {
   });
   const stepTransition = useRef(new Animated.Value(1)).current;
   const stageIntroProgress = useRef(new Animated.Value(0)).current;
+  const countingEntranceProgress = useRef(new Animated.Value(0)).current;
+  const resultEntranceProgress = useRef(new Animated.Value(0)).current;
+  const resultGraphProgress = useRef(new Animated.Value(0)).current;
   const toastProgress = useRef(new Animated.Value(0)).current;
   const selectedTeamInfo = predictionTeams.find(team => team.id === selectedTeam) ?? null;
   const isSelectedTeamInfoPending =
@@ -544,11 +565,11 @@ export function PredictionDetailScreen(): JSX.Element {
       }
 
       if (team.participantId === executiveTeamInfo?.participantId) {
-        return 'O';
+        return '승리';
       }
 
       if (team.participantId === employeeTeamInfo?.participantId) {
-        return 'X';
+        return '패배';
       }
 
       return team.name;
@@ -559,6 +580,13 @@ export function PredictionDetailScreen(): JSX.Element {
     (teamId: string) => getExecutiveVoteOptionLabel(predictionTeams.find(team => team.id === teamId)) ?? '참가팀',
     [getExecutiveVoteOptionLabel, predictionTeams],
   );
+  const myPredictionLabel = pickedTeamInfo
+    ? getExecutiveVoteOptionLabel(pickedTeamInfo)
+    : isVoteOnlyGame
+      ? '투표 미참여'
+      : isCheerSelectionGame
+        ? '응원 미참여'
+        : displayTeamName(selectedTeam);
   const getTeamTone = useCallback(
     (teamId: string) => predictionTeams.find(team => team.id === teamId)?.tone ?? '#E50914',
     [predictionTeams],
@@ -587,6 +615,116 @@ export function PredictionDetailScreen(): JSX.Element {
         }),
       },
     ],
+  };
+  const selectHeroIntroStyle = {
+    opacity: stageIntroProgress.interpolate({
+      inputRange: [0, 0.32, 1],
+      outputRange: [0, 1, 1],
+    }),
+    transform: [
+      {
+        translateY: stageIntroProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [14, 0],
+        }),
+      },
+    ],
+  };
+  const selectStageIntroStyle = {
+    opacity: stageIntroProgress.interpolate({
+      inputRange: [0, 0.24, 1],
+      outputRange: [0, 1, 1],
+    }),
+    transform: [
+      {
+        translateY: stageIntroProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [16, 0],
+        }),
+      },
+    ],
+  };
+  const selectBottomActionIntroStyle = {
+    opacity: stageIntroProgress.interpolate({
+      inputRange: [0, 0.58, 1],
+      outputRange: [0, 0, 1],
+    }),
+    transform: [
+      {
+        translateY: stageIntroProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+    ],
+  };
+  const countingCardAnimatedStyle = {
+    opacity: countingEntranceProgress.interpolate({
+      inputRange: [0, 0.28, 1],
+      outputRange: [0, 1, 1],
+    }),
+    transform: [
+      {
+        translateY: countingEntranceProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [18, 0],
+        }),
+      },
+      {
+        scale: countingEntranceProgress.interpolate({
+          inputRange: [0, 0.78, 1],
+          outputRange: [0.97, 1.01, 1],
+        }),
+      },
+    ],
+  };
+  const resultHeroAnimatedStyle = {
+    opacity: resultEntranceProgress.interpolate({
+      inputRange: [0, 0.28, 1],
+      outputRange: [0, 1, 1],
+    }),
+    transform: [
+      {
+        translateY: resultEntranceProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [16, 0],
+        }),
+      },
+    ],
+  };
+  const resultVoteCardAnimatedStyle = {
+    opacity: resultEntranceProgress.interpolate({
+      inputRange: [0, 0.34, 0.72, 1],
+      outputRange: [0, 0, 1, 1],
+    }),
+    transform: [
+      {
+        translateY: resultEntranceProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [18, 0],
+        }),
+      },
+    ],
+  };
+  const resultCommentsAnimatedStyle = {
+    opacity: resultEntranceProgress.interpolate({
+      inputRange: [0, 0.58, 1],
+      outputRange: [0, 0, 1],
+    }),
+    transform: [
+      {
+        translateY: resultEntranceProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [14, 0],
+        }),
+      },
+    ],
+  };
+  const voteGraphFillAnimatedStyle = {
+    width: resultGraphProgress.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0%', '100%'],
+    }),
   };
   const leftLogoIntroStyle = {
     opacity: stageIntroProgress,
@@ -633,10 +771,10 @@ export function PredictionDetailScreen(): JSX.Element {
 
     stageIntroProgress.setValue(0);
     Animated.sequence([
-      Animated.delay(360),
+      Animated.delay(90),
       Animated.timing(stageIntroProgress, {
         toValue: 1,
-        duration: 760,
+        duration: 520,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -648,19 +786,64 @@ export function PredictionDetailScreen(): JSX.Element {
   }, [playStageIntro]);
 
   useEffect(() => {
-    if (!isVoteOnlyGame) {
+    if (step !== 'counting') {
+      countingEntranceProgress.setValue(0);
       return;
     }
 
+    countingEntranceProgress.setValue(0);
+    Animated.timing(countingEntranceProgress, {
+      toValue: 1,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [countingEntranceProgress, pickedParticipantId, step]);
+
+  useEffect(() => {
+    if (step !== 'result') {
+      resultEntranceProgress.setValue(0);
+      resultGraphProgress.setValue(0);
+      return;
+    }
+
+    resultEntranceProgress.setValue(0);
+    resultGraphProgress.setValue(0);
+    Animated.sequence([
+      Animated.timing(resultEntranceProgress, {
+        toValue: 1,
+        duration: 420,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(resultGraphProgress, {
+        toValue: 1,
+        duration: 520,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [predictionTeams.length, resultEntranceProgress, resultGraphProgress, step]);
+
+  useEffect(() => {
     if (matchStatus === 'FINISHED') {
       setStep('result');
       return;
     }
 
-    if (matchStatus === 'COUNTING') {
+    if (pickedParticipantId !== null && !isMaskSingerGame) {
+      setStep('result');
+      return;
+    }
+
+    if (!isVoteOnlyGame) {
+      return;
+    }
+
+    if (isMaskSingerGame && matchStatus === 'COUNTING') {
       setStep(pickedParticipantId === null ? 'select' : 'counting');
     }
-  }, [isVoteOnlyGame, matchStatus, pickedParticipantId]);
+  }, [isMaskSingerGame, isVoteOnlyGame, matchStatus, pickedParticipantId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -764,6 +947,30 @@ export function PredictionDetailScreen(): JSX.Element {
     routeGameId,
     routeMatchId,
   ]);
+
+  const handleDetailRefresh = useCallback(async () => {
+    if (isRefreshingDetail) {
+      return;
+    }
+
+    setIsRefreshingDetail(true);
+
+    try {
+      await Promise.allSettled([fetchMatchOverview(), refreshProfile()]);
+    } finally {
+      setIsRefreshingDetail(false);
+    }
+  }, [fetchMatchOverview, isRefreshingDetail, refreshProfile]);
+
+  const detailRefreshControl = (
+    <RefreshControl
+      colors={['#E50914']}
+      progressBackgroundColor="#151519"
+      refreshing={isRefreshingDetail}
+      tintColor="#FFFFFF"
+      onRefresh={handleDetailRefresh}
+    />
+  );
 
   useEffect(() => {
     const accessToken = auth?.accessToken;
@@ -1212,7 +1419,7 @@ export function PredictionDetailScreen(): JSX.Element {
       showSubmitToast(
         isVoteOnlyGame ? '투표가 완료됐어요' : isCheerSelectionGame ? '응원이 완료됐어요' : '응원댓글이 등록됐어요',
       );
-      transitionToStep(isVoteOnlyGame ? 'counting' : 'result');
+      transitionToStep(isMaskSingerGame ? 'counting' : 'result');
     } catch (error) {
       setPredictionSubmitError(error instanceof Error ? error.message : '승부예측 등록에 실패했습니다.');
     } finally {
@@ -1244,8 +1451,12 @@ export function PredictionDetailScreen(): JSX.Element {
                 <AppLoading label={isIndividualMatch ? '내 응원을 불러오는 중...' : '내 투표를 불러오는 중...'} />
               </View>
             ) : step === 'counting' ? (
-              <View style={styles.countingContent}>
-                <View style={styles.countingCard}>
+              <ScrollView
+                contentContainerStyle={styles.countingContent}
+                refreshControl={detailRefreshControl}
+                showsVerticalScrollIndicator={false}
+                style={styles.voteInputScroll}>
+                <Animated.View style={[styles.countingCard, countingCardAnimatedStyle]}>
                   <Text style={styles.countingEyebrow}>{isIndividualMatch ? '응원 집계중' : '투표 집계중'}</Text>
                   <Text style={styles.countingTitle}>
                     {isIndividualMatch ? '응원 결과를 집계하고 있어요' : '결과를 집계하고 있어요'}
@@ -1259,37 +1470,42 @@ export function PredictionDetailScreen(): JSX.Element {
                   {pickedTeamInfo ? (
                     <View style={styles.countingSelectionBox}>
                       <Text style={styles.countingSelectionLabel}>{isIndividualMatch ? '내 응원' : '내 투표'}</Text>
-                      <Text style={styles.countingSelectionName}>{getExecutiveVoteOptionLabel(pickedTeamInfo)}</Text>
+                      <Text style={styles.countingSelectionName}>{myPredictionLabel}</Text>
                     </View>
                   ) : null}
-                </View>
-              </View>
+                </Animated.View>
+              </ScrollView>
             ) : step === 'result' ? (
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultContent}>
-                <View style={styles.resultHero}>
+              <ScrollView
+                contentContainerStyle={styles.resultContent}
+                refreshControl={detailRefreshControl}
+                showsVerticalScrollIndicator={false}>
+                <Animated.View style={[styles.resultHero, resultHeroAnimatedStyle]}>
                   <Text style={styles.resultEyebrow}>
                     {isVoteOnlyGame ? '내 투표' : isCheerSelectionGame ? '내 응원' : '내 선택'}
                   </Text>
                   <Text style={styles.resultTitle}>
-                    {pickedTeamInfo ? getExecutiveVoteOptionLabel(pickedTeamInfo) : displayTeamName(selectedTeam)}
+                    {myPredictionLabel}
                   </Text>
                   <Text style={styles.resultSubtitle}>
                     {isVoteOnlyGame
                       ? '종료되어 결과를 확인할 수 있어요'
                       : '경기 종료 후 결과에 따라 코인을 지급받을 수 있어요'}
                   </Text>
-                </View>
+                </Animated.View>
 
-                <View style={styles.voteCard}>
+                <Animated.View style={[styles.voteCard, resultVoteCardAnimatedStyle]}>
                   <View style={styles.voteHeader}>
                     <Text style={styles.voteTitle}>{isCheerSelectionGame ? '응원 결과' : '투표 결과'}</Text>
                     <Text style={styles.voteTotal}>최종 {isCheerSelectionGame ? '응원율' : '투표율'}</Text>
                   </View>
 
                   <View style={styles.voteGraphTrack}>
-                    {predictionTeams.map(team => (
-                      <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
-                    ))}
+                    <Animated.View style={[styles.voteGraphAnimatedFill, voteGraphFillAnimatedStyle]}>
+                      {predictionTeams.map(team => (
+                        <View key={team.id} style={getVoteGraphSegmentStyle(team)} />
+                      ))}
+                    </Animated.View>
                   </View>
 
                   <View style={styles.voteLegendRow}>
@@ -1302,10 +1518,10 @@ export function PredictionDetailScreen(): JSX.Element {
                       </View>
                     ))}
                   </View>
-                </View>
+                </Animated.View>
 
                 {!isVoteOnlyGame ? (
-                  <>
+                  <Animated.View style={resultCommentsAnimatedStyle}>
                     <View style={styles.commentSectionHeader}>
                       <Text style={styles.commentSectionTitle}>전체 응원댓글</Text>
                       <Text style={styles.commentSectionCount}>{displayCheerComments.length}개</Text>
@@ -1337,7 +1553,7 @@ export function PredictionDetailScreen(): JSX.Element {
                         </View>
                       )}
                     </View>
-                  </>
+                  </Animated.View>
                 ) : null}
               </ScrollView>
             ) : step === 'select' ? (
@@ -1348,26 +1564,27 @@ export function PredictionDetailScreen(): JSX.Element {
                   automaticallyAdjustKeyboardInsets
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                   keyboardShouldPersistTaps="handled"
+                  refreshControl={detailRefreshControl}
                   showsVerticalScrollIndicator={false}
                   style={styles.voteInputScroll}
                   contentContainerStyle={[
                     styles.voteInputContent,
                     (isExecutiveGame || isIndividualMatch || isMaskSingerGame) && styles.participantPosterSelectContent,
                   ]}>
-                  <View style={styles.heroBlock}>
+                  <Animated.View style={[styles.heroBlock, selectHeroIntroStyle]}>
                     <Text style={styles.heroTitle}>{displayGameTitle}</Text>
                     <Text style={styles.heroSubtitle}>
                       {isGameDetailLoading || isMatchDetailLoading
                         ? '경기 정보를 불러오는 중...'
                         : isExecutiveGame
-                        ? '임원이 승리한다고 생각하면 O, 일반사원이 승리한다고 생각하면 X를 선택하세요.'
+                        ? '임원과 프로의 숨막히는 대결!\n임원은 승리할 수 있을까요?'
                         : isIndividualMatch
                         ? '응원할 임원을 선택해주세요.'
                         : isMaskSingerGame
-                        ? '더 잘한것 같은 사람에게 투표하세요.'
+                        ? '마음에 드는 사람에게 투표하세요.'
                         : '승리할 팀을 선택해주세요.'}
                     </Text>
-                  </View>
+                  </Animated.View>
 
                   {(isMatchDetailLoading && !predictionTeams.length) ||
                   (isExecutiveGame && !executiveDisplayProfile) ? (
@@ -1375,7 +1592,7 @@ export function PredictionDetailScreen(): JSX.Element {
                       <AppLoading label="참가팀을 불러오는 중..." />
                     </View>
                   ) : predictionTeams.length && leftTeamInfo && (!isExecutiveGame || executiveDisplayProfile) ? (
-                    <View
+                    <Animated.View
                       style={[
                         styles.matchupStageWrapper,
                         isMaskSingerGame && styles.maskSingerStageWrapper,
@@ -1384,15 +1601,12 @@ export function PredictionDetailScreen(): JSX.Element {
                         (isExecutiveGame || isMaskSingerGame || isIndividualMatch) &&
                           styles.participantPosterStageWrapper,
                         !isExecutiveGame && individualStageStyle,
+                        selectStageIntroStyle,
                       ]}>
                       <View style={styles.matchupStage}>
                         {isExecutiveGame && executiveDisplayProfile ? (
                           <ExecutivePredictionSelector
-                            employeeTeam={employeeTeamInfo}
-                            executiveTeam={executiveTeamInfo}
-                            onVote={handleExecutiveVotePress}
                             profile={executiveDisplayProfile}
-                            selectedTeamId={selectedTeam}
                           />
                         ) : isIndividualMatch ? (
                           <ParticipantPosterCarousel
@@ -1522,7 +1736,7 @@ export function PredictionDetailScreen(): JSX.Element {
                           </Animated.View>
                         )}
                       </View>
-                    </View>
+                    </Animated.View>
                   ) : (
                     <View style={styles.teamStateCenter}>
                       <Text style={styles.emptyText}>참가팀 정보가 없습니다.</Text>
@@ -1530,11 +1744,21 @@ export function PredictionDetailScreen(): JSX.Element {
                   )}
                 </ScrollView>
 
-                {!isExecutiveGame ? (
-                  <View
+                {isExecutiveGame ? (
+                  <Animated.View style={[styles.bottomActionWrap, selectBottomActionIntroStyle]}>
+                    <ExecutivePredictionVoteButtons
+                      employeeTeam={employeeTeamInfo}
+                      executiveTeam={executiveTeamInfo}
+                      onVote={handleExecutiveVotePress}
+                      selectedTeamId={selectedTeam}
+                    />
+                  </Animated.View>
+                ) : (
+                  <Animated.View
                     style={[
                       styles.bottomActionWrap,
                       (isIndividualMatch || isMaskSingerGame) && styles.participantPosterBottomActionWrap,
+                      selectBottomActionIntroStyle,
                     ]}>
                     <AnimatedPressable
                       accessibilityRole="button"
@@ -1545,8 +1769,8 @@ export function PredictionDetailScreen(): JSX.Element {
                         {isMaskSingerGame ? '투표하기' : '다음'}
                       </Text>
                     </AnimatedPressable>
-                  </View>
-                ) : null}
+                  </Animated.View>
+                )}
               </KeyboardAvoidingView>
             ) : (
               <KeyboardAvoidingView
@@ -1556,6 +1780,7 @@ export function PredictionDetailScreen(): JSX.Element {
                   automaticallyAdjustKeyboardInsets
                   keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                   keyboardShouldPersistTaps="handled"
+                  refreshControl={detailRefreshControl}
                   showsVerticalScrollIndicator={false}
                   style={styles.voteInputScroll}
                   contentContainerStyle={styles.voteInputContent}>
@@ -2362,9 +2587,12 @@ const styles = StyleSheet.create({
     height: 16,
     marginTop: 18,
     borderRadius: 8,
-    flexDirection: 'row',
     overflow: 'hidden',
     backgroundColor: '#242428',
+  },
+  voteGraphAnimatedFill: {
+    height: '100%',
+    flexDirection: 'row',
   },
   voteGraphSegment: {
     minWidth: 2,

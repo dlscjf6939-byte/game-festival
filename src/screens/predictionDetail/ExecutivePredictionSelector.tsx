@@ -1,6 +1,5 @@
-import React from 'react';
-import {Dimensions, Image, StyleSheet, Text, View, type ImageSourcePropType} from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+import React, {useEffect, useRef} from 'react';
+import {Animated, Dimensions, Image, StyleSheet, Text, View, type ImageSourcePropType} from 'react-native';
 import {image} from '../../assets/images';
 import {AnimatedPressable} from '../../components/AnimatedPressable';
 import {FONTS} from '../../constants/theme';
@@ -16,10 +15,8 @@ const EXECUTIVE_POSTER_CARD_WIDTH = Math.round(
 );
 const EXECUTIVE_POSTER_CARD_HEIGHT = Math.round(EXECUTIVE_POSTER_CARD_WIDTH / MAIN_POSTER_ASPECT_RATIO);
 const EXECUTIVE_VOTE_BUTTON_HEIGHT = 54;
-const EXECUTIVE_VOTE_BUTTON_GAP = 12;
 
-export const EXECUTIVE_SELECTOR_STAGE_HEIGHT =
-  EXECUTIVE_POSTER_CARD_HEIGHT + EXECUTIVE_VOTE_BUTTON_HEIGHT + EXECUTIVE_VOTE_BUTTON_GAP;
+export const EXECUTIVE_SELECTOR_STAGE_HEIGHT = EXECUTIVE_POSTER_CARD_HEIGHT;
 
 export type ExecutiveSelectorProfile = {
   department?: string;
@@ -31,17 +28,29 @@ export type ExecutiveVoteOption = {
   id: string;
 };
 
-type ExecutivePredictionSelectorProps<T extends ExecutiveVoteOption> = {
+type ExecutivePredictionSelectorProps = {
+  profile: ExecutiveSelectorProfile;
+};
+
+type ExecutivePredictionVoteButtonsProps<T extends ExecutiveVoteOption> = {
   employeeTeam: T | null;
   executiveTeam: T | null;
   onVote: (team: T | null) => void;
-  profile: ExecutiveSelectorProfile;
   selectedTeamId: string;
+};
+
+const executiveImageByName: Record<string, ImageSourcePropType> = {
+  김보람: image.executiveKimBoRam,
+  김형석: image.executiveKimHyungSeok,
+  박성호: image.executiveParkSungHo,
+  추연진: image.executiveChooYeonJin,
+  추종원: image.executiveChooJongWon,
 };
 
 function splitProfileText(profile: ExecutiveSelectorProfile): {department?: string; name: string} {
   const rawName = profile.name.trim();
-  const wrappedDepartmentMatch = rawName.match(/^(.+?)\s*[\(\[]\s*([^\)\]]+)\s*[\)\]]$/);
+  const wrappedDepartmentMatch =
+    rawName.match(/^(.+?)\s*\(\s*([^)]+)\s*\)$/) ?? rawName.match(/^(.+?)\s*\[\s*([^\]]+)\s*\]$/);
 
   if (wrappedDepartmentMatch) {
     return {
@@ -68,52 +77,103 @@ function splitProfileText(profile: ExecutiveSelectorProfile): {department?: stri
   };
 }
 
-export function ExecutivePredictionSelector<T extends ExecutiveVoteOption>({
-  employeeTeam,
-  executiveTeam,
-  onVote,
-  profile,
-  selectedTeamId,
-}: ExecutivePredictionSelectorProps<T>): JSX.Element {
+function getExecutiveImageSource(profile: ExecutiveSelectorProfile, name: string): ImageSourcePropType {
+  return executiveImageByName[name.replace(/\s/g, '')] ?? profile.imageSource ?? image.human;
+}
+
+export function ExecutivePredictionSelector({profile}: ExecutivePredictionSelectorProps): JSX.Element {
+  const entranceProgress = useRef(new Animated.Value(0)).current;
   const profileText = splitProfileText(profile);
+  const executiveImageSource = getExecutiveImageSource(profile, profileText.name);
+
+  useEffect(() => {
+    entranceProgress.setValue(0);
+    Animated.spring(entranceProgress, {
+      toValue: 1,
+      friction: 8,
+      tension: 72,
+      useNativeDriver: true,
+    }).start();
+  }, [entranceProgress, profileText.name]);
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.cardShell}>
-        <View style={styles.posterCard}>
-          <Image blurRadius={22} resizeMode="cover" source={image.poster2} style={styles.posterBackgroundImage} />
-          <View style={styles.posterBackgroundWash} />
-          <LinearGradient
-            pointerEvents="none"
-            colors={['rgba(229,9,20,0.52)', 'rgba(229,9,20,0.07)', 'rgba(0,0,0,0)']}
-            start={{x: 0, y: 0}}
-            end={{x: 1, y: 1}}
-            style={styles.posterRedSweep}
-          />
-          <LinearGradient
-            pointerEvents="none"
-            colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.82)']}
-            locations={[0.42, 1]}
-            style={styles.posterBottomFade}
-          />
-          <View pointerEvents="none" style={styles.posterVignette} />
-          <View pointerEvents="none" style={styles.profileNameBadge}>
-            <Text numberOfLines={1} adjustsFontSizeToFit style={styles.profileName}>
-              {profileText.department ? `${profileText.name} / ${profileText.department}` : profileText.name}
-            </Text>
-          </View>
-          {profile.imageSource ? (
-            <Image resizeMode="contain" source={profile.imageSource} style={styles.profileImage} />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Text style={styles.profileInitial}>{profileText.name.slice(0, 1)}</Text>
-            </View>
-          )}
-          <View pointerEvents="none" style={styles.posterNoise} />
-        </View>
-      </View>
+      <Animated.View
+        style={[
+          styles.imageStage,
+          {
+            opacity: entranceProgress,
+            transform: [
+              {
+                translateY: entranceProgress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [18, 0],
+                }),
+              },
+              {
+                scale: entranceProgress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.96, 1],
+                }),
+              },
+            ],
+          },
+        ]}>
+        <Image resizeMode="contain" source={executiveImageSource} style={styles.directProfileImage} />
+      </Animated.View>
+    </View>
+  );
+}
 
-      <View style={styles.voteButtonRow}>
+export function ExecutivePredictionVoteButtons<T extends ExecutiveVoteOption>({
+  employeeTeam,
+  executiveTeam,
+  onVote,
+  selectedTeamId,
+}: ExecutivePredictionVoteButtonsProps<T>): JSX.Element {
+  const entranceProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    entranceProgress.setValue(0);
+    Animated.timing(entranceProgress, {
+      toValue: 1,
+      duration: 360,
+      useNativeDriver: true,
+    }).start();
+  }, [entranceProgress, employeeTeam?.id, executiveTeam?.id]);
+
+  const leftButtonStyle = {
+    opacity: entranceProgress.interpolate({
+      inputRange: [0, 0.4, 1],
+      outputRange: [0, 0, 1],
+    }),
+    transform: [
+      {
+        translateY: entranceProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+    ],
+  };
+  const rightButtonStyle = {
+    opacity: entranceProgress.interpolate({
+      inputRange: [0, 0.58, 1],
+      outputRange: [0, 0, 1],
+    }),
+    transform: [
+      {
+        translateY: entranceProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <View style={styles.voteButtonRow}>
+      <Animated.View style={[styles.voteButtonLift, leftButtonStyle]}>
         <AnimatedPressable
           accessibilityLabel="임원이 승리한다 O"
           accessibilityRole="button"
@@ -121,12 +181,13 @@ export function ExecutivePredictionSelector<T extends ExecutiveVoteOption>({
           onPress={() => onVote(executiveTeam)}
           style={[
             styles.voteButton,
-            styles.voteButtonO,
             executiveTeam?.id === selectedTeamId && styles.voteButtonSelected,
             !executiveTeam && styles.voteButtonDisabled,
           ]}>
-          <Text style={[styles.voteButtonMark, !executiveTeam && styles.voteButtonMarkDisabled]}>O</Text>
+          <Text style={[styles.voteButtonMark, !executiveTeam && styles.voteButtonMarkDisabled]}>승리</Text>
         </AnimatedPressable>
+      </Animated.View>
+      <Animated.View style={[styles.voteButtonLift, rightButtonStyle]}>
         <AnimatedPressable
           accessibilityLabel="일반사원이 승리한다 X"
           accessibilityRole="button"
@@ -134,154 +195,59 @@ export function ExecutivePredictionSelector<T extends ExecutiveVoteOption>({
           onPress={() => onVote(employeeTeam)}
           style={[
             styles.voteButton,
-            styles.voteButtonX,
             employeeTeam?.id === selectedTeamId && styles.voteButtonSelected,
             !employeeTeam && styles.voteButtonDisabled,
           ]}>
-          <Text style={[styles.voteButtonMark, !employeeTeam && styles.voteButtonMarkDisabled]}>X</Text>
+          <Text style={[styles.voteButtonMark, !employeeTeam && styles.voteButtonMarkDisabled]}>패배</Text>
         </AnimatedPressable>
-      </View>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
+    alignSelf: 'stretch',
     alignItems: 'center',
-    gap: EXECUTIVE_VOTE_BUTTON_GAP,
   },
-  cardShell: {
+  imageStage: {
     height: EXECUTIVE_POSTER_CARD_HEIGHT,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  posterCard: {
     width: EXECUTIVE_POSTER_CARD_WIDTH,
-    height: EXECUTIVE_POSTER_CARD_HEIGHT,
-    borderRadius: 12,
-    backgroundColor: '#171717',
-    borderWidth: 1,
-    borderColor: '#E5091455',
-    overflow: 'hidden',
-    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
-  posterBackgroundImage: {
-    ...StyleSheet.absoluteFillObject,
+  directProfileImage: {
     width: '100%',
     height: '100%',
-  },
-  posterBackgroundWash: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.62)',
-  },
-  posterRedSweep: {
-    position: 'absolute',
-    top: -20,
-    left: -18,
-    width: EXECUTIVE_POSTER_CARD_WIDTH * 0.88,
-    height: EXECUTIVE_POSTER_CARD_HEIGHT * 0.78,
-    zIndex: 1,
-  },
-  posterBottomFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: EXECUTIVE_POSTER_CARD_HEIGHT * 0.52,
-    zIndex: 1,
-  },
-  posterVignette: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: 'rgba(0,0,0,0.12)',
-    zIndex: 2,
-  },
-  profileImage: {
-    position: 'absolute',
-    right: -42,
-    bottom: -10,
-    width: '112%',
-    height: '90%',
-    zIndex: 5,
-  },
-  profilePlaceholder: {
-    position: 'absolute',
-    right: 28,
-    bottom: 34,
-    width: EXECUTIVE_POSTER_CARD_WIDTH * 0.58,
-    height: EXECUTIVE_POSTER_CARD_WIDTH * 0.58,
-    borderRadius: EXECUTIVE_POSTER_CARD_WIDTH * 0.29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(24,24,28,0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    zIndex: 5,
-  },
-  profileInitial: {
-    color: '#FFFFFF',
-    ...FONTS.font40B,
-    lineHeight: 48,
-  },
-  profileNameBadge: {
-    position: 'absolute',
-    left: 16,
-    top: 16,
-    maxWidth: EXECUTIVE_POSTER_CARD_WIDTH - 32,
-    paddingHorizontal: 14,
-    paddingTop: 13,
-    paddingBottom: 12,
-    borderRadius: 9,
-    backgroundColor: 'rgba(8,8,10,0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    zIndex: 7,
-  },
-  profileName: {
-    maxWidth: EXECUTIVE_POSTER_CARD_WIDTH - 60,
-    color: '#FFFFFF',
-    textAlign: 'left',
-    ...FONTS.font20B,
-    lineHeight: 24,
-  },
-  posterNoise: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.035)',
-    zIndex: 6,
   },
   voteButtonRow: {
     flexDirection: 'row',
     gap: 12,
-    width: EXECUTIVE_POSTER_CARD_WIDTH,
+    width: '100%',
+  },
+  voteButtonLift: {
+    flex: 1,
   },
   voteButton: {
-    flex: 1,
     height: EXECUTIVE_VOTE_BUTTON_HEIGHT,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: '#242428',
   },
   voteButtonSelected: {
-    borderColor: '#FFFFFF',
-    borderWidth: 2,
-  },
-  voteButtonO: {
     backgroundColor: '#E50914',
-  },
-  voteButtonX: {
-    backgroundColor: '#242428',
+    borderColor: 'rgba(255,255,255,0.14)',
   },
   voteButtonDisabled: {
     backgroundColor: '#242428',
   },
   voteButtonMark: {
     color: '#FFFFFF',
-    ...FONTS.font24B,
-    lineHeight: 30,
+    ...FONTS.font16B,
+    lineHeight: 21,
   },
   voteButtonMarkDisabled: {
     color: '#777A82',

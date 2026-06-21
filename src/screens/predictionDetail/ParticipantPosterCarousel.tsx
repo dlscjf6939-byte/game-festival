@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useRef} from 'react';
 import {
   Animated,
   Dimensions,
+  Easing,
   Image,
   StyleSheet,
   Text,
@@ -109,6 +110,7 @@ export function ParticipantPosterCarousel({
   teams,
 }: ParticipantPosterCarouselProps): JSX.Element {
   const scrollX = useRef(new Animated.Value(0)).current;
+  const entranceProgress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!teams.length || teams.some(team => team.id === selectedTeamId)) {
@@ -117,6 +119,16 @@ export function ParticipantPosterCarousel({
 
     onSelectTeam(teams[0].id);
   }, [onSelectTeam, selectedTeamId, teams]);
+
+  useEffect(() => {
+    entranceProgress.setValue(0);
+    Animated.timing(entranceProgress, {
+      toValue: 1,
+      duration: 460,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entranceProgress, teams.length]);
 
   const selectCenteredParticipantPoster = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -170,10 +182,31 @@ export function ParticipantPosterCarousel({
         outputRange: [0, 1, 0],
         extrapolate: 'clamp',
       });
+      const itemIntroHold = Math.min(0.24 + index * 0.08, 0.78);
+      const itemIntroStyle = {
+        opacity: entranceProgress.interpolate({
+          inputRange: [0, itemIntroHold, 1],
+          outputRange: [0, 0, 1],
+        }),
+        transform: [
+          {
+            translateY: entranceProgress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [18, 0],
+            }),
+          },
+          {
+            scale: entranceProgress.interpolate({
+              inputRange: [0, 0.78, 1],
+              outputRange: [0.96, 1.01, 1],
+            }),
+          },
+        ],
+      };
       const posterText = getParticipantPosterText(team);
 
       return (
-        <View style={styles.participantPosterItem}>
+        <Animated.View style={[styles.participantPosterItem, itemIntroStyle]}>
           <AnimatedPressable
             accessibilityRole="button"
             onPress={() => onSelectTeam(team.id)}
@@ -215,10 +248,10 @@ export function ParticipantPosterCarousel({
               ]}
             />
           </AnimatedPressable>
-        </View>
+        </Animated.View>
       );
     },
-    [onSelectTeam, scrollX],
+    [entranceProgress, onSelectTeam, scrollX],
   );
 
   return (

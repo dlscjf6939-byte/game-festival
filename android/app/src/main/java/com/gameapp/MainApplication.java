@@ -26,6 +26,7 @@ public class MainApplication extends Application implements ReactApplication {
           List<ReactPackage> packages = new PackageList(this).getPackages();
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // packages.add(new MyReactNativePackage());
+          packages.add(new LocalCoinNotificationPackage());
           return packages;
         }
 
@@ -36,6 +37,10 @@ public class MainApplication extends Application implements ReactApplication {
 
         @Override
         protected String getJSBundleFile() {
+          if (BuildConfig.DEBUG) {
+            return null;
+          }
+
           return HotUpdater.Companion.getJSBundleFile(this.getApplication().getApplicationContext());
         }
 

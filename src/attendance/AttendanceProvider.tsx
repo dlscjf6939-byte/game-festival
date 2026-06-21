@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {createContext, useCallback, useContext, useMemo, useRef, useState} from 'react';
 import {useAuth} from '../auth/AuthProvider';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {showCoinRewardNotification} from '../utils/localCoinNotification';
 
 const ATTENDANCE_STORAGE_PREFIX = 'game_app_attendance_weekly_v1';
 const API_BASE = 'http://121.254.240.93:8090';
@@ -452,6 +453,9 @@ export function AttendanceProvider({children}: {children: React.ReactNode}): JSX
 
       if (attendanceResult.rewardCoins > 0) {
         await refreshProfile();
+        showCoinRewardNotification(attendanceResult.rewardCoins).catch(notificationError => {
+          console.log('[Attendance] coin reward notification failed', notificationError);
+        });
       }
     } catch (error) {
       console.log('[Attendance] attend request failed', error);

@@ -11,6 +11,7 @@ import {
   type HighlightItem,
 } from '../dummyData/feedDummyData';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {showCoinRewardNotification} from '../utils/localCoinNotification';
 import {getProfileImageUriFromRecord} from '../utils/profileImage';
 
 const API_BASE = 'http://121.254.240.93:8090';
@@ -179,6 +180,13 @@ type PostLikeSyncState = {
   timer: ReturnType<typeof setTimeout> | null;
 };
 
+type FeedCreatePostResponse = {
+  data?: unknown;
+  message?: string;
+  rewardedCoin?: unknown;
+  success?: boolean;
+};
+
 type FeedCommentItemApi = {
   authorName?: string;
   commentId?: number | string;
@@ -277,6 +285,29 @@ function toFeedPost(post: FeedPostItemApi, myEmployeeId?: number | string): Feed
         ? String(post.writer.employeeId)
         : undefined,
   };
+}
+
+function getRewardedCoinFromResponse(responseBody: unknown): number | null {
+  if (!responseBody || typeof responseBody !== 'object') {
+    return null;
+  }
+
+  const directRewardedCoin = (responseBody as {rewardedCoin?: unknown}).rewardedCoin;
+  const data = (responseBody as {data?: unknown}).data;
+  const dataRewardedCoin =
+    data && typeof data === 'object' ? (data as {rewardedCoin?: unknown}).rewardedCoin : undefined;
+  const value = directRewardedCoin ?? dataRewardedCoin;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
 }
 
 function getHasMorePosts(responseBody: FeedPostApiResponse, requestedPage: number, receivedCount: number): boolean {
@@ -868,10 +899,10 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       });
 
       const responseText = await response.text();
-      let responseBody: {message?: string; success?: boolean} | null = null;
+      let responseBody: FeedCreatePostResponse | null = null;
 
       try {
-        responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
+        responseBody = JSON.parse(responseText) as FeedCreatePostResponse;
       } catch {
         responseBody = null;
       }
@@ -1175,10 +1206,10 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       );
 
       const responseText = await response.text();
-      let responseBody: {message?: string; success?: boolean} | null = null;
+      let responseBody: FeedCreatePostResponse | null = null;
 
       try {
-        responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
+        responseBody = JSON.parse(responseText) as FeedCreatePostResponse;
       } catch {
         responseBody = null;
       }
@@ -1277,6 +1308,14 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
           status: response.status,
         });
         throw new Error(`[${response.status}] ${serverMessage}`);
+      }
+
+      const rewardedCoin = getRewardedCoinFromResponse(responseBody);
+
+      if (rewardedCoin && rewardedCoin > 0) {
+        showCoinRewardNotification(rewardedCoin).catch(error => {
+          console.log('[FeedProvider] rewarded coin notification failed', {error, rewardedCoin});
+        });
       }
 
       await refreshPosts();

@@ -1,5 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Animated, Image, Modal, StyleSheet, Text, View, type ImageSourcePropType} from 'react-native';
+import {
+  Animated,
+  Image,
+  Modal,
+  StyleSheet,
+  Text,
+  View,
+  type ImageSourcePropType,
+} from 'react-native';
 import LottieView from 'lottie-react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
@@ -11,8 +19,10 @@ import {type CoinRanking} from '../dummyData/coinDummyData';
 import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {SlidingSegmentedTabs, SwipeableTabView} from '../components/SlidingSegmentedTabs';
 
 const giftLottie = require('../assets/lotties/Gift.json');
+const infoLottie = require('../assets/lotties/Info.json');
 const API_BASE = 'http://121.254.240.93:8090';
 
 const coinTabs = [
@@ -409,6 +419,7 @@ export function CoinsScreen(): JSX.Element {
   const [raffleHistories, setRaffleHistories] = useState<RaffleHistory[]>([]);
   const [isRaffleHistoriesLoading, setIsRaffleHistoriesLoading] = useState(false);
   const [raffleHistoriesError, setRaffleHistoriesError] = useState<string | null>(null);
+  const [isRefreshingCoins, setIsRefreshingCoins] = useState(false);
   const [isCoinInfoVisible, setIsCoinInfoVisible] = useState(false);
   const viewTransitionProgress = useRef(new Animated.Value(1)).current;
   const tabContentProgress = useRef(new Animated.Value(1)).current;
@@ -694,9 +705,28 @@ export function CoinsScreen(): JSX.Element {
   const selectedRaffleItem = raffleProducts.find(item => item.id === selectedRaffleProductId) ?? null;
   const canApply = selectedRaffleItem !== null && coinBalance >= selectedRaffleItem.applyPrice;
 
+  const handleCoinsRefresh = useCallback(async () => {
+    if (isRefreshingCoins) {
+      return;
+    }
+
+    setIsRefreshingCoins(true);
+
+    try {
+      await Promise.allSettled([
+        refreshAllCoins(),
+        fetchRaffleProducts(false),
+        fetchRaffleHistories(),
+        refreshProfile(),
+      ]);
+    } finally {
+      setIsRefreshingCoins(false);
+    }
+  }, [fetchRaffleHistories, fetchRaffleProducts, isRefreshingCoins, refreshAllCoins, refreshProfile]);
+
   if (viewMode === 'raffle') {
     return (
-      <MainScaffold scrollToTopRouteName="Coins">
+      <MainScaffold onRefresh={handleCoinsRefresh} refreshing={isRefreshingCoins} scrollToTopRouteName="Coins">
         <View style={styles.raffleHeader}>
           <AnimatedPressable
             accessibilityLabel="응모 페이지 뒤로가기"
@@ -709,131 +739,124 @@ export function CoinsScreen(): JSX.Element {
           <View style={styles.raffleBackButton} />
         </View>
 
-        <View style={styles.raffleTabRow}>
-          {raffleTabs.map(tab => {
-            const isActive = activeRaffleTab === tab.id;
+        <SlidingSegmentedTabs
+          activeTab={activeRaffleTab}
+          onTabPress={setActiveRaffleTab}
+          style={styles.raffleTabRow}
+          tabs={raffleTabs}
+        />
 
-            return (
-              <AnimatedPressable
-                key={tab.id}
-                accessibilityRole="button"
-                onPress={() => setActiveRaffleTab(tab.id)}
-                style={[styles.tabChip, isActive && styles.tabChipActive]}>
-                <Text style={[styles.tabChipText, isActive && styles.tabChipTextActive]}>{tab.label}</Text>
-              </AnimatedPressable>
-            );
-          })}
-        </View>
-
-        <Animated.View
-          style={[
-            viewTransitionStyle,
-            {
-              opacity: Animated.multiply(viewTransitionProgress, tabContentProgress),
-              transform: [...viewTransitionStyle.transform, {translateY: tabContentTranslateY}],
-            },
-          ]}>
-          {activeRaffleTab === 'apply' ? (
-            <>
-              <View style={styles.raffleHero}>
-                <Text numberOfLines={1} style={styles.raffleTitle}>
-                  행운의 주인공이 되어보세요
-                </Text>
-                <View style={styles.raffleBalancePill}>
-                  <Image source={icon.coin} style={styles.raffleBalanceIcon} resizeMode="contain" />
-                  <Text style={styles.raffleBalanceText}>{coinBalance}개</Text>
-                </View>
-              </View>
-
-              {isRaffleProductsLoading ? (
-                <View style={styles.raffleLoadingState}>
-                  <AppLoading label="경품을 불러오는 중..." />
-                </View>
-              ) : raffleProductsError ? (
-                <View style={styles.raffleEmptyState}>
-                  <Text style={styles.raffleEmptyTitle}>경품을 불러오지 못했습니다.</Text>
-                  <Text style={styles.raffleEmptyText}>{raffleProductsError}</Text>
-                </View>
-              ) : raffleProducts.length ? (
-                <View style={styles.raffleGrid}>
-                  {raffleProducts.map((item, index) => {
-                    const isSelected = selectedRaffleProductId === item.id;
-                    const isAffordable = coinBalance >= item.applyPrice;
-
-                    return (
-                      <RaffleItemCard
-                        key={item.id}
-                        index={index}
-                        isAffordable={isAffordable}
-                        isSelected={isSelected}
-                        item={item}
-                        onPress={() => setSelectedRaffleProductId(item.id)}
-                      />
-                    );
-                  })}
-                </View>
-              ) : (
-                <View style={styles.raffleEmptyState}>
-                  <Text style={styles.raffleEmptyTitle}>응모 가능한 경품이 없습니다.</Text>
-                  <Text style={styles.raffleEmptyText}>경품이 등록되면 이곳에 표시됩니다.</Text>
-                </View>
-              )}
-
-              <View style={styles.raffleSummary}>
-                <View>
-                  <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
-                  <Text style={styles.raffleSummaryTitle}>
-                    {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
+        <SwipeableTabView activeTab={activeRaffleTab} onTabPress={setActiveRaffleTab} tabs={raffleTabs}>
+          <Animated.View
+            style={[
+              viewTransitionStyle,
+              {
+                opacity: Animated.multiply(viewTransitionProgress, tabContentProgress),
+                transform: [...viewTransitionStyle.transform, {translateY: tabContentTranslateY}],
+              },
+            ]}>
+            {activeRaffleTab === 'apply' ? (
+              <>
+                <View style={styles.raffleHero}>
+                  <Text numberOfLines={1} style={styles.raffleTitle}>
+                    행운의 주인공이 되어보세요
                   </Text>
+                  <View style={styles.raffleBalancePill}>
+                    <Image source={icon.coin} style={styles.raffleBalanceIcon} resizeMode="contain" />
+                    <Text style={styles.raffleBalanceText}>{coinBalance}개</Text>
+                  </View>
                 </View>
-                <AnimatedPressable
-                  accessibilityRole="button"
-                  disabled={!canApply}
-                  onPress={openRaffleConfirm}
-                  style={[styles.raffleApplyButton, !canApply && styles.raffleApplyButtonDisabled]}>
-                  <Text style={[styles.raffleApplyText, !canApply && styles.raffleApplyTextDisabled]}>
-                    {selectedRaffleItem === null ? '상품 없음' : canApply ? '응모하기' : '코인 부족'}
-                  </Text>
-                </AnimatedPressable>
-              </View>
-            </>
-          ) : (
-            <View style={styles.raffleHistorySection}>
-              <View style={styles.raffleHistorySectionHeader}>
-                <Text style={styles.raffleHistorySectionTitle}>응모이력</Text>
-                <Text style={styles.raffleHistorySectionMeta}>총 {raffleHistories.length}건</Text>
-              </View>
 
-              {isRaffleHistoriesLoading ? (
-                <View style={styles.raffleHistoryInlineState}>
-                  <AppLoading label="응모이력을 불러오는 중..." />
-                </View>
-              ) : raffleHistoriesError ? (
-                <View style={styles.raffleHistoryEmpty}>
-                  <Text style={styles.raffleHistoryEmptyTitle}>응모이력을 불러오지 못했습니다.</Text>
-                  <Text style={styles.raffleHistoryEmptyText}>{raffleHistoriesError}</Text>
+                {isRaffleProductsLoading ? (
+                  <View style={styles.raffleLoadingState}>
+                    <AppLoading label="경품을 불러오는 중..." />
+                  </View>
+                ) : raffleProductsError ? (
+                  <View style={styles.raffleEmptyState}>
+                    <Text style={styles.raffleEmptyTitle}>경품을 불러오지 못했습니다.</Text>
+                    <Text style={styles.raffleEmptyText}>{raffleProductsError}</Text>
+                  </View>
+                ) : raffleProducts.length ? (
+                  <View style={styles.raffleGrid}>
+                    {raffleProducts.map((item, index) => {
+                      const isSelected = selectedRaffleProductId === item.id;
+                      const isAffordable = coinBalance >= item.applyPrice;
+
+                      return (
+                        <RaffleItemCard
+                          key={item.id}
+                          index={index}
+                          isAffordable={isAffordable}
+                          isSelected={isSelected}
+                          item={item}
+                          onPress={() => setSelectedRaffleProductId(item.id)}
+                        />
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.raffleEmptyState}>
+                    <Text style={styles.raffleEmptyTitle}>응모 가능한 경품이 없습니다.</Text>
+                    <Text style={styles.raffleEmptyText}>경품이 등록되면 이곳에 표시됩니다.</Text>
+                  </View>
+                )}
+
+                <View style={styles.raffleSummary}>
+                  <View>
+                    <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
+                    <Text style={styles.raffleSummaryTitle}>
+                      {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
+                    </Text>
+                  </View>
                   <AnimatedPressable
                     accessibilityRole="button"
-                    onPress={() => {
-                      fetchRaffleHistories().catch(error => {
-                        console.log('[CoinsScreen] raffle history retry failed', error);
-                      });
-                    }}
-                    style={styles.raffleHistoryEmptyButton}>
-                    <Text style={styles.raffleHistoryEmptyButtonText}>다시 불러오기</Text>
+                    disabled={!canApply}
+                    onPress={openRaffleConfirm}
+                    style={[styles.raffleApplyButton, !canApply && styles.raffleApplyButtonDisabled]}>
+                    <Text style={[styles.raffleApplyText, !canApply && styles.raffleApplyTextDisabled]}>
+                      {selectedRaffleItem === null ? '상품 없음' : canApply ? '응모하기' : '코인 부족'}
+                    </Text>
                   </AnimatedPressable>
                 </View>
-              ) : raffleHistories.length ? (
-                raffleHistories.map((item, index) => <RaffleHistoryItem key={item.id} index={index} item={item} />)
-              ) : (
-                <View style={styles.raffleHistoryEmpty}>
-                  <Text style={styles.raffleHistoryEmptyTitle}>응모이력이 없습니다.</Text>
-                  <Text style={styles.raffleHistoryEmptyText}>코인을 획득하여 상품에 응모해보세요</Text>
+              </>
+            ) : (
+              <View style={styles.raffleHistorySection}>
+                <View style={styles.raffleHistorySectionHeader}>
+                  <Text style={styles.raffleHistorySectionTitle}>응모이력</Text>
+                  <Text style={styles.raffleHistorySectionMeta}>총 {raffleHistories.length}건</Text>
                 </View>
-              )}
-            </View>
-          )}
-        </Animated.View>
+
+                {isRaffleHistoriesLoading ? (
+                  <View style={styles.raffleHistoryInlineState}>
+                    <AppLoading label="응모이력을 불러오는 중..." />
+                  </View>
+                ) : raffleHistoriesError ? (
+                  <View style={styles.raffleHistoryEmpty}>
+                    <Text style={styles.raffleHistoryEmptyTitle}>응모이력을 불러오지 못했습니다.</Text>
+                    <Text style={styles.raffleHistoryEmptyText}>{raffleHistoriesError}</Text>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        fetchRaffleHistories().catch(error => {
+                          console.log('[CoinsScreen] raffle history retry failed', error);
+                        });
+                      }}
+                      style={styles.raffleHistoryEmptyButton}>
+                      <Text style={styles.raffleHistoryEmptyButtonText}>다시 불러오기</Text>
+                    </AnimatedPressable>
+                  </View>
+                ) : raffleHistories.length ? (
+                  raffleHistories.map((item, index) => <RaffleHistoryItem key={item.id} index={index} item={item} />)
+                ) : (
+                  <View style={styles.raffleHistoryEmpty}>
+                    <Text style={styles.raffleHistoryEmptyTitle}>응모이력이 없습니다.</Text>
+                    <Text style={styles.raffleHistoryEmptyText}>코인을 획득하여 상품에 응모해보세요</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </Animated.View>
+        </SwipeableTabView>
 
         <Modal animationType="fade" onRequestClose={closeRaffleModal} transparent visible={isRaffleModalVisible}>
           <View style={styles.raffleModalOverlay}>
@@ -880,7 +903,7 @@ export function CoinsScreen(): JSX.Element {
   }
 
   return (
-    <MainScaffold scrollToTopRouteName="Coins">
+    <MainScaffold onRefresh={handleCoinsRefresh} refreshing={isRefreshingCoins} scrollToTopRouteName="Coins">
       <View style={styles.header}>
         <Text style={styles.headerTitle}>코인</Text>
         <AnimatedPressable
@@ -888,31 +911,18 @@ export function CoinsScreen(): JSX.Element {
           accessibilityRole="button"
           onPress={() => setIsCoinInfoVisible(true)}
           style={styles.headerInfoButton}>
-          <Image source={icon.info} style={styles.headerInfoIcon} resizeMode="contain" />
+          <LottieView autoPlay loop source={infoLottie} speed={0.5} style={styles.headerInfoIcon} />
         </AnimatedPressable>
       </View>
 
-      <View style={styles.tabRow}>
-        {coinTabs.map(tab => {
-          const isActive = activeTab === tab.id;
+      <SlidingSegmentedTabs activeTab={activeTab} onTabPress={setActiveTab} style={styles.tabRow} tabs={coinTabs} />
 
-          return (
-            <AnimatedPressable
-              key={tab.id}
-              accessibilityRole="button"
-              onPress={() => setActiveTab(tab.id)}
-              style={[styles.tabChip, isActive && styles.tabChipActive]}>
-              <Text style={[styles.tabChipText, isActive && styles.tabChipTextActive]}>{tab.label}</Text>
-            </AnimatedPressable>
-          );
-        })}
-      </View>
-
-      <Animated.View
-        style={{
-          opacity: tabContentProgress,
-          transform: [{translateY: tabContentTranslateY}],
-        }}>
+      <SwipeableTabView activeTab={activeTab} onTabPress={setActiveTab} tabs={coinTabs}>
+        <Animated.View
+          style={{
+            opacity: tabContentProgress,
+            transform: [{translateY: tabContentTranslateY}],
+          }}>
         {activeTab === 'coinHistory' ? (
           <>
             <View style={styles.balanceCard}>
@@ -1018,7 +1028,8 @@ export function CoinsScreen(): JSX.Element {
             )}
           </View>
         )}
-      </Animated.View>
+        </Animated.View>
+      </SwipeableTabView>
 
       <Modal
         animationType="fade"
@@ -1093,37 +1104,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerInfoIcon: {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
   },
   tabRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     marginBottom: 22,
-  },
-  tabChip: {
-    minWidth: 71,
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2D2D2D',
-    backgroundColor: '#111114',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabChipActive: {
-    backgroundColor: '#E50914',
-    borderColor: '#E50914',
-  },
-  tabChipText: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-    lineHeight: 18,
-  },
-  tabChipTextActive: {
-    color: '#FFFFFF',
   },
   balanceCard: {
     borderRadius: 12,
@@ -1555,9 +1540,6 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   raffleTabRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     marginBottom: 18,
   },
   raffleHero: {

@@ -201,7 +201,7 @@ export function useCoinBattleTypingGame({
     subscribeTyping,
   ]);
 
-  const handleSubmitTyping = (sentence: string): boolean => {
+  const handleSubmitTyping = useCallback((sentence: string): boolean => {
     const submitted = submitTypingSentence(roomId, sentence);
 
     if (submitted) {
@@ -214,14 +214,14 @@ export function useCoinBattleTypingGame({
     }
 
     return submitted;
-  };
+  }, [clearSyncTimers, requestTypingState, roomId, submitTypingSentence]);
 
-  const resetTypingGame = () => {
+  const resetTypingGame = useCallback(() => {
     clearSyncTimers();
     completedRoundKeySetRef.current.clear();
     setCompletedTypingRoundCount(0);
     setTypingGameState(null);
-  };
+  }, [clearSyncTimers]);
 
   return {
     completedTypingRoundCount,

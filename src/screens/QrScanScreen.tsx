@@ -1,14 +1,13 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useIsFocused, useNavigation, type NavigationProp} from '@react-navigation/native';
 import {
-  Alert,
   Animated,
   Easing,
   Image,
-  Modal,
   PermissionsAndroid,
   Platform,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -21,17 +20,10 @@ import {icon} from '../assets/icons';
 import {useAuth} from '../auth/AuthProvider';
 import type {RootStackParamList} from '../navigation/types';
 import {FONTS} from '../constants/theme';
+import {formatUnknownError, toCoinNumber} from '../utils/qrPayment';
 
-const API_BASE = 'http://121.254.240.93:8090';
-const PAYMENT_QR_PATTERN = /(?:https?:\/\/[^/\s]+)?\/api\/products\/(\d+)\/purchase(?:\?([^#\s]+))?/;
 const SCAN_AREA_SIZE = 295;
 const BRAND_RED = '#E50914';
-
-type PaymentQr = {
-  price: number;
-  productId: number;
-  value: string;
-};
 
 type ScanState =
   | {
@@ -46,62 +38,6 @@ type ScanState =
       value: string;
     };
 
-function normalizeUrl(value: string): URL | null {
-  const trimmedValue = value.trim();
-
-  if (!trimmedValue) {
-    return null;
-  }
-
-  try {
-    return new URL(trimmedValue);
-  } catch {
-    try {
-      return new URL(`http://${trimmedValue}`);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function getPaymentQr(value: string): PaymentQr | null {
-  const matched = value.match(PAYMENT_QR_PATTERN);
-  const productId = matched ? Number(matched[1]) : NaN;
-
-  if (!Number.isFinite(productId) || productId < 1) {
-    return null;
-  }
-
-  const parsedUrl = normalizeUrl(matched?.[0] ?? value);
-  const fallbackSearchParams = new URLSearchParams(matched?.[2] ?? '');
-  const priceFromQuery =
-    toCoinNumber(parsedUrl?.searchParams.get('price')) ??
-    toCoinNumber(parsedUrl?.searchParams.get('coin')) ??
-    toCoinNumber(parsedUrl?.searchParams.get('amount')) ??
-    toCoinNumber(fallbackSearchParams.get('price')) ??
-    toCoinNumber(fallbackSearchParams.get('coin')) ??
-    toCoinNumber(fallbackSearchParams.get('amount'));
-
-  return {
-    price: priceFromQuery ?? productId,
-    productId,
-    value,
-  };
-}
-
-function toCoinNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
 function getScannedValue(event: unknown): string {
   if (!event || typeof event !== 'object') {
     return '';
@@ -109,13 +45,35 @@ function getScannedValue(event: unknown): string {
 
   const nativeEvent = (event as {nativeEvent?: unknown}).nativeEvent;
 
-  if (!nativeEvent || typeof nativeEvent !== 'object') {
-    return '';
+  if (nativeEvent && typeof nativeEvent === 'object') {
+    const nativeValue =
+      (nativeEvent as {codeStringValue?: unknown}).codeStringValue ??
+      (nativeEvent as {data?: unknown}).data ??
+      (nativeEvent as {value?: unknown}).value;
+
+    if (typeof nativeValue === 'string') {
+      return nativeValue.trim();
+    }
   }
 
-  const codeStringValue = (nativeEvent as {codeStringValue?: unknown}).codeStringValue;
+  const directValue =
+    (event as {codeStringValue?: unknown}).codeStringValue ??
+    (event as {data?: unknown}).data ??
+    (event as {value?: unknown}).value;
 
-  return typeof codeStringValue === 'string' ? codeStringValue.trim() : '';
+  return typeof directValue === 'string' ? directValue.trim() : '';
+}
+
+function getReadableEventKeys(event: unknown): string {
+  if (!event || typeof event !== 'object') {
+    return 'none';
+  }
+
+  const keys = Object.keys(event);
+  const nativeEvent = (event as {nativeEvent?: unknown}).nativeEvent;
+  const nativeKeys = nativeEvent && typeof nativeEvent === 'object' ? Object.keys(nativeEvent) : [];
+
+  return `eventKeys=${keys.join(',') || 'none'}, nativeEventKeys=${nativeKeys.join(',') || 'none'}`;
 }
 
 export function QrScanScreen(): JSX.Element {
@@ -126,13 +84,27 @@ export function QrScanScreen(): JSX.Element {
   const [hasCameraPermission, setHasCameraPermission] = useState(Platform.OS === 'ios');
   const [scanState, setScanState] = useState<ScanState>({kind: 'idle'});
   const [isScanEnabled, setIsScanEnabled] = useState(true);
-  const [pendingPayment, setPendingPayment] = useState<PaymentQr | null>(null);
-  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
-  const [paymentErrorMessage, setPaymentErrorMessage] = useState<string | null>(null);
+  const [isCameraMounted, setIsCameraMounted] = useState(false);
+  const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(null);
+  const [debugMessage, setDebugMessage] = useState<string | null>(null);
+  const [logMessages, setLogMessages] = useState<string[]>([]);
+  const [isLogPageVisible, setIsLogPageVisible] = useState(false);
   const scanLockedRef = useRef(false);
   const lastScannedValueRef = useRef<string | null>(null);
   const profileRefreshRequestedRef = useRef(false);
+  const cameraMountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chromeProgress = useRef(new Animated.Value(0)).current;
+
+  const appendLog = React.useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString('ko-KR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    setLogMessages(prevMessages => [`[${timestamp}] ${message}`, ...prevMessages].slice(0, 80));
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'android') {
@@ -151,23 +123,40 @@ export function QrScanScreen(): JSX.Element {
 
       if (!cancelled) {
         setHasCameraPermission(status === PermissionsAndroid.RESULTS.GRANTED);
+        appendLog(`카메라 권한 결과: ${status}`);
       }
     }
 
     requestCameraPermission().catch(error => {
+      const errorMessage = error instanceof Error ? error.message : '카메라 권한 요청에 실패했습니다.';
+      setDebugMessage(`카메라 권한 오류: ${errorMessage}`);
+      appendLog(`카메라 권한 오류: ${errorMessage}`);
       console.log('[QrScanScreen] camera permission request failed', error);
     });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [appendLog]);
 
   useEffect(() => {
+    if (cameraMountTimerRef.current) {
+      clearTimeout(cameraMountTimerRef.current);
+      cameraMountTimerRef.current = null;
+    }
+
     if (!isFocused) {
+      setIsCameraMounted(false);
       return;
     }
 
+    setIsCameraMounted(false);
+    scanLockedRef.current = false;
+    setIsScanEnabled(true);
+    lastScannedValueRef.current = null;
+    setScanState({kind: 'idle'});
+    setCameraErrorMessage(null);
+    setDebugMessage(null);
     chromeProgress.setValue(0);
     Animated.timing(chromeProgress, {
       toValue: 1,
@@ -175,7 +164,31 @@ export function QrScanScreen(): JSX.Element {
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [chromeProgress, isFocused]);
+
+    cameraMountTimerRef.current = setTimeout(() => {
+      setIsCameraMounted(true);
+      appendLog('카메라 mount 활성화');
+    }, Platform.OS === 'android' ? 320 : 120);
+
+    return () => {
+      if (cameraMountTimerRef.current) {
+        clearTimeout(cameraMountTimerRef.current);
+        cameraMountTimerRef.current = null;
+      }
+    };
+  }, [appendLog, chromeProgress, isFocused]);
+
+  useEffect(() => {
+    return () => {
+      if (cameraMountTimerRef.current) {
+        clearTimeout(cameraMountTimerRef.current);
+      }
+
+      if (navigateTimerRef.current) {
+        clearTimeout(navigateTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isFocused) {
@@ -189,9 +202,12 @@ export function QrScanScreen(): JSX.Element {
 
     profileRefreshRequestedRef.current = true;
     refreshProfile().catch(error => {
+      const errorMessage = error instanceof Error ? error.message : '프로필 정보를 불러오지 못했습니다.';
+      setDebugMessage(`프로필 갱신 오류: ${errorMessage}`);
+      appendLog(`프로필 갱신 오류: ${errorMessage}`);
       console.log('[QrScanScreen] refresh profile failed', error);
     });
-  }, [isFocused, refreshProfile]);
+  }, [appendLog, isFocused, refreshProfile]);
 
   const handleClose = () => {
     if (navigation.canGoBack()) {
@@ -204,82 +220,49 @@ export function QrScanScreen(): JSX.Element {
 
   const handleReadCode = async (event: unknown) => {
     const value = getScannedValue(event);
+    const eventKeys = getReadableEventKeys(event);
+
+    appendLog(`QR 이벤트 수신: ${eventKeys}`);
+
+    if (!value) {
+      setDebugMessage('QR 이벤트는 들어왔지만 값이 비어 있습니다.');
+      appendLog('QR 이벤트 값 비어 있음');
+      console.log('[QrScanScreen] QR read event without value', event);
+    }
 
     if (!value || scanLockedRef.current || lastScannedValueRef.current === value) {
+      if (value && scanLockedRef.current) {
+        appendLog('중복 QR 이벤트 무시: 이미 처리 중');
+      }
       return;
     }
 
     console.log('[QrScanScreen] QR code detected', value);
+    setDebugMessage(`QR 인식됨\nvalue=${value}\nlength=${value.length}`);
+    appendLog(`QR 인식: length=${value.length}, value=${value}`);
     scanLockedRef.current = true;
     setIsScanEnabled(false);
+    setIsCameraMounted(false);
     lastScannedValueRef.current = value;
-
-    const paymentQr = getPaymentQr(value);
-
-    if (!paymentQr) {
-      setScanState({kind: 'invalid', value});
-      Alert.alert('오류', '유효하지 않은 QR 코드입니다. 올바른 URL 형태가 아닙니다.', [
-        {text: '확인', onPress: handleRetry},
-      ]);
-      return;
-    }
-
     setScanState({kind: 'valid', value});
-    setPendingPayment(paymentQr);
-    setPaymentErrorMessage(null);
-  };
+    setDebugMessage(`QR 인식 완료\n결제요청 페이지 이동 시도\nvalue=${value}`);
+    appendLog('QR value 확보 완료: 결제요청 페이지로 즉시 이동');
+    appendLog(`인증 상태: accessToken ${auth?.accessToken ? '있음' : '없음'}`);
+    appendLog('네비게이션 시도: QrPaymentRequest');
 
-  const closePaymentModal = () => {
-    if (isPaymentProcessing) {
-      return;
-    }
-
-    setPendingPayment(null);
-    setPaymentErrorMessage(null);
-    handleRetry();
-  };
-
-  const confirmPayment = async () => {
-    if (!auth?.accessToken || !pendingPayment || isPaymentProcessing) {
-      return;
-    }
-
-    setIsPaymentProcessing(true);
-    setPaymentErrorMessage(null);
-
-    try {
-      const response = await fetch(`${API_BASE}/api/products/${pendingPayment.productId}/purchase`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`,
-        },
-        method: 'POST',
-      });
-      const responseText = await response.text();
-      let responseBody: {message?: string; success?: boolean} | null = null;
-
+    navigateTimerRef.current = setTimeout(() => {
       try {
-        responseBody = responseText ? (JSON.parse(responseText) as {message?: string; success?: boolean}) : null;
-      } catch {
-        responseBody = null;
+        navigation.navigate('QrPaymentRequest', {qrValue: value});
+        appendLog('네비게이션 호출 완료: QrPaymentRequest');
+      } catch (error) {
+        const errorLog = formatUnknownError(error);
+        setDebugMessage(`결제요청 페이지 이동 실패\n${errorLog}`);
+        appendLog(`네비게이션 오류:\n${errorLog}`);
+        scanLockedRef.current = false;
+        setIsScanEnabled(true);
+        setIsCameraMounted(true);
       }
-
-      if (!response.ok || responseBody?.success === false) {
-        throw new Error(responseBody?.message || responseText || '결제에 실패했습니다.');
-      }
-
-      await refreshProfile();
-      setPendingPayment(null);
-      Alert.alert('결제 완료', `${pendingPayment.price}코인이 차감되었습니다.`, [
-        {text: '확인', onPress: handleClose},
-      ]);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '결제 중 오류가 발생했습니다.';
-      setPaymentErrorMessage(errorMessage);
-      console.log('[QrScanScreen] payment failed', error);
-    } finally {
-      setIsPaymentProcessing(false);
-    }
+    }, Platform.OS === 'android' ? 180 : 60);
   };
 
   const handleRetry = () => {
@@ -287,6 +270,10 @@ export function QrScanScreen(): JSX.Element {
     setIsScanEnabled(true);
     lastScannedValueRef.current = null;
     setScanState({kind: 'idle'});
+    setCameraErrorMessage(null);
+    setDebugMessage(null);
+    setIsCameraMounted(true);
+    appendLog('다시 스캔');
   };
 
   const guideText =
@@ -306,11 +293,18 @@ export function QrScanScreen(): JSX.Element {
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
       <View style={styles.body}>
-        {hasCameraPermission && isFocused ? (
+        {hasCameraPermission && isFocused && isCameraMounted ? (
           <Camera
             cameraType={CameraType.Back}
+            focusMode="on"
+            onError={event => {
+              const errorMessage = event.nativeEvent.errorMessage || '카메라를 초기화하지 못했습니다.';
+              console.log('[QrScanScreen] camera error', errorMessage);
+              setCameraErrorMessage(errorMessage);
+              appendLog(`카메라 오류: ${errorMessage}`);
+            }}
             onReadCode={handleReadCode}
-            scanBarcode={isFocused && isScanEnabled && pendingPayment === null}
+            scanBarcode={isFocused && isScanEnabled}
             scanThrottleDelay={1200}
             style={styles.camera}
           />
@@ -335,6 +329,15 @@ export function QrScanScreen(): JSX.Element {
 
           {!hasCameraPermission ? (
             <Text style={styles.permissionText}>카메라 권한이 없어 QR 스캔을 시작할 수 없습니다.</Text>
+          ) : null}
+
+          {cameraErrorMessage ? <Text style={styles.permissionText}>{cameraErrorMessage}</Text> : null}
+
+          {debugMessage ? (
+            <View style={styles.debugCard}>
+              <Text style={styles.debugTitle}>상태 / 오류</Text>
+              <Text style={styles.debugMessage}>{debugMessage}</Text>
+            </View>
           ) : null}
 
           {scanState.kind === 'valid' ? (
@@ -379,34 +382,52 @@ export function QrScanScreen(): JSX.Element {
         </AnimatedPressable>
       </Animated.View>
 
-      <Modal animationType="fade" transparent visible={pendingPayment !== null} onRequestClose={closePaymentModal}>
-        <View style={styles.paymentModalOverlay}>
-          <View style={styles.paymentModalCard}>
-            <Text style={styles.paymentModalEyebrow}>결제 확인</Text>
-            <Text style={styles.paymentModalTitle}>코인 {pendingPayment?.price ?? 0}개가 차감돼요</Text>
-            <Text style={styles.paymentModalDescription}>결제하시겠어요?</Text>
-            {paymentErrorMessage ? <Text style={styles.paymentErrorText}>{paymentErrorMessage}</Text> : null}
-            <View style={styles.paymentButtonRow}>
-              <AnimatedPressable
-                accessibilityRole="button"
-                onPress={closePaymentModal}
-                style={[styles.paymentButton, styles.paymentCancelButton]}>
-                <Text style={styles.paymentCancelText}>취소</Text>
-              </AnimatedPressable>
-              <AnimatedPressable
-                accessibilityRole="button"
-                onPress={() => {
-                  confirmPayment().catch(error => {
-                    console.log('[QrScanScreen] confirm payment handler failed', error);
-                  });
-                }}
-                style={[styles.paymentButton, styles.paymentConfirmButton]}>
-                <Text style={styles.paymentConfirmText}>{isPaymentProcessing ? '결제 중...' : '결제하기'}</Text>
-              </AnimatedPressable>
+      <AnimatedPressable
+        accessibilityRole="button"
+        onPress={() => setIsLogPageVisible(true)}
+        style={[styles.logFloatingButton, {bottom: insets.bottom + 18}]}>
+        <Text style={styles.logFloatingButtonText}>로그 보기</Text>
+      </AnimatedPressable>
+
+      {isLogPageVisible ? (
+        <View style={styles.logPage}>
+          <SafeAreaView style={styles.logPageSafeArea}>
+            <View style={styles.logPageHeader}>
+              <View>
+                <Text style={styles.logPageEyebrow}>RELEASE DEBUG</Text>
+                <Text style={styles.logPageTitle}>QR 로그</Text>
+              </View>
+              <View style={styles.logPageHeaderActions}>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  onPress={() => setLogMessages([])}
+                  style={styles.logPageActionButton}>
+                  <Text style={styles.logPageActionText}>비우기</Text>
+                </AnimatedPressable>
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  onPress={() => setIsLogPageVisible(false)}
+                  style={styles.logPageCloseButton}>
+                  <Text style={styles.logPageCloseText}>닫기</Text>
+                </AnimatedPressable>
+              </View>
             </View>
-          </View>
+
+            <ScrollView contentContainerStyle={styles.logPageContent} showsVerticalScrollIndicator={false}>
+              {logMessages.length ? (
+                logMessages.map((message, index) => (
+                  <Text key={`${message}-${index}`} selectable style={styles.logLine}>
+                    {message}
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.logEmptyText}>아직 로그가 없습니다.</Text>
+              )}
+            </ScrollView>
+          </SafeAreaView>
         </View>
-      </Modal>
+      ) : null}
+
     </SafeAreaView>
   );
 }
@@ -473,6 +494,108 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     resizeMode: 'contain',
+  },
+  logFloatingButton: {
+    position: 'absolute',
+    right: 18,
+    zIndex: 20,
+    elevation: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(17,17,17,0.88)',
+  },
+  logFloatingButtonText: {
+    color: '#FFFFFF',
+    ...FONTS.font13B,
+    lineHeight: 17,
+  },
+  logPage: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 60,
+    elevation: 60,
+    backgroundColor: '#050505',
+  },
+  logPageSafeArea: {
+    flex: 1,
+  },
+  logPageHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  logPageEyebrow: {
+    color: '#E50914',
+    letterSpacing: 1.1,
+    ...FONTS.font11B,
+    lineHeight: 15,
+  },
+  logPageTitle: {
+    marginTop: 4,
+    color: '#FFFFFF',
+    ...FONTS.font22B,
+    lineHeight: 28,
+  },
+  logPageHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logPageActionButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#151515',
+  },
+  logPageActionText: {
+    color: '#BFC1C7',
+    ...FONTS.font13B,
+    lineHeight: 17,
+  },
+  logPageCloseButton: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: BRAND_RED,
+  },
+  logPageCloseText: {
+    color: '#FFFFFF',
+    ...FONTS.font13B,
+    lineHeight: 17,
+  },
+  logPageContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 8,
+  },
+  logLine: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    color: '#EDEEF2',
+    backgroundColor: '#111111',
+    ...FONTS.font12M,
+    lineHeight: 17,
+  },
+  logEmptyText: {
+    paddingTop: 36,
+    color: '#8C8F99',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 20,
   },
   body: {
     ...StyleSheet.absoluteFillObject,
@@ -550,8 +673,31 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
   },
+  debugCard: {
+    width: '86%',
+    maxWidth: 340,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 183, 190, 0.38)',
+    backgroundColor: 'rgba(17, 17, 17, 0.9)',
+  },
+  debugTitle: {
+    color: '#FFB7BE',
+    ...FONTS.font12B,
+    lineHeight: 16,
+  },
+  debugMessage: {
+    marginTop: 6,
+    color: '#FFFFFF',
+    ...FONTS.font12M,
+    lineHeight: 17,
+  },
   resultCard: {
-    width: '100%',
+    width: '86%',
+    maxWidth: 340,
     marginTop: 20,
     paddingHorizontal: 16,
     paddingVertical: 14,
@@ -578,79 +724,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   retryButtonText: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-  },
-  paymentModalOverlay: {
-    flex: 1,
-    paddingHorizontal: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.68)',
-  },
-  paymentModalCard: {
-    width: '100%',
-    maxWidth: 340,
-    paddingHorizontal: 22,
-    paddingVertical: 24,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(229, 9, 20, 0.35)',
-    backgroundColor: '#111111',
-  },
-  paymentModalEyebrow: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    overflow: 'hidden',
-    color: '#FFB7BE',
-    backgroundColor: 'rgba(229, 9, 20, 0.16)',
-    ...FONTS.font12B,
-  },
-  paymentModalTitle: {
-    marginTop: 18,
-    color: '#FFFFFF',
-    ...FONTS.font20B,
-    lineHeight: 27,
-  },
-  paymentModalDescription: {
-    marginTop: 6,
-    color: '#C8C8C8',
-    ...FONTS.font14M,
-    lineHeight: 20,
-  },
-  paymentErrorText: {
-    marginTop: 12,
-    color: '#FFB7BE',
-    ...FONTS.font13M,
-    lineHeight: 18,
-  },
-  paymentButtonRow: {
-    marginTop: 22,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  paymentButton: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  paymentCancelButton: {
-    borderWidth: 1,
-    borderColor: '#2E2E2E',
-    backgroundColor: '#181818',
-  },
-  paymentConfirmButton: {
-    backgroundColor: BRAND_RED,
-  },
-  paymentCancelText: {
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-  },
-  paymentConfirmText: {
     color: '#FFFFFF',
     ...FONTS.font14B,
   },
