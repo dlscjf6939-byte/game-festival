@@ -18,6 +18,7 @@ type IconMap = {
   rank2: ImageSourcePropType;
   rank3: ImageSourcePropType;
   search: ImageSourcePropType;
+  survey: ImageSourcePropType;
   vs: ImageSourcePropType;
   info: ImageSourcePropType;
 };
@@ -40,6 +41,7 @@ export const icon: IconMap = {
   rank2: require('./rank_2.png'),
   rank3: require('./rank_3.png'),
   search: require('./search.png'),
+  survey: require('./survey.png'),
   vs: require('./vs.png'),
   info: require('./info.png'),
 };

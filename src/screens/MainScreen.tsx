@@ -677,7 +677,7 @@ function MainScreen(): JSX.Element {
             <Animated.View
               style={[
                 styles.storyCard,
-                {borderColor: `${item.accent}55`},
+                {borderColor: '#252525'},
                 {
                   opacity,
                   transform: [{translateY}, {scale}, {rotate}],
@@ -712,7 +712,9 @@ function MainScreen(): JSX.Element {
                       <Text style={styles.storyBackEyebrow}>{item.tag}</Text>
                       <Text style={styles.storyBackTitle}>{item.subtitle} 대진표</Text>
                     </View>
-                    <AnimatedPressable onPress={() => handleStoryCardPress(item.id)} style={styles.storyBackCloseButton}>
+                    <AnimatedPressable
+                      onPress={() => handleStoryCardPress(item.id)}
+                      style={styles.storyBackCloseButton}>
                       <Text style={styles.storyBackCloseButtonText}>닫기</Text>
                     </AnimatedPressable>
                   </View>
@@ -783,8 +785,7 @@ function MainScreen(): JSX.Element {
                                       {match.left}
                                     </Text>
                                   </View>
-                                  <Text
-                                    style={[styles.storyBackTeamScore, leftWon && styles.storyBackTeamScoreWinner]}>
+                                  <Text style={[styles.storyBackTeamScore, leftWon && styles.storyBackTeamScoreWinner]}>
                                     {match.leftScore}
                                   </Text>
                                 </View>
@@ -818,7 +819,9 @@ function MainScreen(): JSX.Element {
                     ) : (
                       <View style={styles.storyBackEmptyState}>
                         <Text style={styles.storyBackEmptyTitle}>대진표 준비중</Text>
-                        <Text style={styles.storyBackEmptyDescription}>경기 정보가 공개되면 여기에서 확인할 수 있어요.</Text>
+                        <Text style={styles.storyBackEmptyDescription}>
+                          경기 정보가 공개되면 여기에서 확인할 수 있어요.
+                        </Text>
                       </View>
                     )}
                   </ScrollView>
@@ -887,9 +890,7 @@ function MainScreen(): JSX.Element {
               <View style={styles.storySectionHeader}>
                 <Text style={styles.storySectionEyebrow}>GAME FESTIVAL</Text>
                 <Text style={styles.storySectionTitle}>게임대회 주요 이벤트</Text>
-                <Text style={styles.storySectionDescription}>
-                  메인 종목과 스페셜 매치를 포스터로 만나보세요
-                </Text>
+                <Text style={styles.storySectionDescription}>메인 종목과 스페셜 매치를 포스터로 만나보세요</Text>
               </View>
               <Animated.FlatList
                 ref={storyListRef}
@@ -1254,8 +1255,8 @@ const styles = StyleSheet.create({
     width: STORY_CARD_WIDTH,
     height: STORY_CARD_HEIGHT,
     borderRadius: 12,
-    backgroundColor: '#171717',
-    borderWidth: 1,
+    backgroundColor: 'rgba(255, 255, 255, 1)',
+    borderWidth: 2,
     overflow: 'hidden',
   },
   storyFace: {
@@ -1263,7 +1264,7 @@ const styles = StyleSheet.create({
     backfaceVisibility: 'hidden',
   },
   storyBackFace: {
-    backgroundColor: 'rgba(10,12,16,0.97)',
+    // backgroundColor: 'rgba(10,12,16,0.97)',
     padding: 14,
   },
   storyPosterImage: {
@@ -1566,10 +1567,11 @@ const styles = StyleSheet.create({
     opacity: 0.3,
   },
   coinSection: {
-    width: 335,
+    width: '90%',
     alignSelf: 'center',
     marginTop: 32,
     gap: 14,
+    marginHorizontal: 20,
   },
   profileTipBubble: {
     alignSelf: 'flex-start',

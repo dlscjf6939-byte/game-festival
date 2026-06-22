@@ -1,18 +1,27 @@
 import React from 'react';
-import {Image, StyleSheet, View} from 'react-native';
+import {Alert, Image, Linking, StyleSheet, View} from 'react-native';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
+import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {AnimatedPressable} from './AnimatedPressable';
 import type {MainStackParamList, RootStackParamList} from '../navigation/types';
 
-function HeaderAction({onPress, variant}: {onPress?: () => void; variant: 'bell' | 'coin'}): JSX.Element {
+const SURVEY_FORM_URL = 'https://forms.gle/Lq5j3gAoJhPYzftw6';
+
+function HeaderAction({onPress, variant}: {onPress?: () => void; variant: 'bell' | 'coin' | 'survey'}): JSX.Element {
+  const isQrAction = variant === 'coin';
+  const isSurveyAction = variant === 'survey';
+
   return (
     <AnimatedPressable
-      accessibilityLabel={variant === 'coin' ? 'QR 스캔' : '설문'}
+      accessibilityLabel={isQrAction ? 'QR 스캔' : '설문조사'}
       accessibilityRole="button"
       onPress={onPress}
-      style={styles.headerAction}>
-      <Image source={variant === 'bell' ? image.noti : image.qrCode} style={styles.headerActionIcon} />
+      style={[styles.headerAction, isSurveyAction && styles.surveyHeaderAction]}>
+      <Image
+        source={isSurveyAction ? icon.survey : variant === 'bell' ? image.noti : image.qrCode}
+        style={[styles.headerActionIcon, isSurveyAction && styles.surveyHeaderActionIcon]}
+      />
     </AnimatedPressable>
   );
 }
@@ -40,6 +49,12 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
     parentNavigation?.navigate('QrScan');
   };
 
+  const handleSurveyPress = () => {
+    Linking.openURL(SURVEY_FORM_URL).catch(() => {
+      Alert.alert('설문조사를 열 수 없습니다', '잠시 후 다시 시도해주세요.');
+    });
+  };
+
   return (
     <View style={styles.gnb}>
       <AnimatedPressable
@@ -51,6 +66,7 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
       </AnimatedPressable>
       <View style={styles.gnbActions}>
         {/* <HeaderAction variant="bell" /> */}
+        <HeaderAction onPress={handleSurveyPress} variant="survey" />
         <HeaderAction onPress={handleQrPress} variant="coin" />
       </View>
     </View>
@@ -85,7 +101,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  surveyHeaderAction: {
+    width: 36,
+    height: 36,
+  },
   headerActionIcon: {
+    width: 28,
+    height: 28,
+  },
+  surveyHeaderActionIcon: {
     width: 28,
     height: 28,
   },

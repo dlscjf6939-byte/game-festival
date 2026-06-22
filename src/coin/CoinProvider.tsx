@@ -1,10 +1,12 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useAuth} from '../auth/AuthProvider';
 import {type CoinRanking} from '../dummyData/coinDummyData';
 import {showCoinRewardNotification} from '../utils/localCoinNotification';
 import {withMinimumLoadingTime} from '../utils/loading';
 
 const API_BASE = 'http://121.254.240.93:8090';
+const REWARD_NOTIFICATION_STORAGE_PREFIX = 'game_app_coin_reward_notified_ids_v1';
 
 type RankingResponse = {
   code?: string;
@@ -236,40 +238,108 @@ export function CoinProvider({children}: {children: React.ReactNode}): JSX.Eleme
   const [rankingError, setRankingError] = useState<string | null>(null);
   const previousHoldingCoinRef = useRef<number | null>(null);
   const seenCoinHistoryIdsRef = useRef<Set<string> | null>(null);
+  const notifiedRewardHistoryIdsRef = useRef<Set<string>>(new Set());
+  const rewardNotificationStorageKey = auth
+    ? `${REWARD_NOTIFICATION_STORAGE_PREFIX}:${auth.employeeId ?? auth.id}`
+    : null;
 
-  const notifyCoinRewardIfNeeded = useCallback((histories: CoinHistory[], nextSummary: CoinHistorySummary) => {
-    const previousSeenIds = seenCoinHistoryIdsRef.current;
-    const previousHoldingCoin = previousHoldingCoinRef.current;
-    let earnedAmount = 0;
+  const persistNotifiedRewardHistoryIds = useCallback(
+    (nextIds: Set<string>) => {
+      if (!rewardNotificationStorageKey) {
+        return;
+      }
 
-    if (previousSeenIds) {
-      earnedAmount = histories.reduce((sum, history) => {
-        if (history.amount <= 0 || previousSeenIds.has(history.id)) {
-          return sum;
-        }
+      AsyncStorage.setItem(rewardNotificationStorageKey, JSON.stringify(Array.from(nextIds).slice(-200))).catch(
+        error => {
+          console.log('[CoinProvider] coin reward notification storage write failed', error);
+        },
+      );
+    },
+    [rewardNotificationStorageKey],
+  );
 
-        return sum + history.amount;
-      }, 0);
-    }
+  useEffect(() => {
+    notifiedRewardHistoryIdsRef.current = new Set();
 
-    if (earnedAmount <= 0 && previousHoldingCoin !== null && nextSummary.holdingCoin !== undefined) {
-      earnedAmount = Math.max(0, nextSummary.holdingCoin - previousHoldingCoin);
-    }
-
-    seenCoinHistoryIdsRef.current = new Set(histories.map(history => history.id));
-
-    if (nextSummary.holdingCoin !== undefined) {
-      previousHoldingCoinRef.current = nextSummary.holdingCoin;
-    }
-
-    if (earnedAmount <= 0) {
+    if (!rewardNotificationStorageKey) {
       return;
     }
 
-    showCoinRewardNotification(earnedAmount).catch(error => {
-      console.log('[CoinProvider] coin reward notification failed', error);
-    });
-  }, []);
+    let isMounted = true;
+
+    AsyncStorage.getItem(rewardNotificationStorageKey)
+      .then(rawValue => {
+        if (!isMounted || !rawValue) {
+          return;
+        }
+
+        const parsedValue = JSON.parse(rawValue) as unknown;
+
+        if (Array.isArray(parsedValue)) {
+          notifiedRewardHistoryIdsRef.current = new Set(
+            parsedValue.filter((value): value is string => typeof value === 'string'),
+          );
+        }
+      })
+      .catch(error => {
+        console.log('[CoinProvider] coin reward notification storage read failed', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [rewardNotificationStorageKey]);
+
+  const notifyCoinRewardIfNeeded = useCallback(
+    (histories: CoinHistory[], nextSummary: CoinHistorySummary) => {
+      const previousSeenIds = seenCoinHistoryIdsRef.current;
+      const previousHoldingCoin = previousHoldingCoinRef.current;
+      const notifiedRewardHistoryIds = notifiedRewardHistoryIdsRef.current;
+      let earnedAmount = 0;
+      const newlyNotifiedIds: string[] = [];
+
+      if (previousSeenIds) {
+        histories.forEach(history => {
+          if (history.amount <= 0 || previousSeenIds.has(history.id) || notifiedRewardHistoryIds.has(history.id)) {
+            return;
+          }
+
+          earnedAmount += history.amount;
+          newlyNotifiedIds.push(history.id);
+        });
+      }
+
+      if (
+        earnedAmount <= 0 &&
+        histories.length === 0 &&
+        previousHoldingCoin !== null &&
+        nextSummary.holdingCoin !== undefined
+      ) {
+        earnedAmount = Math.max(0, nextSummary.holdingCoin - previousHoldingCoin);
+      }
+
+      seenCoinHistoryIdsRef.current = new Set(histories.map(history => history.id));
+
+      if (nextSummary.holdingCoin !== undefined) {
+        previousHoldingCoinRef.current = nextSummary.holdingCoin;
+      }
+
+      if (earnedAmount <= 0) {
+        return;
+      }
+
+      if (newlyNotifiedIds.length > 0) {
+        const nextNotifiedIds = new Set([...notifiedRewardHistoryIds, ...newlyNotifiedIds]);
+        notifiedRewardHistoryIdsRef.current = nextNotifiedIds;
+        persistNotifiedRewardHistoryIds(nextNotifiedIds);
+      }
+
+      showCoinRewardNotification(earnedAmount).catch(error => {
+        console.log('[CoinProvider] coin reward notification failed', error);
+      });
+    },
+    [persistNotifiedRewardHistoryIds],
+  );
 
   const refreshCoinHistory = useCallback(
     async (showLoading = true) => {

@@ -97,6 +97,83 @@ type TypingRankingItem = {
   winCount: number;
 };
 
+const disconnectedMemberStatusValues = new Set([
+  'CLOSE',
+  'CLOSED',
+  'DISCONNECT',
+  'DISCONNECTED',
+  'EXIT',
+  'EXPIRED',
+  'LEAVE',
+  'LEFT',
+  'OFFLINE',
+  'SESSION_CLOSED',
+  'SESSION_DISCONNECTED',
+  'SESSION_EXPIRED',
+]);
+
+function isDisconnectedRoomMember(member: CoinBattleRoom['roomMembers'][number] | undefined): boolean {
+  if (!member) {
+    return false;
+  }
+
+  const memberConnection = member as CoinBattleRoom['roomMembers'][number] & {
+    connected?: boolean;
+    connectionStatus?: string;
+    disconnected?: boolean;
+    isConnected?: boolean;
+    isOnline?: boolean;
+    memberStatus?: string;
+    online?: boolean;
+    sessionStatus?: string;
+    status?: string;
+  };
+
+  if (memberConnection.disconnected === true) {
+    return true;
+  }
+
+  if (
+    memberConnection.connected === false ||
+    memberConnection.isConnected === false ||
+    memberConnection.isOnline === false ||
+    memberConnection.online === false
+  ) {
+    return true;
+  }
+
+  const statusValues = [
+    memberConnection.connectionStatus,
+    memberConnection.memberStatus,
+    memberConnection.sessionStatus,
+    memberConnection.status,
+  ];
+
+  return statusValues.some(value => {
+    return typeof value === 'string' && disconnectedMemberStatusValues.has(value.trim().toUpperCase());
+  });
+}
+
+function normalizeRoomDetailMessage(value: unknown): CoinBattleRoom | null {
+  const directRoom = normalizeCoinBattleRoom(value);
+
+  if (directRoom || !value || typeof value !== 'object') {
+    return directRoom;
+  }
+
+  const wrappedValue = value as {
+    data?: unknown;
+    room?: unknown;
+    roomDetail?: unknown;
+  };
+
+  return (
+    normalizeCoinBattleRoom(wrappedValue.data) ??
+    normalizeCoinBattleRoom(wrappedValue.room) ??
+    normalizeCoinBattleRoom(wrappedValue.roomDetail)
+  );
+}
+
 function formatRoomMemberRecord(member: CoinBattleRoom['roomMembers'][number]): string | null {
   const record = member.record;
 
@@ -405,6 +482,52 @@ function getPictureMatchResultForMe({
   }
 
   if (myMatchedCount < opponentMatchedCount) {
+    return 'LOSE';
+  }
+
+  return 'DRAW';
+}
+
+function isSameRpsPlayer(
+  player: {employeeId?: number; employeeName?: string} | undefined,
+  myUserId?: null | number | string,
+  myUserName?: string,
+): boolean {
+  if (!player) {
+    return false;
+  }
+
+  if (myUserId !== null && myUserId !== undefined && player.employeeId !== undefined) {
+    return String(player.employeeId) === String(myUserId);
+  }
+
+  return Boolean(myUserName && player.employeeName === myUserName);
+}
+
+function getRpsMatchResultForMe(
+  rounds: RpsRoundResult[],
+  myUserId?: null | number | string,
+  myUserName?: string,
+): RpsResult | null {
+  const results = rounds
+    .map(round => {
+      const myPlayer = round.rpsPlayers?.find(player => isSameRpsPlayer(player, myUserId, myUserName));
+      return normalizeRpsResult(myPlayer?.result);
+    })
+    .filter((result): result is RpsResult => Boolean(result));
+
+  if (results.length === 0) {
+    return null;
+  }
+
+  const winCount = results.filter(result => result === 'WIN').length;
+  const loseCount = results.filter(result => result === 'LOSE').length;
+
+  if (winCount > loseCount) {
+    return 'WIN';
+  }
+
+  if (loseCount > winCount) {
     return 'LOSE';
   }
 
@@ -772,6 +895,63 @@ function getTypingRoundResultForMe(
   return null;
 }
 
+function getTypingMatchResultForMe({
+  finalResults,
+  myUserId,
+  myUserName,
+  rounds,
+}: {
+  finalResults: TypingFinalResult[];
+  myUserId?: null | number | string;
+  myUserName?: string;
+  rounds: TypingRound[];
+}): RpsResult | null {
+  const myFinalResult = finalResults.find(player => isSameTypingPlayer(player, myUserId, myUserName)) as
+    | (TypingFinalResult & {result?: unknown})
+    | undefined;
+  const normalizedFinalResult = normalizeRpsResult(myFinalResult?.result);
+
+  if (normalizedFinalResult) {
+    return normalizedFinalResult;
+  }
+
+  const roundResults = rounds
+    .map(round => getTypingRoundResultForMe(round, myUserId, myUserName))
+    .filter((result): result is RpsResult => Boolean(result));
+
+  if (roundResults.length > 0) {
+    const winCount = roundResults.filter(result => result === 'WIN').length;
+    const loseCount = roundResults.filter(result => result === 'LOSE').length;
+
+    if (winCount > loseCount) {
+      return 'WIN';
+    }
+
+    if (loseCount > winCount) {
+      return 'LOSE';
+    }
+
+    return 'DRAW';
+  }
+
+  if (finalResults.length > 1 && myFinalResult) {
+    const sortedResults = finalResults.slice().sort((left, right) => {
+      const leftElapsed = typeof left.elapsedSeconds === 'number' ? left.elapsedSeconds : Number.POSITIVE_INFINITY;
+      const rightElapsed = typeof right.elapsedSeconds === 'number' ? right.elapsedSeconds : Number.POSITIVE_INFINITY;
+
+      if (leftElapsed !== rightElapsed) {
+        return leftElapsed - rightElapsed;
+      }
+
+      return String(left.submittedAt).localeCompare(String(right.submittedAt));
+    });
+
+    return isSameTypingPlayer(sortedResults[0], myUserId, myUserName) ? 'WIN' : 'LOSE';
+  }
+
+  return null;
+}
+
 function isTypingRoundCompleted(round?: {judgedAt?: string; typingPlayers?: TypingPlayer[]}): boolean {
   if (!round) {
     return false;
@@ -1097,8 +1277,11 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const latestPresentedRoundRef = useRef(0);
   const latestTypingSyncRequestedRoundRef = useRef(0);
   const coinRefreshRoomIdRef = useRef<string | null>(null);
+  const coinDeductionAlertRoomRef = useRef<string | null>(null);
   const balanceExitRoomRef = useRef<string | null>(null);
   const confirmedLeaveRef = useRef(false);
+  const countdownExitAlertShownRef = useRef(false);
+  const opponentDisconnectHandledRoomRef = useRef<string | null>(null);
   const countdownBackdropOpacity = useRef(new Animated.Value(0)).current;
   const countdownScale = useRef(new Animated.Value(0.72)).current;
   const countdownOpacity = useRef(new Animated.Value(0)).current;
@@ -1135,6 +1318,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const isPictureMatchGame = currentRoom?.realtimeGameId === 2;
   const isTypingGame = currentRoom?.realtimeGameId === 21;
   const opponentMember = roomMembers.find(member => {
+    return String(member.employeeId) !== String(myUserId);
+  });
+  const liveOpponentMember = liveRoom?.roomMembers.find(member => {
     return String(member.employeeId) !== String(myUserId);
   });
   const {handleRpsChoice, hasOpponentSubmitted, opponentRpsChoice, resetRpsGame, rpsRoundResults, selectedRpsChoice} =
@@ -1255,6 +1441,16 @@ export function CoinBattleRoomScreen(): JSX.Element {
     currentRoom?.roomStatus !== 'IN_PROGRESS';
   const canAutoStart = canStartCountdown && isOwner;
   const shouldShowGame = hasGameStarted || isMatchFinished;
+  const isStartCountdownBlocking = startCountdownSeconds !== null;
+  const hasOpponentDisconnected =
+    isRealtime &&
+    shouldShowGame &&
+    !isMatchFinished &&
+    Boolean(liveRoom) &&
+    (isDisconnectedRoomMember(liveOpponentMember) ||
+      isDisconnectedRoomMember(opponentMember) ||
+      liveRoom?.roomStatus === 'EXIT' ||
+      (hasGameStarted && (liveRoom?.roomMembers.length ?? maxMembers) < maxMembers));
   const latestJudgedRound = rpsRoundResults
     .filter(round => {
       return typeof round.judgedAt === 'string' && round.judgedAt.trim().length > 0;
@@ -1290,6 +1486,26 @@ export function CoinBattleRoomScreen(): JSX.Element {
     ? getTypingRoundWinner(latestTypingCompletedRound.typingPlayers ?? [])
     : undefined;
   const latestMyTypingResult = getTypingRoundResultForMe(latestTypingCompletedRound, myUserId, auth?.name);
+  const finalMyRpsMatchResult = isRpsMatchFinished
+    ? getRpsMatchResultForMe(rpsRoundResults, myUserId, auth?.name)
+    : null;
+  const finalMyTypingMatchResult = isTypingMatchFinished
+    ? getTypingMatchResultForMe({
+        finalResults: typingFinalResults,
+        myUserId,
+        myUserName: auth?.name,
+        rounds: typingRounds,
+      })
+    : null;
+  const finalMyMatchResult = isMatchFinished
+    ? isRpsGame
+      ? finalMyRpsMatchResult
+      : isPictureMatchGame
+      ? latestMyPictureMatchResult
+      : isTypingGame
+      ? finalMyTypingMatchResult
+      : null
+    : null;
   const displayedMyChoice = selectedRpsChoice;
   const displayedOpponentChoice = opponentRpsChoice;
   const myProfileImageUri = getProfileImageUriFromRecord(auth?.profile);
@@ -1320,7 +1536,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
     setOptimisticReady(null);
     setReady(false);
     balanceExitRoomRef.current = null;
+    coinDeductionAlertRoomRef.current = null;
     confirmedLeaveRef.current = false;
+    opponentDisconnectHandledRoomRef.current = null;
   }, [roomId]);
 
   useEffect(() => {
@@ -1391,7 +1609,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     const unsubscribe = subscribeRoom(roomId, messageBody => {
       try {
         const parsed = JSON.parse(messageBody) as unknown;
-        const nextRoom = normalizeCoinBattleRoom(parsed);
+        const nextRoom = normalizeRoomDetailMessage(parsed);
 
         if (!nextRoom) {
           if (__DEV__) {
@@ -1495,6 +1713,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [hasActiveTypingPayload]);
 
   useEffect(() => {
+    if (!isStartCountdownBlocking) {
+      countdownExitAlertShownRef.current = false;
+    }
+  }, [isStartCountdownBlocking]);
+
+  useEffect(() => {
     if (liveRoom && isMatchFinished) {
       setFinishedRoomSnapshot(previousSnapshot => {
         const baseSnapshot = previousSnapshot ?? gameRoomSnapshot ?? liveRoom;
@@ -1521,6 +1745,15 @@ export function CoinBattleRoomScreen(): JSX.Element {
       }
     }
   }, [gameRoomSnapshot, isMatchFinished, liveRoom, refreshAllCoins, refreshProfile, roomId]);
+
+  useEffect(() => {
+    if (!isMatchFinished || finalMyMatchResult !== 'LOSE' || coinDeductionAlertRoomRef.current === roomId) {
+      return;
+    }
+
+    coinDeductionAlertRoomRef.current = roomId;
+    Alert.alert('패배로 코인이 차감되었습니다', `${roomBetAmount}코인이 차감되었습니다.`);
+  }, [finalMyMatchResult, isMatchFinished, roomBetAmount, roomId]);
 
   useEffect(() => {
     if (!canStartCountdown) {
@@ -1562,7 +1795,16 @@ export function CoinBattleRoomScreen(): JSX.Element {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [canAutoStart, canStartCountdown, currentRoom, myUserId, resetTypingGame, roomId, startCountdownSeconds, startRoom]);
+  }, [
+    canAutoStart,
+    canStartCountdown,
+    currentRoom,
+    myUserId,
+    resetTypingGame,
+    roomId,
+    startCountdownSeconds,
+    startRoom,
+  ]);
 
   useEffect(() => {
     if (startCountdownSeconds === null) {
@@ -1772,7 +2014,37 @@ export function CoinBattleRoomScreen(): JSX.Element {
     };
   }, [isMatchFinished, resultBackdropOpacity, resultOpacity, resultScale, roundResultOverlay]);
 
+  const showCountdownExitBlockedAlert = React.useCallback(() => {
+    if (countdownExitAlertShownRef.current) {
+      return;
+    }
+
+    countdownExitAlertShownRef.current = true;
+    Alert.alert(
+      '게임이 곧 시작됩니다',
+      '카운트다운 중에는 방을 나갈 수 없습니다.',
+      [
+        {
+          onPress: () => {
+            countdownExitAlertShownRef.current = false;
+          },
+          text: '확인',
+        },
+      ],
+      {
+        onDismiss: () => {
+          countdownExitAlertShownRef.current = false;
+        },
+      },
+    );
+  }, []);
+
   const leaveCurrentRoom = React.useCallback(() => {
+    if (isStartCountdownBlocking) {
+      showCountdownExitBlockedAlert();
+      return;
+    }
+
     if (__DEV__) {
       console.log('[CoinBattleRoomScreen] leaveCurrentRoom', {roomId});
     }
@@ -1798,9 +2070,14 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
       navigation.replace('CoinBattleHome');
     }, 120);
-  }, [isRealtime, leaveRoom, myUserId, navigation, roomId]);
+  }, [isRealtime, isStartCountdownBlocking, leaveRoom, myUserId, navigation, roomId, showCountdownExitBlockedAlert]);
 
   const handleLeaveRoom = React.useCallback(() => {
+    if (isStartCountdownBlocking) {
+      showCountdownExitBlockedAlert();
+      return;
+    }
+
     Alert.alert('방에서 퇴장하시겠습니까?', '진행 중인 준비 상태와 게임 참여가 취소됩니다.', [
       {
         style: 'cancel',
@@ -1812,7 +2089,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
         text: '퇴장',
       },
     ]);
-  }, [leaveCurrentRoom]);
+  }, [isStartCountdownBlocking, leaveCurrentRoom, showCountdownExitBlockedAlert]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -1839,6 +2116,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [handleLeaveRoom, navigation]);
 
   const handleReady = () => {
+    if (isStartCountdownBlocking) {
+      return;
+    }
+
     const nextReady = !myReady;
 
     if (isRealtime) {
@@ -1857,7 +2138,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     setReady(nextReady);
   };
 
-  const handleReturnToWaitingRoom = () => {
+  const handleReturnToWaitingRoom = React.useCallback(() => {
     if (isReturningToWaitingRoom) {
       return;
     }
@@ -1899,6 +2180,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
       latestPresentedRoundRef.current = 0;
       latestTypingSyncRequestedRoundRef.current = 0;
       coinRefreshRoomIdRef.current = null;
+      coinDeductionAlertRoomRef.current = null;
       setHasSeenActiveTypingPayload(false);
       resetRpsGame();
       resetPictureMatchGame();
@@ -1925,7 +2207,32 @@ export function CoinBattleRoomScreen(): JSX.Element {
         setIsReturningToWaitingRoom(false);
       });
     });
-  };
+  }, [
+    currentRoom,
+    isReturningToWaitingRoom,
+    liveRoom,
+    requestRoomState,
+    resetPictureMatchGame,
+    resetRpsGame,
+    resetTypingGame,
+    roomContentOpacity,
+    roomContentTranslateY,
+    roomId,
+  ]);
+
+  useEffect(() => {
+    if (!hasOpponentDisconnected || opponentDisconnectHandledRoomRef.current === roomId) {
+      return;
+    }
+
+    opponentDisconnectHandledRoomRef.current = roomId;
+    Alert.alert('상대 연결이 끊겼습니다', '게임을 중단하고 대기방으로 돌아갑니다.', [
+      {
+        onPress: handleReturnToWaitingRoom,
+        text: '확인',
+      },
+    ]);
+  }, [handleReturnToWaitingRoom, hasOpponentDisconnected, roomId]);
 
   const handleConfirmRpsChoice = () => {
     if (!pendingRpsChoice) {
@@ -2197,9 +2504,19 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 <View style={styles.actionRow}>
                   <AnimatedPressable
                     accessibilityRole="button"
+                    disabled={isStartCountdownBlocking}
                     onPress={handleReady}
-                    style={[styles.readyButton, myReady && styles.readyButtonActive]}>
-                    <Text style={[styles.readyButtonText, myReady && styles.readyButtonTextActive]}>
+                    style={[
+                      styles.readyButton,
+                      myReady && styles.readyButtonActive,
+                      isStartCountdownBlocking && styles.readyButtonDisabled,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.readyButtonText,
+                        myReady && styles.readyButtonTextActive,
+                        isStartCountdownBlocking && styles.readyButtonTextDisabled,
+                      ]}>
                       {myReady ? '준비 완료' : '준비하기'}
                     </Text>
                   </AnimatedPressable>
@@ -2304,7 +2621,14 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 },
               ]}>
               {roundResultOverlay.result === 'WIN' ? (
-                <LottieView autoPlay loop={false} source={fanfareLottie} style={styles.resultFanfare} />
+                <LottieView
+                  autoPlay
+                  hardwareAccelerationAndroid={false}
+                  loop={false}
+                  renderMode="SOFTWARE"
+                  source={fanfareLottie}
+                  style={styles.resultFanfare}
+                />
               ) : null}
               <Text style={styles.resultEyebrow}>
                 {isMatchFinished ? 'FINAL ROUND' : `ROUND ${roundResultOverlay.roundNumber}`}
@@ -2549,7 +2873,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   resultOverlayWin: {
-    backgroundColor: 'rgba(16, 8, 10, 0.92)',
+    backgroundColor: 'rgba(80, 4, 12, 0.58)',
   },
   resultOverlayLose: {
     backgroundColor: 'rgba(28, 5, 8, 0.88)',
@@ -2567,7 +2891,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 28,
     borderRadius: 28,
-    backgroundColor: 'rgba(229, 9, 20, 0.14)',
+    backgroundColor: 'rgba(229, 9, 20, 0.18)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.18)',
     shadowColor: '#E50914',
@@ -2580,6 +2904,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 300,
     height: 300,
+    backgroundColor: 'transparent',
   },
   resultEyebrow: {
     color: '#FFFFFF',
@@ -3482,12 +3807,18 @@ const styles = StyleSheet.create({
   readyButtonActive: {
     backgroundColor: '#E50914',
   },
+  readyButtonDisabled: {
+    opacity: 0.48,
+  },
   readyButtonText: {
     color: '#FFFFFF',
     ...FONTS.font14B,
   },
   readyButtonTextActive: {
     color: '#FFFFFF',
+  },
+  readyButtonTextDisabled: {
+    color: '#8F8F95',
   },
   leaveButton: {
     width: 92,

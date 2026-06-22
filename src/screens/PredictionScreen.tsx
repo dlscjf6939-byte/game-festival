@@ -536,6 +536,7 @@ export function PredictionScreen(): JSX.Element {
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView | null>(null);
   const tabContentProgress = useRef(new Animated.Value(1)).current;
+  const participatedTabRefreshInFlightRef = useRef(false);
   const [activeTab, setActiveTab] = useState<PredictionTabId>('prediction');
   const [activePredictionId, setActivePredictionId] = useState<string | null>(null);
   const [predictionCards, setPredictionCards] = useState<PredictionCardItem[]>([]);
@@ -754,6 +755,26 @@ export function PredictionScreen(): JSX.Element {
     }
   }, [fetchPredictionData, isRefreshingPrediction]);
 
+  const handleTabPress = useCallback(
+    (nextTab: PredictionTabId) => {
+      setActiveTab(nextTab);
+
+      if (nextTab !== 'participated' || participatedTabRefreshInFlightRef.current) {
+        return;
+      }
+
+      participatedTabRefreshInFlightRef.current = true;
+      fetchPredictionData(false)
+        .catch(error => {
+          console.log('[PredictionScreen] participated tab refresh failed', error);
+        })
+        .finally(() => {
+          participatedTabRefreshInFlightRef.current = false;
+        });
+    },
+    [fetchPredictionData],
+  );
+
   useEffect(() => {
     return registerScrollToTopHandler('Prediction', () => {
       scrollRef.current?.scrollTo({animated: true, y: 0});
@@ -799,10 +820,10 @@ export function PredictionScreen(): JSX.Element {
           </View>
 
           <View style={styles.tabRow}>
-            <SlidingSegmentedTabs activeTab={activeTab} onTabPress={setActiveTab} tabs={tabs} />
+            <SlidingSegmentedTabs activeTab={activeTab} onTabPress={handleTabPress} tabs={tabs} />
           </View>
 
-          <SwipeableTabView activeTab={activeTab} onTabPress={setActiveTab} tabs={tabs}>
+          <SwipeableTabView activeTab={activeTab} onTabPress={handleTabPress} tabs={tabs}>
             <Animated.View
               style={{
                 opacity: tabContentProgress,
