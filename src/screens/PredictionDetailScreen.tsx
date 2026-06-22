@@ -258,7 +258,7 @@ function getInitialPredictionStep(
   matchStatus: unknown,
   canShowCountingStep: boolean,
 ): PredictionStep {
-  if (startStep === 'comment' || startStep === 'result') {
+  if (startStep === 'select' || startStep === 'comment' || startStep === 'result') {
     return startStep;
   }
 

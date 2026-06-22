@@ -56,7 +56,7 @@ const fallbackPredictionCards: PredictionCardItem[] = [
     title: '복면가왕',
     description: '복면을 쓴 프로들의 대결! 과연 누가 우승할 것 인가?',
     posterSource: image.maskSinger,
-    wordmarkSource: image.maskSinger,
+    wordmarkSource: image.maskSingerLetter,
   },
 ];
 
@@ -138,7 +138,7 @@ type PredictionParticipant = {
 
 const tabs = [
   {id: 'prediction', label: '승부예측'},
-  {id: 'participated', label: '참여예측'},
+  {id: 'participated', label: '예측현황'},
 ] as const;
 
 type PredictionTabId = (typeof tabs)[number]['id'];
@@ -272,6 +272,10 @@ function canShowCountingForParticipatedPrediction(item: Pick<ParticipatedPredict
   return item.gameId === MASK_SINGER_GAME_ID || item.title.includes('복면');
 }
 
+function isMaskSingerPredictionCard(card: Pick<PredictionCardItem, 'gameId' | 'id' | 'title'>): boolean {
+  return card.gameId === MASK_SINGER_GAME_ID || card.id === 'maskSinger' || card.title.includes('복면');
+}
+
 function getParticipatedDetailStartStep(item: ParticipatedPrediction): 'counting' | 'result' {
   if (normalizeMatchStatus(item.matchStatus) === 'FINISHED') {
     return 'result';
@@ -380,7 +384,11 @@ function PredictionCard({
         <Image source={card.posterSource} resizeMode="cover" style={styles.cardImage} />
 
         <View style={styles.cardContent}>
-          <Image source={card.wordmarkSource} resizeMode="contain" style={styles.cardWordmark} />
+          <Image
+            source={card.wordmarkSource}
+            resizeMode="contain"
+            style={[styles.cardWordmark, isMaskSingerPredictionCard(card) && styles.maskSingerCardWordmark]}
+          />
           <Text style={styles.cardTitle}>{card.title}</Text>
           <Text numberOfLines={2} style={styles.cardDescription}>
             {card.description}
@@ -726,7 +734,7 @@ export function PredictionScreen(): JSX.Element {
       }
 
       setGamesErrorMessage(error instanceof Error ? error.message : '게임 목록 조회에 실패했습니다.');
-      setParticipatedErrorMessage('참여예측을 불러오지 못했습니다.');
+      setParticipatedErrorMessage('예측현황을 불러오지 못했습니다.');
     } finally {
       if (showLoading) {
         setIsGamesLoading(false);
@@ -855,7 +863,7 @@ export function PredictionScreen(): JSX.Element {
                 <View style={styles.participatedStack}>
                   {isParticipatedLoading ? (
                     <View style={styles.loadingCenterState}>
-                      <AppLoading label="참여예측을 불러오는 중..." />
+                      <AppLoading label="예측현황을 불러오는 중..." />
                     </View>
                   ) : participatedPredictions.length ? (
                     participatedPredictions.map((item, index) => (
@@ -959,6 +967,11 @@ const styles = StyleSheet.create({
     width: 172,
     height: 34,
     marginBottom: 4,
+  },
+  maskSingerCardWordmark: {
+    width: 78,
+    height: 42,
+    marginTop: -4,
   },
   cardTitle: {
     color: '#FFFFFF',

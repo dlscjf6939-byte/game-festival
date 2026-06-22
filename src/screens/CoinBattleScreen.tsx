@@ -886,7 +886,7 @@ export function CoinBattleScreen(): JSX.Element {
                     })}
                   </View>
 
-                  <Text style={styles.createLabel}>진행 라운드</Text>
+                  <Text style={styles.createLabel}>진행 라운드(판수)</Text>
                   <View style={styles.optionRow}>
                     {visibleRoundOptions.map(option => {
                       const active = option === totalRoundCount;

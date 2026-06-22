@@ -43,6 +43,7 @@ let hotUpdaterOverlaySnapshot: HotUpdaterOverlaySnapshot = {
 
 type ComponentWithDefaultProps = {
   defaultProps?: {
+    allowFontScaling?: boolean;
     style?: unknown;
   };
 };
@@ -51,6 +52,7 @@ function applyDefaultFont(Component: typeof Text | typeof TextInput) {
   const target = Component as ComponentWithDefaultProps;
 
   target.defaultProps = target.defaultProps ?? {};
+  target.defaultProps.allowFontScaling = false;
   target.defaultProps.style = [
     {fontFamily: FONT_FAMILY.regular},
     target.defaultProps.style,

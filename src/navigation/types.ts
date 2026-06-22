@@ -38,7 +38,7 @@ export type PredictionStackParamList = {
         mode?: 'participated';
         pickedParticipantId?: number;
         selectedTeamId?: string;
-        startStep?: 'comment' | 'counting' | 'result';
+        startStep?: 'select' | 'comment' | 'counting' | 'result';
       }
     | undefined;
 };

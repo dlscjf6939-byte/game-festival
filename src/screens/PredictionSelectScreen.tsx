@@ -42,6 +42,19 @@ type GameDetailApiResponse = {
   success?: boolean;
 };
 
+type MatchOverviewApiResponse = {
+  data?: {
+    pickedParticipant?: {
+      participantId?: number;
+    } | null;
+    pickedParticipantId?: number | null;
+  };
+  message?: string;
+  success?: boolean;
+};
+
+type PredictionDetailStartStep = NonNullable<PredictionStackParamList['PredictionDetail']>['startStep'];
+
 function formatMatchDateTime(value: string): string {
   const date = new Date(value);
 
@@ -86,6 +99,15 @@ function toMatches(response: GameDetailApiResponse): GameDetailMatch[] {
     }));
 }
 
+function normalizeMatchStatus(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toUpperCase() : 'UNKNOWN';
+}
+
+function getPickedParticipantId(data: MatchOverviewApiResponse['data']): number | null {
+  const pickedParticipantId = data?.pickedParticipantId ?? data?.pickedParticipant?.participantId;
+  return typeof pickedParticipantId === 'number' ? pickedParticipantId : null;
+}
+
 export function PredictionSelectScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const route = useRoute<RouteProp<PredictionStackParamList, 'PredictionSelect'>>();
@@ -96,6 +118,7 @@ export function PredictionSelectScreen(): JSX.Element {
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const [matches, setMatches] = useState<GameDetailMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null);
+  const [isResolvingSelectedMatch, setIsResolvingSelectedMatch] = useState(false);
   const isMaskSingerGame = route.params.gameId === MASK_SINGER_GAME_ID;
   const isExecutiveGame = route.params.gameId === EXECUTIVE_GAME_ID || gameTitle.includes('임원');
   const isVoteOnlyGame = isMaskSingerGame || isExecutiveGame;
@@ -209,9 +232,52 @@ export function PredictionSelectScreen(): JSX.Element {
     />
   );
 
-  const goNext = () => {
-    if (selectedMatchId === null) {
+  const goNext = async () => {
+    if (selectedMatchId === null || isResolvingSelectedMatch) {
       return;
+    }
+
+    const normalizedSelectedStatus = normalizeMatchStatus(selectedMatch?.matchStatus);
+    let pickedParticipantId: number | null = null;
+    let startStep: PredictionDetailStartStep;
+
+    if (isMaskSingerGame && normalizedSelectedStatus === 'COUNTING' && auth?.accessToken) {
+      setIsResolvingSelectedMatch(true);
+
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${route.params.gameId}/matches/${selectedMatchId}/overview`,
+          {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${auth.accessToken}`,
+            },
+          },
+        );
+        const responseText = await response.text();
+        const responseBody = JSON.parse(responseText) as MatchOverviewApiResponse;
+
+        if (response.ok && responseBody.success !== false) {
+          pickedParticipantId = getPickedParticipantId(responseBody.data);
+        } else {
+          console.log('[PredictionSelectScreen] match overview response failed', {
+            gameId: route.params.gameId,
+            matchId: selectedMatchId,
+            responseBody,
+            status: response.status,
+          });
+        }
+      } catch (error) {
+        console.log('[PredictionSelectScreen] match overview request failed', {
+          error,
+          gameId: route.params.gameId,
+          matchId: selectedMatchId,
+        });
+      } finally {
+        setIsResolvingSelectedMatch(false);
+      }
+
+      startStep = pickedParticipantId === null ? 'select' : 'counting';
     }
 
     navigation.navigate('PredictionDetail', {
@@ -220,6 +286,8 @@ export function PredictionSelectScreen(): JSX.Element {
       matchStatus: selectedMatch?.matchStatus,
       matchType: isExecutiveGame ? 'INDIVIDUAL' : undefined,
       matchId: selectedMatchId,
+      ...(pickedParticipantId !== null ? {pickedParticipantId} : {}),
+      ...(startStep ? {startStep} : {}),
     });
   };
 
@@ -326,15 +394,21 @@ export function PredictionSelectScreen(): JSX.Element {
             <View style={styles.bottomActionWrap}>
               <AnimatedPressable
                 accessibilityRole="button"
-                disabled={selectedMatchId === null || isGameLoading}
+                disabled={selectedMatchId === null || isGameLoading || isResolvingSelectedMatch}
                 onPress={goNext}
-                style={[styles.nextButton, (selectedMatchId === null || isGameLoading) && styles.nextButtonDisabled]}>
+                style={[
+                  styles.nextButton,
+                  (selectedMatchId === null || isGameLoading || isResolvingSelectedMatch) && styles.nextButtonDisabled,
+                ]}>
                 <Text
                   style={[
                     styles.nextButtonText,
-                    (selectedMatchId === null || isGameLoading) && styles.nextButtonTextDisabled,
+                    (selectedMatchId === null || isGameLoading || isResolvingSelectedMatch) &&
+                      styles.nextButtonTextDisabled,
                   ]}>
-                  {isVoteOnlyGame && selectedMatch?.matchStatus === 'FINISHED'
+                  {isResolvingSelectedMatch
+                    ? '확인 중...'
+                    : isVoteOnlyGame && selectedMatch?.matchStatus === 'FINISHED'
                     ? '결과 보기'
                     : isExecutiveGame
                     ? '투표하기'

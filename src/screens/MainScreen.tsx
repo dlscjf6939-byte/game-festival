@@ -9,7 +9,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Animated,
   Dimensions,
-  Easing,
   FlatList,
   Image,
   Modal,
@@ -59,42 +58,22 @@ const storyCards = [
   {
     id: 'left',
     posterImage: image.poster1,
-    title: 'CRAZY ARCADE',
-    subtitle: '크레이지 아케이드',
-    accent: '#E50914',
-    tag: 'LIVE BRACKET',
   },
   {
     id: 'center',
     posterImage: image.poster2,
-    title: 'TEKKEN',
-    subtitle: '철권',
-    accent: '#E50914',
-    tag: 'MAIN EVENT',
   },
   {
     id: 'right',
     posterImage: image.poster3,
-    title: 'STARCRAFT',
-    subtitle: '스타크래프트',
-    accent: '#E50914',
-    tag: 'RISING PICK',
   },
   {
     id: 'maskSinger',
     posterImage: image.poster4,
-    title: 'MASK SINGER',
-    subtitle: '복면가왕',
-    accent: '#E50914',
-    tag: 'MYSTERY SHOW',
   },
   {
     id: 'executiveLineup',
     posterImage: image.poster5,
-    title: 'SSR LINE-UP',
-    subtitle: '임원전',
-    accent: '#E50914',
-    tag: 'SPECIAL EVENT',
   },
 ];
 type StoryCard = (typeof storyCards)[number];
@@ -125,69 +104,6 @@ const STORY_BACKGROUND_OPACITY_RANGES = storyCards.reduce((ranges, card) => {
     [card.id]: {inputRange, outputRange},
   };
 }, {} as Record<StoryCard['id'], {inputRange: number[]; outputRange: number[]}>);
-
-const bracketRoundsByStory = {
-  left: [
-    {
-      id: 'round-8',
-      label: '8강',
-      matches: [
-        {id: 'm1', left: 'TEAM RED', right: 'TEAM COBALT', leftScore: 2, rightScore: 1},
-        {id: 'm2', left: 'TEAM NOVA', right: 'TEAM PULSE', leftScore: 0, rightScore: 2},
-      ],
-    },
-    {
-      id: 'round-4',
-      label: '4강',
-      matches: [{id: 'm3', left: 'TEAM RED', right: 'TEAM PULSE', leftScore: 2, rightScore: 0}],
-    },
-    {
-      id: 'round-final',
-      label: '결승',
-      matches: [{id: 'm4', left: 'TEAM RED', right: 'TEAM ONYX', leftScore: 3, rightScore: 2}],
-    },
-  ],
-  center: [
-    {
-      id: 'round-8',
-      label: '8강',
-      matches: [
-        {id: 'm1', left: 'DRAGON X', right: 'RAVEN UNIT', leftScore: 2, rightScore: 0},
-        {id: 'm2', left: 'KNOCKOUT', right: 'SUDDEN', leftScore: 1, rightScore: 2},
-      ],
-    },
-    {
-      id: 'round-4',
-      label: '4강',
-      matches: [{id: 'm3', left: 'DRAGON X', right: 'SUDDEN', leftScore: 2, rightScore: 1}],
-    },
-    {
-      id: 'round-final',
-      label: '결승',
-      matches: [{id: 'm4', left: 'DRAGON X', right: 'VOID CORE', leftScore: 3, rightScore: 1}],
-    },
-  ],
-  right: [
-    {
-      id: 'round-8',
-      label: '8강',
-      matches: [
-        {id: 'm1', left: 'RISING WAVE', right: 'FROST LINE', leftScore: 2, rightScore: 1},
-        {id: 'm2', left: 'BLACK MAMBA', right: 'PENTA', leftScore: 2, rightScore: 0},
-      ],
-    },
-    {
-      id: 'round-4',
-      label: '4강',
-      matches: [{id: 'm3', left: 'RISING WAVE', right: 'BLACK MAMBA', leftScore: 2, rightScore: 1}],
-    },
-    {
-      id: 'round-final',
-      label: '결승',
-      matches: [{id: 'm4', left: 'RISING WAVE', right: 'TEMPEST', leftScore: 3, rightScore: 2}],
-    },
-  ],
-} as const;
 
 function parseDateKey(dateKey: string): Date | null {
   const [yearText, monthText, dayText] = dateKey.split('-');
@@ -243,13 +159,6 @@ function MainScreen(): JSX.Element {
   const refreshAttendanceRef = useRef(refreshAttendance);
   const attendanceModalProgress = useRef(new Animated.Value(0)).current;
   const attendanceModalShake = useRef(new Animated.Value(0)).current;
-  const bracketFlipValues = useRef(
-    storyCards.reduce((acc, card) => {
-      acc[card.id] = new Animated.Value(0);
-      return acc;
-    }, {} as Record<(typeof storyCards)[number]['id'], Animated.Value>),
-  ).current;
-  const [flippedCardId, setFlippedCardId] = useState<(typeof storyCards)[number]['id'] | null>(null);
   const [activeStoryIndex, setActiveStoryIndex] = useState(INITIAL_STORY_INDEX % storyCards.length);
   const [isStoryUserScrolling, setIsStoryUserScrolling] = useState(false);
   const [isAttendanceSummaryModalVisible, setIsAttendanceSummaryModalVisible] = useState(false);
@@ -484,45 +393,6 @@ function MainScreen(): JSX.Element {
     }, [refreshHomeData]),
   );
 
-  const animateFlip = React.useCallback(
-    (cardId: (typeof storyCards)[number]['id'], toValue: 0 | 1, onComplete?: () => void) => {
-      Animated.timing(bracketFlipValues[cardId], {
-        toValue,
-        duration: 420,
-        easing: Easing.bezier(0.2, 0.75, 0.2, 1),
-        useNativeDriver: true,
-      }).start(({finished}) => {
-        if (!finished || !onComplete) {
-          return;
-        }
-        onComplete();
-      });
-    },
-    [bracketFlipValues],
-  );
-
-  const handleStoryCardPress = React.useCallback(
-    (cardId: (typeof storyCards)[number]['id']) => {
-      if (flippedCardId === cardId) {
-        animateFlip(cardId, 0, () => setFlippedCardId(null));
-        return;
-      }
-
-      if (flippedCardId) {
-        const prevCardId = flippedCardId;
-        animateFlip(prevCardId, 0, () => {
-          setFlippedCardId(cardId);
-          animateFlip(cardId, 1);
-        });
-        return;
-      }
-
-      setFlippedCardId(cardId);
-      animateFlip(cardId, 1);
-    },
-    [animateFlip, flippedCardId],
-  );
-
   const handleStoryListMomentumEnd = React.useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       setIsStoryUserScrolling(false);
@@ -536,21 +406,6 @@ function MainScreen(): JSX.Element {
         setActiveStoryIndex(nextIndex % storyCards.length);
       }
 
-      if (!flippedCardId) {
-        if (nextCard && (nextIndex < STORY_LOOP_SAFE_START_INDEX || nextIndex >= STORY_LOOP_SAFE_END_INDEX)) {
-          const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (nextIndex % storyCards.length);
-          currentStoryIndexRef.current = normalizedIndex;
-          requestAnimationFrame(() => {
-            storyListRef.current?.scrollToIndex({animated: false, index: normalizedIndex});
-          });
-        }
-        return;
-      }
-
-      if (nextCard && nextCard.id !== flippedCardId) {
-        animateFlip(flippedCardId, 0, () => setFlippedCardId(null));
-      }
-
       if (nextCard && (nextIndex < STORY_LOOP_SAFE_START_INDEX || nextIndex >= STORY_LOOP_SAFE_END_INDEX)) {
         const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (nextIndex % storyCards.length);
         currentStoryIndexRef.current = normalizedIndex;
@@ -559,7 +414,7 @@ function MainScreen(): JSX.Element {
         });
       }
     },
-    [animateFlip, flippedCardId],
+    [],
   );
   const moveStoryListWithoutAnimation = React.useCallback(
     (index: number) => {
@@ -586,7 +441,7 @@ function MainScreen(): JSX.Element {
   }, [dismissProfileTip, navigation]);
 
   React.useEffect(() => {
-    if (flippedCardId || isStoryUserScrolling || storyCards.length < 2) {
+    if (isStoryUserScrolling || storyCards.length < 2) {
       return undefined;
     }
 
@@ -614,11 +469,10 @@ function MainScreen(): JSX.Element {
     }, 4000);
 
     return () => clearInterval(autoScrollTimer);
-  }, [flippedCardId, isStoryUserScrolling, moveStoryListWithoutAnimation]);
+  }, [isStoryUserScrolling, moveStoryListWithoutAnimation]);
 
   const renderStoryCard = React.useCallback(
     ({item, index}: {item: (typeof storyCards)[number]; index: number}): JSX.Element => {
-      const isCardFlipped = flippedCardId === item.id;
       const inputRange = [
         (index - 1) * STORY_SNAP_INTERVAL,
         index * STORY_SNAP_INTERVAL,
@@ -648,191 +502,26 @@ function MainScreen(): JSX.Element {
         outputRange: ['5deg', '0deg', '-5deg'],
         extrapolate: 'clamp',
       });
-      const flipValue = bracketFlipValues[item.id];
-      const frontRotateY = flipValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['0deg', '180deg'],
-      });
-      const backRotateY = flipValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: ['180deg', '360deg'],
-      });
-      const frontOpacity = flipValue.interpolate({
-        inputRange: [0, 0.49, 0.5, 1],
-        outputRange: [1, 1, 0, 0],
-      });
-      const backOpacity = flipValue.interpolate({
-        inputRange: [0, 0.49, 0.5, 1],
-        outputRange: [0, 0, 1, 1],
-      });
-      const cardRounds = bracketRoundsByStory[item.id as keyof typeof bracketRoundsByStory] ?? [];
 
       return (
         <View style={styles.storyItem}>
-          <AnimatedPressable
-            accessibilityRole="button"
-            disabled={flippedCardId === item.id}
-            onPress={() => handleStoryCardPress(item.id)}
-            style={styles.storyPressable}>
-            <Animated.View
-              style={[
-                styles.storyCard,
-                {borderColor: '#252525'},
-                {
-                  opacity,
-                  transform: [{translateY}, {scale}, {rotate}],
-                },
-              ]}>
-              <Animated.View
-                pointerEvents={isCardFlipped ? 'none' : 'auto'}
-                style={[
-                  styles.storyFace,
-                  {
-                    opacity: frontOpacity,
-                    transform: [{perspective: 1200}, {rotateY: frontRotateY}],
-                  },
-                ]}>
-                <Image source={item.posterImage} resizeMode="cover" style={styles.storyPosterImage} />
-                <View style={styles.storyNoise} />
-              </Animated.View>
-
-              {isCardFlipped ? (
-                <Animated.View
-                  pointerEvents="auto"
-                  style={[
-                    styles.storyFace,
-                    styles.storyBackFace,
-                    {
-                      opacity: backOpacity,
-                      transform: [{perspective: 1200}, {rotateY: backRotateY}],
-                    },
-                  ]}>
-                  <View style={styles.storyBackHeader}>
-                    <View>
-                      <Text style={styles.storyBackEyebrow}>{item.tag}</Text>
-                      <Text style={styles.storyBackTitle}>{item.subtitle} 대진표</Text>
-                    </View>
-                    <AnimatedPressable
-                      onPress={() => handleStoryCardPress(item.id)}
-                      style={styles.storyBackCloseButton}>
-                      <Text style={styles.storyBackCloseButtonText}>닫기</Text>
-                    </AnimatedPressable>
-                  </View>
-
-                  <ScrollView
-                    bounces={false}
-                    contentContainerStyle={styles.storyBackRoundsContent}
-                    nestedScrollEnabled
-                    style={styles.storyBackScroll}
-                    showsVerticalScrollIndicator={false}>
-                    {cardRounds.length ? (
-                      cardRounds.map((round, roundIndex) => (
-                        <View
-                          key={round.id}
-                          style={[
-                            styles.storyBackRound,
-                            roundIndex === cardRounds.length - 1 && styles.storyBackRoundFinal,
-                          ]}>
-                          <View style={styles.storyBackRoundHeader}>
-                            <View style={styles.storyBackRoundTitleWrap}>
-                              <View
-                                style={[
-                                  styles.storyBackRoundIndex,
-                                  roundIndex === cardRounds.length - 1 && styles.storyBackRoundIndexFinal,
-                                ]}>
-                                <Text style={styles.storyBackRoundIndexText}>{roundIndex + 1}</Text>
-                              </View>
-                              <Text style={styles.storyBackRoundLabel}>{round.label}</Text>
-                            </View>
-                            <View
-                              style={[
-                                styles.storyBackRoundMetaBadge,
-                                roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaBadgeFinal,
-                              ]}>
-                              <Text
-                                style={[
-                                  styles.storyBackRoundMeta,
-                                  roundIndex === cardRounds.length - 1 && styles.storyBackRoundMetaFinal,
-                                ]}>
-                                {roundIndex === cardRounds.length - 1 ? 'FINAL' : `${round.matches.length} MATCH`}
-                              </Text>
-                            </View>
-                          </View>
-                          {round.matches.map(match => {
-                            const leftWon = match.leftScore >= match.rightScore;
-                            const winnerName = leftWon ? match.left : match.right;
-
-                            return (
-                              <View
-                                key={match.id}
-                                style={[
-                                  styles.storyBackMatch,
-                                  roundIndex === cardRounds.length - 1 && styles.storyBackMatchFinal,
-                                ]}>
-                                {roundIndex === cardRounds.length - 1 ? (
-                                  <View style={styles.storyBackChampionPill}>
-                                    <Text numberOfLines={1} style={styles.storyBackChampionText}>
-                                      WINNER · {winnerName}
-                                    </Text>
-                                  </View>
-                                ) : null}
-                                <View style={[styles.storyBackTeamRow, leftWon && styles.storyBackTeamRowWinner]}>
-                                  <View style={styles.storyBackTeamNameWrap}>
-                                    <View style={[styles.storyBackSeedDot, leftWon && styles.storyBackSeedDotWinner]} />
-                                    <Text
-                                      numberOfLines={1}
-                                      style={[styles.storyBackTeamName, !leftWon && styles.storyBackTeamNameMuted]}>
-                                      {match.left}
-                                    </Text>
-                                  </View>
-                                  <Text style={[styles.storyBackTeamScore, leftWon && styles.storyBackTeamScoreWinner]}>
-                                    {match.leftScore}
-                                  </Text>
-                                </View>
-                                <View style={styles.storyBackVsRow}>
-                                  <View style={styles.storyBackLine} />
-                                  <Text style={styles.storyBackVsText}>VS</Text>
-                                  <View style={styles.storyBackLine} />
-                                </View>
-                                <View style={[styles.storyBackTeamRow, !leftWon && styles.storyBackTeamRowWinner]}>
-                                  <View style={styles.storyBackTeamNameWrap}>
-                                    <View
-                                      style={[styles.storyBackSeedDot, !leftWon && styles.storyBackSeedDotWinner]}
-                                    />
-                                    <Text
-                                      numberOfLines={1}
-                                      style={[styles.storyBackTeamName, leftWon && styles.storyBackTeamNameMuted]}>
-                                      {match.right}
-                                    </Text>
-                                  </View>
-                                  <Text
-                                    style={[styles.storyBackTeamScore, !leftWon && styles.storyBackTeamScoreWinner]}>
-                                    {match.rightScore}
-                                  </Text>
-                                </View>
-                              </View>
-                            );
-                          })}
-                          {roundIndex < cardRounds.length - 1 ? <View style={styles.storyBackRoundConnector} /> : null}
-                        </View>
-                      ))
-                    ) : (
-                      <View style={styles.storyBackEmptyState}>
-                        <Text style={styles.storyBackEmptyTitle}>대진표 준비중</Text>
-                        <Text style={styles.storyBackEmptyDescription}>
-                          경기 정보가 공개되면 여기에서 확인할 수 있어요.
-                        </Text>
-                      </View>
-                    )}
-                  </ScrollView>
-                </Animated.View>
-              ) : null}
-            </Animated.View>
-          </AnimatedPressable>
+          <Animated.View
+            style={[
+              styles.storyCard,
+              {
+                opacity,
+                transform: [{translateY}, {scale}, {rotate}],
+              },
+            ]}>
+            <View style={styles.storyFace}>
+              <Image source={item.posterImage} resizeMode="cover" style={styles.storyPosterImage} />
+              <View style={styles.storyNoise} />
+            </View>
+          </Animated.View>
         </View>
       );
     },
-    [bracketFlipValues, flippedCardId, handleStoryCardPress, scrollX],
+    [scrollX],
   );
 
   return (
@@ -1247,305 +936,26 @@ const styles = StyleSheet.create({
     width: STORY_ITEM_WIDTH,
     alignItems: 'center',
   },
-  storyPressable: {
-    width: STORY_CARD_WIDTH,
-    height: STORY_CARD_HEIGHT,
-  },
   storyCard: {
     width: STORY_CARD_WIDTH,
     height: STORY_CARD_HEIGHT,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 1)',
+    backgroundColor: '#050505',
     borderWidth: 2,
+    borderColor: '#252525',
     overflow: 'hidden',
   },
   storyFace: {
     ...StyleSheet.absoluteFillObject,
-    backfaceVisibility: 'hidden',
-  },
-  storyBackFace: {
-    // backgroundColor: 'rgba(10,12,16,0.97)',
-    padding: 14,
   },
   storyPosterImage: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
-  storyGlow: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    top: 56,
-    alignSelf: 'center',
-    opacity: 0.55,
-  },
-  storyAccentOrb: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    right: -24,
-    top: -20,
-    opacity: 0.3,
-  },
   storyNoise: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  storyBackHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  storyBackEyebrow: {
-    color: '#CDD2DA',
-    ...FONTS.font10B,
-  },
-  storyBackTitle: {
-    color: '#FFFFFF',
-    ...FONTS.font18B,
-    marginTop: 3,
-  },
-  storyBackHint: {
-    color: '#8F96A3',
-    ...FONTS.font10B,
-    marginTop: 3,
-  },
-  storyBackCloseButton: {
-    height: 28,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  storyBackCloseButtonText: {
-    color: '#FFFFFF',
-    ...FONTS.font12B,
-  },
-  storyBackScroll: {
-    flex: 1,
-  },
-  storyBackRoundsContent: {
-    flexGrow: 1,
-    gap: 10,
-    paddingBottom: 12,
-  },
-  storyBackEmptyState: {
-    flex: 1,
-    minHeight: 320,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.055)',
-    padding: 18,
-  },
-  storyBackEmptyTitle: {
-    color: '#FFFFFF',
-    ...FONTS.font18B,
-    lineHeight: 24,
-  },
-  storyBackEmptyDescription: {
-    marginTop: 8,
-    color: '#A9ABB2',
-    textAlign: 'center',
-    ...FONTS.font12M,
-    lineHeight: 18,
-  },
-  storyBackRound: {
-    position: 'relative',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.055)',
-    padding: 9,
-  },
-  storyBackRoundFinal: {
-    borderColor: 'rgba(229,9,20,0.42)',
-    backgroundColor: 'rgba(229,9,20,0.075)',
-  },
-  storyBackRoundHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 7,
-  },
-  storyBackRoundTitleWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minWidth: 0,
-    flex: 1,
-  },
-  storyBackRoundIndex: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 7,
-    backgroundColor: 'rgba(255,255,255,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  storyBackRoundIndexFinal: {
-    backgroundColor: '#E50914',
-    borderColor: '#E50914',
-  },
-  storyBackRoundIndexText: {
-    color: '#FFFFFF',
-    ...FONTS.font10B,
-    lineHeight: 13,
-  },
-  storyBackRoundLabel: {
-    flexShrink: 1,
-    color: '#FFFFFF',
-    ...FONTS.font14B,
-  },
-  storyBackRoundMetaBadge: {
-    minHeight: 20,
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  storyBackRoundMetaBadgeFinal: {
-    backgroundColor: 'rgba(229,9,20,0.18)',
-  },
-  storyBackRoundMeta: {
-    color: '#8F96A3',
-    ...FONTS.font10B,
-    letterSpacing: 0.6,
-  },
-  storyBackRoundMetaFinal: {
-    color: '#FFFFFF',
-  },
-  storyBackMatch: {
-    borderRadius: 12,
-    backgroundColor: 'rgba(5,7,10,0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    padding: 6,
-    marginTop: 6,
-  },
-  storyBackMatchFinal: {
-    borderColor: 'rgba(229,9,20,0.28)',
-    backgroundColor: 'rgba(8,4,6,0.90)',
-  },
-  storyBackChampionPill: {
-    minHeight: 24,
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-    backgroundColor: '#E50914',
-    borderWidth: 1,
-    borderColor: '#FF5962',
-  },
-  storyBackChampionText: {
-    color: '#FFFFFF',
-    ...FONTS.font10B,
-    letterSpacing: 0.5,
-  },
-  storyBackTeamRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 28,
-    borderRadius: 9,
-    paddingHorizontal: 8,
-  },
-  storyBackTeamRowWinner: {
-    backgroundColor: '#2A1114',
-  },
-  storyBackTeamNameWrap: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: 8,
-  },
-  storyBackSeedDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 7,
-    backgroundColor: '#4A4D56',
-  },
-  storyBackSeedDotWinner: {
-    backgroundColor: '#FF5962',
-  },
-  storyBackTeamName: {
-    color: '#E8EAF0',
-    ...FONTS.font12B,
-  },
-  storyBackTeamNameMuted: {
-    color: '#858A96',
-  },
-  storyBackTeamScore: {
-    minWidth: 24,
-    height: 22,
-    borderRadius: 7,
-    overflow: 'hidden',
-    color: '#AEB4C1',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    textAlign: 'center',
-    ...FONTS.font14B,
-    lineHeight: 22,
-  },
-  storyBackTeamScoreWinner: {
-    color: '#FFFFFF',
-    backgroundColor: '#E50914',
-  },
-  storyBackLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  storyBackVsRow: {
-    minHeight: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  storyBackVsText: {
-    color: '#6F7581',
-    ...FONTS.font10B,
-  },
-  storyBackRoundConnector: {
-    alignSelf: 'center',
-    width: 2,
-    height: 10,
-    marginBottom: -19,
-    backgroundColor: 'rgba(229,9,20,0.45)',
-  },
-  storyGradient: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    padding: 20,
-    backgroundColor: 'rgba(0,0,0,0.42)',
-  },
-  storyEyebrow: {
-    color: '#F2F3F5',
-    ...FONTS.font13M,
-    letterSpacing: 0.4,
-  },
-  storyTitle: {
-    marginTop: 8,
-    color: '#FFFFFF',
-    ...FONTS.font30B,
-  },
-  storyMeta: {
-    marginTop: 14,
-    color: 'rgba(255,255,255,0.58)',
-    ...FONTS.font11B,
-    letterSpacing: 1.2,
   },
   storyPagination: {
     flexDirection: 'row',

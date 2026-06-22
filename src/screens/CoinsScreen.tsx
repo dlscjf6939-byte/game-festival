@@ -1540,7 +1540,7 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   raffleTabRow: {
-    marginBottom: 18,
+    marginBottom: 22,
   },
   raffleHero: {
     minHeight: 52,
