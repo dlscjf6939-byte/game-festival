@@ -9,11 +9,13 @@ import {
   View,
   type StyleProp,
   type ViewStyle,
+  Platform,
 } from 'react-native';
 import {AppGnb} from './AppGnb';
 import {TabSceneTransition} from './TabSceneTransition';
 import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 import type {MainStackParamList} from '../navigation/types';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type MainScaffoldProps = {
   children: React.ReactNode;
@@ -25,6 +27,7 @@ type MainScaffoldProps = {
   stickyHeaderThreshold?: number;
   scrollToTopRouteName?: keyof MainStackParamList;
 };
+
 
 export function MainScaffold({
   children,
@@ -58,6 +61,10 @@ export function MainScaffold({
       scrollRef.current?.scrollTo({animated: true, y: 0});
     });
   }, [scrollToTopRouteName]);
+
+  const insets = useSafeAreaInsets();
+
+const topOffset = insets.top + 56;
 
   return (
     <TabSceneTransition>
@@ -95,6 +102,7 @@ export function MainScaffold({
             style={[
               styles.stickyHeader,
               {
+                top: topOffset,
                 opacity: stickyHeaderOpacity,
                 transform: [{translateY: stickyHeaderTranslateY}],
               },
@@ -122,7 +130,7 @@ const styles = StyleSheet.create({
   },
   stickyHeader: {
     position: 'absolute',
-    top: 102,
+    // top: Platform.OS === 'ios' ? 102 : 92,
     left: 0,
     right: 0,
     paddingHorizontal: 20,
