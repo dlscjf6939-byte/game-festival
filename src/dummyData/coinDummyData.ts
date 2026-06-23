@@ -7,10 +7,12 @@ export type CoinHistory = {
 
 export type CoinRanking = {
   id: string;
+  employeeId?: string;
   rank: number;
   name: string;
   team: string;
   coins: number;
+  profileImageUri?: string | null;
   isMe: boolean;
 };
 

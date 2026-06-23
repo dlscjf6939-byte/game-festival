@@ -18,20 +18,36 @@ import type {MainStackParamList} from '../navigation/types';
 type MainScaffoldProps = {
   children: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  fixedFooter?: React.ReactNode;
   onRefresh?: () => void;
   refreshing?: boolean;
+  stickyHeader?: React.ReactNode;
+  stickyHeaderThreshold?: number;
   scrollToTopRouteName?: keyof MainStackParamList;
 };
 
 export function MainScaffold({
   children,
   contentContainerStyle,
+  fixedFooter,
   onRefresh,
   refreshing = false,
+  stickyHeader,
+  stickyHeaderThreshold = 120,
   scrollToTopRouteName,
 }: MainScaffoldProps): JSX.Element {
   const scrollY = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView | null>(null);
+  const stickyHeaderOpacity = scrollY.interpolate({
+    inputRange: [stickyHeaderThreshold - 42, stickyHeaderThreshold],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const stickyHeaderTranslateY = scrollY.interpolate({
+    inputRange: [stickyHeaderThreshold - 42, stickyHeaderThreshold],
+    outputRange: [-4, 0],
+    extrapolate: 'clamp',
+  });
 
   React.useEffect(() => {
     if (!scrollToTopRouteName) {
@@ -73,6 +89,20 @@ export function MainScaffold({
           scrollEventThrottle={16}>
           <View style={styles.body}>{children}</View>
         </Animated.ScrollView>
+        {stickyHeader ? (
+          <Animated.View
+            pointerEvents="box-none"
+            style={[
+              styles.stickyHeader,
+              {
+                opacity: stickyHeaderOpacity,
+                transform: [{translateY: stickyHeaderTranslateY}],
+              },
+            ]}>
+            {stickyHeader}
+          </Animated.View>
+        ) : null}
+        {fixedFooter ? <View style={styles.fixedFooter}>{fixedFooter}</View> : null}
       </SafeAreaView>
     </TabSceneTransition>
   );
@@ -89,5 +119,21 @@ const styles = StyleSheet.create({
   body: {
     paddingHorizontal: 20,
     paddingTop: 16,
+  },
+  stickyHeader: {
+    position: 'absolute',
+    top: 102,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
+    // backgroundColor: '#000000',
+  },
+  fixedFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 });

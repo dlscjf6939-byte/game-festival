@@ -58,6 +58,13 @@ const fallbackPredictionCards: PredictionCardItem[] = [
     posterSource: image.maskSinger,
     wordmarkSource: image.maskSingerLetter,
   },
+   {
+    id: 'executive',
+    title: '임원전 철권',
+    description: '복면을 쓴 프로들의 대결! 과연 누가 우승할 것 인가?',
+    posterSource: image.executive,
+    wordmarkSource: image.executiveLetter,
+  }
 ];
 
 type GameApiItem = {
@@ -148,6 +155,10 @@ function getFallbackCardByTitle(gameTitle: string): PredictionCardItem {
     return fallbackPredictionCards[3];
   }
 
+  if (gameTitle.includes('임원전') || gameTitle.includes('임원')) {
+    return fallbackPredictionCards[4];
+  }
+
   if (gameTitle.includes('철권')) {
     return fallbackPredictionCards[0];
   }
@@ -170,8 +181,12 @@ function toPredictionCard(game: GameApiItem): PredictionCardItem | null {
 
   const gameTitle = game.gameTitle.trim();
   const fallbackCard =
-    game.gameId === MASK_SINGER_GAME_ID ? fallbackPredictionCards[3] : getFallbackCardByTitle(gameTitle);
-
+    game.gameId === MASK_SINGER_GAME_ID
+      ? fallbackPredictionCards[3]
+      : game.gameId === EXECUTIVE_GAME_ID
+      ? fallbackPredictionCards[4]
+      : getFallbackCardByTitle(gameTitle);
+    
   return {
     ...fallbackCard,
     gameId: game.gameId,
@@ -274,6 +289,10 @@ function canShowCountingForParticipatedPrediction(item: Pick<ParticipatedPredict
 
 function isMaskSingerPredictionCard(card: Pick<PredictionCardItem, 'gameId' | 'id' | 'title'>): boolean {
   return card.gameId === MASK_SINGER_GAME_ID || card.id === 'maskSinger' || card.title.includes('복면');
+}
+
+function isExecutivePredictionCard(card: Pick<PredictionCardItem, 'gameId' | 'id' | 'title'>): boolean {
+  return card.gameId === EXECUTIVE_GAME_ID || card.id === 'executive' || card.title.includes('임원');
 }
 
 function getParticipatedDetailStartStep(item: ParticipatedPrediction): 'counting' | 'result' {
@@ -387,7 +406,7 @@ function PredictionCard({
           <Image
             source={card.wordmarkSource}
             resizeMode="contain"
-            style={[styles.cardWordmark, isMaskSingerPredictionCard(card) && styles.maskSingerCardWordmark]}
+            style={[styles.cardWordmark, isMaskSingerPredictionCard(card) && styles.maskSingerCardWordmark, isExecutivePredictionCard(card) && styles.executiveCardWordmark]}
           />
           <Text style={styles.cardTitle}>{card.title}</Text>
           <Text numberOfLines={2} style={styles.cardDescription}>
@@ -970,6 +989,11 @@ const styles = StyleSheet.create({
   },
   maskSingerCardWordmark: {
     width: 78,
+    height: 42,
+    marginTop: -4,
+  },
+  executiveCardWordmark: {
+    width: 128,
     height: 42,
     marginTop: -4,
   },

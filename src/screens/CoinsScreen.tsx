@@ -1,11 +1,13 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Animated,
+  Easing,
   Image,
   Modal,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type ImageSourcePropType,
 } from 'react-native';
@@ -25,6 +27,7 @@ import {SlidingSegmentedTabs, SwipeableTabView} from '../components/SlidingSegme
 
 const giftLottie = require('../assets/lotties/Gift.json');
 const infoLottie = require('../assets/lotties/Info.json');
+const coinLottie = require('../assets/lotties/Coin.json');
 const API_BASE = 'http://121.254.240.93:8090';
 
 const coinTabs = [
@@ -38,21 +41,21 @@ const raffleTabs = [
 ] as const;
 
 const coinEarningGuideItems = [
-  {badge: '①', description: '+10코인', title: '사전 설문 참여'},
-  {badge: '②', description: '일일 1~3코인 랜덤 지급', title: '매일 출석체크'},
-  {badge: '③', description: '게시글당 +1코인, 일 최대 2회', title: '피드 게시글 작성'},
-  {badge: '④', description: '미니게임으로 코인 쟁탈', title: '코인대전'},
-  {badge: '⑤', description: '게임별 +2코인', title: '승부예측 적중'},
-  {badge: '⑥', description: '추가 코인 획득 ❤️', title: '다양한 현장 이벤트 참여'},
+  {badge: '1', description: '+10코인', title: '사전 설문 참여'},
+  {badge: '2', description: '일일 1~3코인 랜덤 지급', title: '매일 출석체크'},
+  {badge: '3', description: '게시글당 +1코인, 일 최대 2회', title: '피드 게시글 작성'},
+  {badge: '4', description: '미니게임으로 코인 쟁탈 ( 누적 코인 증감 없음 )', title: '코인대전'},
+  {badge: '5', description: '게임별 +2코인', title: '승부예측 적중'},
+  {badge: '6', description: '추가 코인 획득 ❤️', title: '다양한 현장 이벤트 참여'},
 ] as const;
 
 const coinBenefitGuideItems = [
-  {badge: '✓', description: '누적 코인 차감 없음', title: '상품 응모🍀'},
-  {badge: '✓', description: '참가하고 추가 코인 획득', title: '코인대전'},
-  {badge: '✓', description: '누적 코인 기준으로 반영', title: '랭킹 반영'},
-  {badge: '🏆', description: '랭킹 TOP30 특별 상품 증정', title: '랭킹 보상', reward: true},
-  {badge: '🥇', description: '100만원 ~ 30만원 상당 상품', title: 'TOP 3', reward: true},
-  {badge: '🎁', description: '10만원 상당 상품', title: 'TOP 30', reward: true},
+  {badge: '1', description: '누적 코인 차감 없음', title: '상품 응모🍀'},
+  {badge: '2', description: '참가하고 추가 코인 획득', title: '코인대전'},
+  {badge: '3', description: '누적 코인 기준으로 반영', title: '랭킹 반영'},
+  {badge: '4', description: '랭킹 TOP30 특별 상품 증정', title: '랭킹 보상', reward: true},
+  {badge: '5', description: '100만원 ~ 30만원 상당 상품', title: 'TOP 3', reward: true},
+  {badge: '6', description: '10만원 상당 상품', title: 'TOP 30', reward: true},
 ] as const;
 
 type CoinTabId = (typeof coinTabs)[number]['id'];
@@ -91,6 +94,67 @@ type RaffleApplyResponse = {
 type RaffleHistoryResponse = {
   code?: string;
   data?: unknown;
+  message?: string;
+  success?: boolean;
+};
+
+type EmployeeProfilePost = {
+  postId: number;
+  title: string;
+  content: string;
+  createdAt: string;
+  thumbnailUrl: string | null;
+};
+
+type EmployeeProfile = {
+  employeeId: number;
+  employeeName: string;
+  division: string | null;
+  department: string | null;
+  introduction: string | null;
+  profileImageUri: string | null;
+  posts: EmployeeProfilePost[];
+};
+
+type EmployeeProfileResponse = {
+  code?: string;
+  data?: {
+    department?: string | null;
+    division?: string | null;
+    employeeId?: number;
+    employeeName?: string;
+    introduction?: string | null;
+    posts?: Array<{
+      content?: string | null;
+      createdAt?: string | null;
+      postId?: number;
+      thumbnailUrl?: string | null;
+      title?: string | null;
+    }>;
+    profileImageUri?: string | null;
+    profileImageUrl?: string | null;
+  };
+  message?: string;
+  success?: boolean;
+};
+
+type RankingProfileFeedWriter = {
+  department?: string | null;
+  employeeId?: number | string;
+  employeeName?: string | null;
+  profileImageUri?: string | null;
+  profileImageUrl?: string | null;
+};
+
+type RankingProfileFeedPost = {
+  writer?: RankingProfileFeedWriter | null;
+};
+
+type RankingProfileFeedResponse = {
+  code?: string;
+  data?: {
+    content?: RankingProfileFeedPost[];
+  };
   message?: string;
   success?: boolean;
 };
@@ -227,6 +291,113 @@ function getRaffleHistoriesFromResponse(responseBody: RaffleHistoryResponse): un
   return Array.isArray(responseBody.data) ? responseBody.data : [];
 }
 
+function normalizeProfileImageUri(value: string | null | undefined): string | null {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  if (/^(https?:|file:|data:)/i.test(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  if (trimmedValue.startsWith('/')) {
+    return `${API_BASE}${trimmedValue}`;
+  }
+
+  return trimmedValue;
+}
+
+function normalizeEmployeeProfile(data: EmployeeProfileResponse['data']): EmployeeProfile | null {
+  if (!data || typeof data.employeeId !== 'number') {
+    return null;
+  }
+
+  return {
+    department: data.department?.trim() || null,
+    division: data.division?.trim() || null,
+    employeeId: data.employeeId,
+    employeeName: data.employeeName?.trim() || '이름 없음',
+    introduction: data.introduction?.trim() || null,
+    posts: (data.posts ?? [])
+      .map(post => {
+        if (typeof post.postId !== 'number') {
+          return null;
+        }
+
+        return {
+          content: post.content?.trim() || '',
+          createdAt: post.createdAt?.trim() || '',
+          postId: post.postId,
+          thumbnailUrl: normalizeProfileImageUri(post.thumbnailUrl),
+          title: post.title?.trim() || '제목 없음',
+        };
+      })
+      .filter((post): post is EmployeeProfilePost => post !== null),
+    profileImageUri: normalizeProfileImageUri(data.profileImageUri ?? data.profileImageUrl),
+  };
+}
+
+function getRankingEmployeeId(item: CoinRanking): number | null {
+  const parsedId = Number(item.employeeId ?? item.id);
+
+  return Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null;
+}
+
+function getFallbackProfileFromRanking(item: CoinRanking): EmployeeProfile {
+  return {
+    department: item.team,
+    division: null,
+    employeeId: getRankingEmployeeId(item) ?? 0,
+    employeeName: item.name,
+    introduction: `${item.rank}위 · 누적 ${item.coins}개`,
+    posts: [],
+    profileImageUri: item.profileImageUri ?? null,
+  };
+}
+
+function getEmployeeIdFromFeedWriter(writer?: RankingProfileFeedWriter | null): number | null {
+  const parsedId = Number(writer?.employeeId);
+
+  return Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null;
+}
+
+function getProfileImageUriFromFeedWriter(writer?: RankingProfileFeedWriter | null): string | null {
+  return normalizeProfileImageUri(writer?.profileImageUri ?? writer?.profileImageUrl);
+}
+
+async function fetchRankingProfileFeedWriter(
+  accessToken: string,
+  rankingName: string,
+): Promise<RankingProfileFeedWriter | null> {
+  const response = await fetch(`${API_BASE}/api/boards/21/posts?page=0&size=100`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  const responseText = await response.text();
+  let responseBody: RankingProfileFeedResponse | null = null;
+
+  try {
+    responseBody = JSON.parse(responseText) as RankingProfileFeedResponse;
+  } catch {
+    throw new Error('피드 응답을 해석하지 못했습니다.');
+  }
+
+  if (!response.ok || responseBody.success === false) {
+    throw new Error(responseBody.message || responseText || '피드 조회에 실패했습니다.');
+  }
+
+  const normalizedRankingName = rankingName.trim();
+  const matchedPost = (responseBody.data?.content ?? []).find(post => {
+    return post.writer?.employeeName?.trim() === normalizedRankingName;
+  });
+
+  return matchedPost?.writer ?? null;
+}
+
 function HistoryItem({index, item}: {index: number; item: CoinHistory}): JSX.Element {
   const entranceProgress = useRef(new Animated.Value(0)).current;
   const translateY = entranceProgress.interpolate({
@@ -266,13 +437,22 @@ function HistoryItem({index, item}: {index: number; item: CoinHistory}): JSX.Ele
   );
 }
 
-function RankingItem({item, index}: {item: CoinRanking; index: number}): JSX.Element {
+function RankingItem({
+  item,
+  index,
+  onPress,
+}: {
+  item: CoinRanking;
+  index: number;
+  onPress?: (item: CoinRanking) => void;
+}): JSX.Element {
   const entranceProgress = useRef(new Animated.Value(0)).current;
   const translateY = entranceProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [18, 0],
   });
   const rankIcon = getRankIcon(item.rank);
+  const isPressable = Boolean(onPress);
 
   useEffect(() => {
     entranceProgress.setValue(0);
@@ -291,7 +471,12 @@ function RankingItem({item, index}: {item: CoinRanking; index: number}): JSX.Ele
         opacity: entranceProgress,
         transform: [{translateY}],
       }}>
-      <AnimatedPressable style={[styles.rankingItem, item.isMe && styles.rankingItemMe]}>
+      <AnimatedPressable
+        accessibilityLabel={isPressable ? `${item.rank}위 ${item.name} 프로필 보기` : undefined}
+        accessibilityRole={isPressable ? 'button' : undefined}
+        disabled={!isPressable}
+        onPress={isPressable ? () => onPress?.(item) : undefined}
+        style={[styles.rankingItem, item.isMe && styles.rankingItemMe]}>
         <View style={[styles.rankBadge, rankIcon ? styles.rankBadgeIcon : null]}>
           {rankIcon ? (
             <Image source={rankIcon} style={styles.rankIcon} />
@@ -405,8 +590,14 @@ function RaffleItemCard({
         <Text numberOfLines={2} style={styles.raffleItemLabel}>
           {item.productName}
         </Text>
-        <Text style={styles.raffleItemCost}>응모가격 {item.applyPrice}코인</Text>
-        <Text style={styles.raffleItemCount}>전체 응모 {item.applyCount}회</Text>
+        <View style={styles.raffleItemMeta}>
+          <Text numberOfLines={1} style={styles.raffleItemCost}>
+            응모가격 {item.applyPrice}코인
+          </Text>
+          <Text numberOfLines={1} style={styles.raffleItemCount}>
+            전체 응모 {item.applyCount}회
+          </Text>
+        </View>
       </AnimatedPressable>
     </Animated.View>
   );
@@ -414,6 +605,7 @@ function RaffleItemCard({
 
 export function CoinsScreen(): JSX.Element {
   const {auth, refreshProfile} = useAuth();
+  const {height: windowHeight} = useWindowDimensions();
   const {
     accumulatedCoin,
     coinHistories,
@@ -441,12 +633,160 @@ export function CoinsScreen(): JSX.Element {
   const [raffleHistoriesError, setRaffleHistoriesError] = useState<string | null>(null);
   const [isRefreshingCoins, setIsRefreshingCoins] = useState(false);
   const [isCoinInfoVisible, setIsCoinInfoVisible] = useState(false);
+  const [isRankingProfileVisible, setIsRankingProfileVisible] = useState(false);
+  const [isRankingProfileLoading, setIsRankingProfileLoading] = useState(false);
+  const [rankingProfileError, setRankingProfileError] = useState<string | null>(null);
+  const [selectedRankingProfile, setSelectedRankingProfile] = useState<EmployeeProfile | null>(null);
+  const rankingProfileProgress = useRef(new Animated.Value(0)).current;
+  const rankingProfileOpacity = useRef(new Animated.Value(0)).current;
   const viewTransitionProgress = useRef(new Animated.Value(1)).current;
   const tabContentProgress = useRef(new Animated.Value(1)).current;
   const tabContentTranslateY = tabContentProgress.interpolate({
     inputRange: [0, 1],
     outputRange: [14, 0],
   });
+  const rankingProfileCardHeight = Math.max(460, Math.min(windowHeight - 90, 660));
+  const rankingProfileImageSource = selectedRankingProfile?.profileImageUri
+    ? {uri: selectedRankingProfile.profileImageUri}
+    : image.profile;
+  const rankingProfileCardAnimatedStyle = {
+    transform: [
+      {perspective: 900},
+      {
+        translateY: rankingProfileProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [32, 0],
+        }),
+      },
+      {
+        rotateY: rankingProfileProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: ['-78deg', '0deg'],
+        }),
+      },
+      {
+        scale: rankingProfileProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.92, 1],
+        }),
+      },
+    ],
+  };
+
+  const closeRankingProfile = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(rankingProfileOpacity, {
+        toValue: 0,
+        duration: 140,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(rankingProfileProgress, {
+        toValue: 0,
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setIsRankingProfileVisible(false);
+      setIsRankingProfileLoading(false);
+      setRankingProfileError(null);
+      setSelectedRankingProfile(null);
+    });
+  }, [rankingProfileOpacity, rankingProfileProgress]);
+
+  const openRankingProfile = useCallback(
+    async (item: CoinRanking) => {
+      let employeeId = getRankingEmployeeId(item);
+
+      setSelectedRankingProfile(getFallbackProfileFromRanking(item));
+      setRankingProfileError(null);
+      setIsRankingProfileVisible(true);
+      setIsRankingProfileLoading(true);
+      rankingProfileProgress.setValue(0);
+      rankingProfileOpacity.setValue(0);
+      Animated.parallel([
+        Animated.timing(rankingProfileOpacity, {
+          toValue: 1,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(rankingProfileProgress, {
+          toValue: 1,
+          duration: 430,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      if (!auth?.accessToken) {
+        setRankingProfileError('로그인 정보가 필요합니다.');
+        setIsRankingProfileLoading(false);
+        return;
+      }
+
+      if (!employeeId) {
+        try {
+          const feedWriter = await fetchRankingProfileFeedWriter(auth.accessToken, item.name);
+          const feedEmployeeId = getEmployeeIdFromFeedWriter(feedWriter);
+          const feedProfileImageUri = getProfileImageUriFromFeedWriter(feedWriter);
+
+          if (feedProfileImageUri) {
+            setSelectedRankingProfile(previousProfile =>
+              previousProfile ? {...previousProfile, profileImageUri: feedProfileImageUri} : previousProfile,
+            );
+          }
+
+          employeeId = feedEmployeeId;
+        } catch (error) {
+          console.log('[CoinsScreen] ranking feed writer lookup failed', {name: item.name, error});
+        }
+
+        if (!employeeId) {
+          setIsRankingProfileLoading(false);
+          return;
+        }
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/api/boards/21/profile/employees/${employeeId}`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${auth.accessToken}`,
+          },
+        });
+        const responseText = await response.text();
+        let responseBody: EmployeeProfileResponse | null = null;
+
+        try {
+          responseBody = JSON.parse(responseText) as EmployeeProfileResponse;
+        } catch {
+          throw new Error('회원 프로필 응답을 해석하지 못했습니다.');
+        }
+
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || responseText || '회원 프로필 조회에 실패했습니다.');
+        }
+
+        const normalizedProfile = normalizeEmployeeProfile(responseBody.data);
+
+        if (!normalizedProfile) {
+          throw new Error('회원 프로필 정보가 비어 있습니다.');
+        }
+
+        setSelectedRankingProfile(normalizedProfile);
+      } catch (error) {
+        console.log('[CoinsScreen] ranking profile request failed', {employeeId, error});
+        setRankingProfileError(
+          error instanceof Error && error.message ? error.message : '회원 프로필 조회에 실패했습니다.',
+        );
+      } finally {
+        setIsRankingProfileLoading(false);
+      }
+    },
+    [auth?.accessToken, rankingProfileOpacity, rankingProfileProgress],
+  );
 
   useEffect(() => {
     tabContentProgress.setValue(0);
@@ -628,6 +968,15 @@ export function CoinsScreen(): JSX.Element {
   const displayAccumulatedCoin = accumulatedCoin ?? toCoinNumber(myProfile?.accumulatedCoin) ?? 0;
   const topRankingItems = sortedRankingItems.slice(0, 10);
   const restRankingItems = sortedRankingItems.slice(10);
+  const coinStickyHeader = (
+    <View style={styles.coinStickyHeader}>
+      <Text style={styles.coinStickyLabel}>보유코인</Text>
+      <View style={styles.coinStickyPill}>
+        <LottieView autoPlay loop source={coinLottie} style={styles.coinStickyIcon} />
+        <Text style={styles.coinStickyText}>{coinBalance}개</Text>
+      </View>
+    </View>
+  );
 
   const openRaffleConfirm = () => {
     setRaffleApplyError(null);
@@ -748,8 +1097,38 @@ export function CoinsScreen(): JSX.Element {
   }, [fetchRaffleHistories, fetchRaffleProducts, isRefreshingCoins, refreshAllCoins, refreshProfile]);
 
   if (viewMode === 'raffle') {
+    const raffleApplyFooter =
+      activeRaffleTab === 'apply' ? (
+        <View style={styles.raffleFixedFooter}>
+          <View style={styles.raffleSummary}>
+            <View style={styles.raffleSummaryTextWrap}>
+              <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
+              <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={styles.raffleSummaryTitle}>
+                {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
+              </Text>
+            </View>
+            <AnimatedPressable
+              accessibilityRole="button"
+              disabled={!canApply}
+              onPress={openRaffleConfirm}
+              style={[styles.raffleApplyButton, !canApply && styles.raffleApplyButtonDisabled]}>
+              <Text style={[styles.raffleApplyText, !canApply && styles.raffleApplyTextDisabled]}>
+                {selectedRaffleItem === null ? '상품 없음' : canApply ? '응모하기' : '코인 부족'}
+              </Text>
+            </AnimatedPressable>
+          </View>
+        </View>
+      ) : undefined;
+
     return (
-      <MainScaffold onRefresh={handleCoinsRefresh} refreshing={isRefreshingCoins} scrollToTopRouteName="Coins">
+      <MainScaffold
+        contentContainerStyle={activeRaffleTab === 'apply' ? styles.raffleFixedFooterContent : null}
+        fixedFooter={raffleApplyFooter}
+        onRefresh={handleCoinsRefresh}
+        refreshing={isRefreshingCoins}
+        stickyHeader={coinStickyHeader}
+        stickyHeaderThreshold={154}
+        scrollToTopRouteName="Coins">
         <View style={styles.raffleHeader}>
           <AnimatedPressable
             accessibilityLabel="응모 페이지 뒤로가기"
@@ -785,7 +1164,7 @@ export function CoinsScreen(): JSX.Element {
                     행운의 주인공이 되어보세요
                   </Text>
                   <View style={styles.raffleBalancePill}>
-                    <Image source={icon.coin} style={styles.raffleBalanceIcon} resizeMode="contain" />
+                    <LottieView autoPlay loop source={coinLottie} style={styles.raffleBalanceIcon} />
                     <Text style={styles.raffleBalanceText}>{coinBalance}개</Text>
                   </View>
                 </View>
@@ -824,23 +1203,6 @@ export function CoinsScreen(): JSX.Element {
                   </View>
                 )}
 
-                <View style={styles.raffleSummary}>
-                  <View>
-                    <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
-                    <Text style={styles.raffleSummaryTitle}>
-                      {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
-                    </Text>
-                  </View>
-                  <AnimatedPressable
-                    accessibilityRole="button"
-                    disabled={!canApply}
-                    onPress={openRaffleConfirm}
-                    style={[styles.raffleApplyButton, !canApply && styles.raffleApplyButtonDisabled]}>
-                    <Text style={[styles.raffleApplyText, !canApply && styles.raffleApplyTextDisabled]}>
-                      {selectedRaffleItem === null ? '상품 없음' : canApply ? '응모하기' : '코인 부족'}
-                    </Text>
-                  </AnimatedPressable>
-                </View>
               </>
             ) : (
               <View style={styles.raffleHistorySection}>
@@ -926,7 +1288,12 @@ export function CoinsScreen(): JSX.Element {
   }
 
   return (
-    <MainScaffold onRefresh={handleCoinsRefresh} refreshing={isRefreshingCoins} scrollToTopRouteName="Coins">
+    <MainScaffold
+      onRefresh={handleCoinsRefresh}
+      refreshing={isRefreshingCoins}
+      stickyHeader={coinStickyHeader}
+      stickyHeaderThreshold={154}
+      scrollToTopRouteName="Coins">
       <View style={styles.header}>
         <Text style={styles.headerTitle}>코인</Text>
         <AnimatedPressable
@@ -1027,11 +1394,15 @@ export function CoinsScreen(): JSX.Element {
                     {topRankingItems.length ? (
                       <View style={[styles.rankingGroup, styles.topRankingGroup]}>
                         {topRankingItems.map((item, index) => (
-                          <RankingItem key={item.id} index={index} item={item} />
+                          <RankingItem
+                            key={item.id}
+                            index={index}
+                            item={item}
+                            onPress={item.rank <= 3 ? openRankingProfile : undefined}
+                          />
                         ))}
                       </View>
                     ) : null}
-
                     {restRankingItems.length ? (
                       <View style={styles.rankingGroup}>
                         <View style={styles.rankingGroupHeader}>
@@ -1071,7 +1442,10 @@ export function CoinsScreen(): JSX.Element {
               <View style={styles.coinInfoHeader}>
                 <View>
                   <Text style={styles.coinInfoEyebrow}>COIN GUIDE</Text>
-                  <Text style={styles.coinInfoTitle}>코인 안내</Text>
+                  <View style={styles.coinInfoTitleRow}>
+                    <Text style={styles.coinInfoTitle}>코인 안내</Text>
+                    <LottieView autoPlay loop source={coinLottie} style={styles.coinInfoCoinLottie} />
+                  </View>
                 </View>
                 <AnimatedPressable
                   accessibilityLabel="코인 안내 닫기"
@@ -1080,10 +1454,6 @@ export function CoinsScreen(): JSX.Element {
                   style={styles.coinInfoCloseButton}>
                   <Image source={icon.closeBtn} style={styles.coinInfoCloseIcon} resizeMode="contain" />
                 </AnimatedPressable>
-              </View>
-
-              <View style={styles.coinInfoHero}>
-                <Text style={styles.coinInfoHeroTitle}>이벤트 참여로 코인을 모으고, 응모와 랭킹 혜택에 사용해보세요.</Text>
               </View>
 
               <View style={styles.coinInfoSection}>
@@ -1138,6 +1508,100 @@ export function CoinsScreen(): JSX.Element {
           </View>
         </View>
       </Modal>
+
+      <Modal animationType="fade" onRequestClose={closeRankingProfile} transparent visible={isRankingProfileVisible}>
+        <Animated.View style={[styles.profileModalOverlay, {opacity: rankingProfileOpacity}]}>
+          {selectedRankingProfile ? (
+            <Animated.View
+              style={[
+                styles.employeeProfileCard,
+                {height: rankingProfileCardHeight},
+                rankingProfileCardAnimatedStyle,
+              ]}>
+              <View style={styles.employeeProfileHeader}>
+                <View style={styles.employeeProfileHeaderButton} />
+                <Text numberOfLines={1} style={styles.employeeProfileTitle}>
+                  회원 정보
+                </Text>
+                <AnimatedPressable
+                  accessibilityLabel="회원 정보 닫기"
+                  accessibilityRole="button"
+                  onPress={closeRankingProfile}
+                  style={styles.employeeProfileHeaderButton}>
+                  <Image source={icon.closeBtn} style={styles.closeIcon} />
+                </AnimatedPressable>
+              </View>
+
+              <ScrollView
+                contentContainerStyle={styles.employeeProfileScrollContent}
+                showsVerticalScrollIndicator={false}
+                style={styles.employeeProfileScroll}>
+                <View style={styles.employeeProfileHero}>
+                  <Image source={rankingProfileImageSource} style={styles.employeeProfileAvatar} resizeMode="cover" />
+                  <Text numberOfLines={1} style={styles.employeeProfileName}>
+                    {selectedRankingProfile.employeeName}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.employeeProfileSubText}>
+                    {[selectedRankingProfile.division, selectedRankingProfile.department].filter(Boolean).join(' · ') ||
+                      '소속 정보 없음'}
+                  </Text>
+                </View>
+
+                <View style={styles.employeeInfoList}>
+                  <View style={styles.employeeInfoRow}>
+                    <Text style={styles.employeeInfoLabel}>소개</Text>
+                    <Text style={styles.employeeInfoValue}>
+                      {selectedRankingProfile.introduction ?? '소개가 아직 없습니다.'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.employeePostSectionHeader}>
+                  <Text style={styles.employeePostSectionTitle}>작성 게시글</Text>
+                  <Text style={styles.employeePostCountText}>{selectedRankingProfile.posts.length}개</Text>
+                </View>
+
+                {isRankingProfileLoading ? (
+                  <View style={styles.employeeProfileLoading}>
+                    <AppLoading label="회원 정보를 불러오는 중..." />
+                  </View>
+                ) : rankingProfileError ? (
+                  <Text style={styles.employeeProfileErrorText}>{rankingProfileError}</Text>
+                ) : selectedRankingProfile.posts.length ? (
+                  <View style={styles.employeePostGrid}>
+                    {selectedRankingProfile.posts.map(post => (
+                      <View key={post.postId} style={styles.employeePostTile}>
+                        <View style={styles.employeePostTileInner}>
+                          {post.thumbnailUrl ? (
+                            <Image
+                              source={{uri: post.thumbnailUrl}}
+                              style={styles.employeePostThumbnail}
+                              resizeMode="cover"
+                            />
+                          ) : (
+                            <View style={styles.employeePostFallback}>
+                              <Text numberOfLines={3} style={styles.employeePostFallbackTitle}>
+                                {post.title}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.employeePostTileOverlay}>
+                            <Text numberOfLines={2} style={styles.employeePostTileTitle}>
+                              {post.title}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.employeeProfileEmptyText}>아직 작성한 게시글이 없습니다.</Text>
+                )}
+              </ScrollView>
+            </Animated.View>
+          ) : null}
+        </Animated.View>
+      </Modal>
     </MainScaffold>
   );
 }
@@ -1166,6 +1630,40 @@ const styles = StyleSheet.create({
   },
   tabRow: {
     marginBottom: 22,
+  },
+  coinStickyHeader: {
+    alignSelf: 'center',
+    minHeight: 38,
+    borderRadius: 19,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(23,23,23,0.96)',
+    borderWidth: 1,
+    borderColor: '#2D2D2D',
+  },
+  coinStickyLabel: {
+    color: '#8A8D95',
+    ...FONTS.font11B,
+    lineHeight: 14,
+    top : 1
+  },
+  coinStickyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinStickyIcon: {
+    width: 34,
+    height: 34,
+    paddingRight: 10,
+  },
+  coinStickyText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 18,
   },
   balanceCard: {
     borderRadius: 12,
@@ -1198,6 +1696,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font13B,
     lineHeight: 17,
+  },
+  raffleFixedFooterContent: {
+    paddingBottom: 150,
   },
   value: {
     marginTop: 10,
@@ -1256,18 +1757,26 @@ const styles = StyleSheet.create({
   },
   coinInfoHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  coinInfoTitleRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  coinInfoCoinLottie: {
+    width: 34,
+    height: 34,
   },
   coinInfoEyebrow: {
     color: '#E50914',
     ...FONTS.font11B,
     lineHeight: 14,
-    letterSpacing: 0.8,
   },
   coinInfoTitle: {
-    marginTop: 4,
     color: '#FFFFFF',
     ...FONTS.font20B,
     lineHeight: 26,
@@ -1705,12 +2214,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    // paddingHorizontal: 10,
+    paddingRight: 10,
   },
   raffleBalanceIcon: {
-    width: 16,
-    height: 16,
-    marginRight: 6,
+    width: 34,
+    height: 34,
+    paddingRight: 10,
   },
   raffleBalanceText: {
     color: '#FFFFFF',
@@ -1720,7 +2230,8 @@ const styles = StyleSheet.create({
   raffleGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    columnGap: 10,
+    rowGap: 16,
     marginBottom: 14,
   },
   raffleLoadingState: {
@@ -1757,7 +2268,7 @@ const styles = StyleSheet.create({
   },
   raffleItemCard: {
     width: '100%',
-    minHeight: 150,
+    height: 236,
     borderRadius: 12,
     padding: 12,
     backgroundColor: '#171717',
@@ -1792,30 +2303,38 @@ const styles = StyleSheet.create({
     tintColor: '#FFFFFF',
   },
   rafflePrizeVisual: {
-    height: 96,
+    height: 98,
     alignItems: 'center',
     justifyContent: 'center',
   },
   rafflePrizeIcon: {
-    width: 82,
-    height: 82,
+    width: 96,
+    height: 96,
     resizeMode: 'contain',
   },
   raffleItemLabel: {
+    height: 42,
     color: '#FFFFFF',
     ...FONTS.font14B,
-    lineHeight: 18,
+    lineHeight: 20,
     textAlign: 'center',
+    marginTop: 9,
+  },
+  raffleItemMeta: {
     marginTop: 8,
+    justifyContent: 'flex-start',
   },
   raffleItemCost: {
-    marginTop: 7,
+    width: '100%',
+    minHeight: 16,
     color: '#A9ABB2',
     ...FONTS.font12M,
     lineHeight: 16,
     textAlign: 'center',
   },
   raffleItemCount: {
+    width: '100%',
+    minHeight: 16,
     marginTop: 3,
     color: '#777A82',
     ...FONTS.font12R,
@@ -1834,10 +2353,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#252525',
   },
+  raffleFixedFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: '#161616',
+  },
   raffleSummaryLabel: {
     color: '#8A8D95',
     ...FONTS.font12M,
     lineHeight: 16,
+  },
+  raffleSummaryTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   raffleSummaryTitle: {
     marginTop: 5,
@@ -1848,6 +2379,7 @@ const styles = StyleSheet.create({
   raffleApplyButton: {
     minWidth: 96,
     height: 44,
+    flexShrink: 0,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1939,5 +2471,200 @@ const styles = StyleSheet.create({
   },
   raffleModalCancelButtonText: {
     color: '#D8DAE0',
+  },
+  profileModalOverlay: {
+    flex: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 36,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  employeeProfileCard: {
+    width: '100%',
+    maxWidth: 430,
+    maxHeight: '100%',
+    borderRadius: 12,
+    backgroundColor: '#171717',
+    borderWidth: 1,
+    borderColor: '#252525',
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.36,
+    shadowRadius: 22,
+    shadowOffset: {width: 0, height: 12},
+    elevation: 12,
+  },
+  employeeProfileHeader: {
+    minHeight: 54,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#24262D',
+  },
+  employeeProfileHeaderButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  employeeProfileTitle: {
+    flex: 1,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    ...FONTS.font16B,
+    lineHeight: 21,
+  },
+  closeIcon: {
+    width: 22,
+    height: 22,
+    resizeMode: 'contain',
+    tintColor: '#A9ABB2',
+  },
+  employeeProfileScroll: {
+    flex: 1,
+  },
+  employeeProfileScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 18,
+  },
+  employeeProfileHero: {
+    alignItems: 'center',
+  },
+  employeeProfileAvatar: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    backgroundColor: '#24262B',
+  },
+  employeeProfileName: {
+    marginTop: 13,
+    maxWidth: '90%',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    ...FONTS.font22B,
+    lineHeight: 28,
+  },
+  employeeProfileSubText: {
+    marginTop: 6,
+    maxWidth: '92%',
+    color: '#A7AAB4',
+    textAlign: 'center',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeInfoList: {
+    marginTop: 20,
+    borderRadius: 12,
+    backgroundColor: '#111114',
+    overflow: 'hidden',
+  },
+  employeeInfoRow: {
+    minHeight: 46,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  employeeInfoLabel: {
+    width: 52,
+    color: '#8F939D',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeInfoValue: {
+    flex: 1,
+    color: '#F0F1F4',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeePostSectionHeader: {
+    marginTop: 22,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  employeePostSectionTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font17B,
+    lineHeight: 22,
+  },
+  employeePostCountText: {
+    color: '#8F939D',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
+  employeeProfileLoading: {
+    minHeight: 132,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  employeeProfileErrorText: {
+    paddingVertical: 34,
+    color: '#FF5962',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeeProfileEmptyText: {
+    paddingVertical: 34,
+    color: '#8F939D',
+    textAlign: 'center',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
+  employeePostGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -2,
+  },
+  employeePostTile: {
+    width: '33.333%',
+    aspectRatio: 1,
+    padding: 2,
+  },
+  employeePostTileInner: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#24262B',
+  },
+  employeePostThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  employeePostFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    backgroundColor: '#24262B',
+  },
+  employeePostFallbackTitle: {
+    color: '#D9DBE2',
+    textAlign: 'center',
+    ...FONTS.font12B,
+    lineHeight: 16,
+  },
+  employeePostTileOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 7,
+    paddingTop: 20,
+    paddingBottom: 7,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
+  employeePostTileTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font11B,
+    lineHeight: 14,
   },
 });

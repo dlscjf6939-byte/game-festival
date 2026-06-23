@@ -82,6 +82,7 @@ const START_COUNTDOWN_SECONDS = 3;
 const PICTURE_MATCH_LOCAL_REVEAL_MS = 2000;
 const PICTURE_MATCH_REVEAL_STAGGER_MS = 90;
 const fanfareLottie = require('../assets/lotties/Fanfare.json');
+const coinLottie = require('../assets/lotties/Coin.json');
 
 type RoundResultOverlay = {
   result: RpsResult;
@@ -2282,7 +2283,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                     <Text style={styles.liveCompactMeta}>코인 {roomBetAmount}</Text>
                     <View style={styles.liveCompactDot} />
                     <View style={styles.holdingCoinPill}>
-                      <Image source={icon.coin} style={styles.holdingCoinIcon} resizeMode="contain" />
+                      <LottieView autoPlay loop source={coinLottie} style={styles.holdingCoinIcon} />
                       <Text style={styles.holdingCoinText}>{holdingCoin}개</Text>
                     </View>
                   </View>
@@ -2449,7 +2450,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>참가자</Text>
                     <View style={styles.holdingCoinPill}>
-                      <Image source={icon.coin} style={styles.holdingCoinIcon} resizeMode="contain" />
+                      <LottieView autoPlay loop source={coinLottie} style={styles.holdingCoinIcon} />
                       <Text style={styles.holdingCoinText}>{holdingCoin}개</Text>
                     </View>
                   </View>
@@ -2814,12 +2815,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    paddingRight: 10,
   },
   holdingCoinIcon: {
-    width: 16,
-    height: 16,
-    marginRight: 6,
+    width: 34,
+    height: 34,
+    // paddingRight: 10,
   },
   holdingCoinText: {
     color: '#FFFFFF',

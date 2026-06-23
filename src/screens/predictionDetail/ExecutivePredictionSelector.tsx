@@ -45,6 +45,8 @@ const executiveImageByName: Record<string, ImageSourcePropType> = {
   박성호: image.executiveParkSungHo,
   추연진: image.executiveChooYeonJin,
   추종원: image.executiveChooJongWon,
+  이준석: image.executiveLeeJoonSuck,
+  강성구: image.executiveKangSungGoo,
 };
 
 function splitProfileText(profile: ExecutiveSelectorProfile): {department?: string; name: string} {

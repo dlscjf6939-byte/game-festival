@@ -9,6 +9,8 @@ type ImageMap = {
   executiveKimHyungSeok: ImageSourcePropType;
   executiveKimBoRam: ImageSourcePropType;
   executiveParkSungHo: ImageSourcePropType;
+  executiveLeeJoonSuck: ImageSourcePropType;
+  executiveKangSungGoo: ImageSourcePropType;
   gameFestival1: ImageSourcePropType;
   gameFestival2: ImageSourcePropType;
   gameFestival3: ImageSourcePropType;
@@ -37,6 +39,8 @@ type ImageMap = {
   tekken7: ImageSourcePropType;
   maskSinger: ImageSourcePropType;
   maskSingerLetter: ImageSourcePropType;
+  executive: ImageSourcePropType;
+  executiveLetter: ImageSourcePropType;
 };
 
 export const image: ImageMap = {
@@ -48,6 +52,8 @@ export const image: ImageMap = {
   executiveKimHyungSeok: require('./2.png'),
   executiveKimBoRam: require('./5.png'),
   executiveParkSungHo: require('./1.png'),
+  executiveLeeJoonSuck: require('./6.png'),
+  executiveKangSungGoo: require('./7.png'),
   gameFestival1: require('./gameFestival1.jpg'),
   gameFestival2: require('./gameFestival2.jpg'),
   gameFestival3: require('./gameFestival3.jpg'),
@@ -76,4 +82,6 @@ export const image: ImageMap = {
   tekken7: require('./tekken7.png'),
   maskSinger: require('./maskSinger.png'),
   maskSingerLetter: require('./maskSinger_letter.png'),
+  executive: require('./executive.png'),
+  executiveLetter: require('./executive_letter.png'),
 };

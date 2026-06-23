@@ -2,6 +2,7 @@ import React, {createContext, useCallback, useContext, useEffect, useMemo, useSt
 import {useAuth} from '../auth/AuthProvider';
 import {type CoinRanking} from '../dummyData/coinDummyData';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {getProfileImageUriFromRecord} from '../utils/profileImage';
 
 const API_BASE = 'http://121.254.240.93:8090';
 
@@ -168,6 +169,21 @@ function getRankingRows(payload: unknown): unknown[] {
   return [];
 }
 
+function getRecordValue(record: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = record[key];
+
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function getNestedRankingRecord(record: Record<string, unknown>): Record<string, unknown> | null {
+  return (
+    getRecordValue(record, 'employee') ??
+    getRecordValue(record, 'member') ??
+    getRecordValue(record, 'user') ??
+    getRecordValue(record, 'writer')
+  );
+}
+
 function normalizeRanking(
   item: unknown,
   index: number,
@@ -179,16 +195,29 @@ function normalizeRanking(
   }
 
   const record = item as Record<string, unknown>;
+  const nestedRecord = getNestedRankingRecord(record);
   const name =
     toNonEmptyString(record.name) ??
     toNonEmptyString(record.employeeName) ??
     toNonEmptyString(record.userName) ??
-    toNonEmptyString(record.nickname);
+    toNonEmptyString(record.nickname) ??
+    (nestedRecord
+      ? toNonEmptyString(nestedRecord.name) ??
+        toNonEmptyString(nestedRecord.employeeName) ??
+        toNonEmptyString(nestedRecord.userName) ??
+        toNonEmptyString(nestedRecord.nickname)
+      : null);
   const team =
     toNonEmptyString(record.teamName) ??
     toNonEmptyString(record.team) ??
     toNonEmptyString(record.departmentName) ??
     toNonEmptyString(record.department) ??
+    (nestedRecord
+      ? toNonEmptyString(nestedRecord.teamName) ??
+        toNonEmptyString(nestedRecord.team) ??
+        toNonEmptyString(nestedRecord.departmentName) ??
+        toNonEmptyString(nestedRecord.department)
+      : null) ??
     '-';
   const rank =
     toNumberValue(record.rank) ??
@@ -205,7 +234,21 @@ function normalizeRanking(
   const employeeId =
     toNonEmptyString(record.employeeId) ??
     (typeof record.employeeId === 'number' ? String(record.employeeId) : null) ??
-    toNonEmptyString(record.userId);
+    toNonEmptyString(record.memberId) ??
+    (typeof record.memberId === 'number' ? String(record.memberId) : null) ??
+    toNonEmptyString(record.userId) ??
+    (typeof record.userId === 'number' ? String(record.userId) : null) ??
+    toNonEmptyString(record.writerEmployeeId) ??
+    (typeof record.writerEmployeeId === 'number' ? String(record.writerEmployeeId) : null) ??
+    (nestedRecord
+      ? toNonEmptyString(nestedRecord.employeeId) ??
+        (typeof nestedRecord.employeeId === 'number' ? String(nestedRecord.employeeId) : null) ??
+        toNonEmptyString(nestedRecord.memberId) ??
+        (typeof nestedRecord.memberId === 'number' ? String(nestedRecord.memberId) : null) ??
+        toNonEmptyString(nestedRecord.userId) ??
+        (typeof nestedRecord.userId === 'number' ? String(nestedRecord.userId) : null)
+      : null);
+  const profileImageUri = getProfileImageUriFromRecord(record) ?? getProfileImageUriFromRecord(nestedRecord);
   const myEmployeeIdText = myEmployeeId === undefined ? null : String(myEmployeeId);
   const isMeById = Boolean(employeeId && myEmployeeIdText && employeeId === myEmployeeIdText);
   const isMeByName = Boolean(name && myName && name === myName);
@@ -216,9 +259,11 @@ function normalizeRanking(
 
   return {
     coins,
+    employeeId: employeeId ?? undefined,
     id: employeeId ?? `${name}-${rank}-${index}`,
     isMe: isMeById || isMeByName,
     name,
+    profileImageUri,
     rank,
     team,
   };

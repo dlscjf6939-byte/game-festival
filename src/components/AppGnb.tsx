@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {Alert, Image, Linking, StyleSheet, View} from 'react-native';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {icon} from '../assets/icons';
@@ -8,13 +8,47 @@ import type {MainStackParamList, RootStackParamList} from '../navigation/types';
 
 const SURVEY_FORM_URL = 'https://forms.gle/Lq5j3gAoJhPYzftw6';
 
-function HeaderAction({onPress, variant}: {onPress?: () => void; variant: 'bell' | 'coin' | 'survey'}): JSX.Element {
+// 2026년 7월 3일 오후 4시 50분 KST
+const SURVEY_VISIBLE_AT = new Date('2026-07-03T16:50:00+09:00').getTime();
+
+function useSurveyVisible(): boolean {
+  const [visible, setVisible] = useState(() => Date.now() >= SURVEY_VISIBLE_AT);
+
+  useEffect(() => {
+    if (visible) {
+      return;
+    }
+
+    const remainingTime = SURVEY_VISIBLE_AT - Date.now();
+
+    if (remainingTime <= 0) {
+      setVisible(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setVisible(true);
+    }, remainingTime);
+
+    return () => clearTimeout(timer);
+  }, [visible]);
+
+  return visible;
+}
+
+function HeaderAction({
+  onPress,
+  variant,
+}: {
+  onPress?: () => void;
+  variant: 'bell' | 'coin' | 'survey';
+}): JSX.Element {
   const isQrAction = variant === 'coin';
   const isSurveyAction = variant === 'survey';
 
   return (
     <AnimatedPressable
-      accessibilityLabel={isQrAction ? 'QR 스캔' : '설문조사'}
+      accessibilityLabel={isQrAction ? 'QR 스캔' : isSurveyAction ? '설문조사' : '알림'}
       accessibilityRole="button"
       onPress={onPress}
       style={[styles.headerAction, isSurveyAction && styles.surveyHeaderAction]}>
@@ -32,6 +66,7 @@ type AppGnbProps = {
 
 export function AppGnb(_: AppGnbProps): JSX.Element {
   const navigation = useNavigation<NavigationProp<MainStackParamList>>();
+  const isSurveyVisible = useSurveyVisible();
 
   const handleLogoPress = () => {
     if (navigation.getState().routeNames.includes('Home')) {
@@ -45,7 +80,6 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
 
   const handleQrPress = () => {
     const parentNavigation = navigation.getParent<NavigationProp<RootStackParamList>>();
-
     parentNavigation?.navigate('QrScan');
   };
 
@@ -64,9 +98,12 @@ export function AppGnb(_: AppGnbProps): JSX.Element {
         style={styles.logoButton}>
         <Image source={image.logo} style={styles.logoImage} resizeMode="contain" />
       </AnimatedPressable>
+
       <View style={styles.gnbActions}>
         {/* <HeaderAction variant="bell" /> */}
-        <HeaderAction onPress={handleSurveyPress} variant="survey" />
+
+        {isSurveyVisible && <HeaderAction onPress={handleSurveyPress} variant="survey" />}
+
         <HeaderAction onPress={handleQrPress} variant="coin" />
       </View>
     </View>

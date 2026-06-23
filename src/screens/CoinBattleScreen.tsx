@@ -39,6 +39,7 @@ import {registerScrollToTopHandler} from '../navigation/scrollToTopEvents';
 const THUMBNAIL_WIDTH = 143;
 const THUMBNAIL_HEIGHT = 99;
 const infoLottie = require('../assets/lotties/Info.json');
+const coinLottie = require('../assets/lotties/Coin.json');
 
 type DisplayRoom = {
   betAmount: number;
@@ -643,7 +644,7 @@ export function CoinBattleScreen(): JSX.Element {
               </View>
               <View style={styles.titleActions}>
                 <View style={styles.headerCoinPill}>
-                  <Image source={icon.coin} style={styles.headerCoinIcon} resizeMode="contain" />
+                  <LottieView autoPlay loop source={coinLottie} style={styles.headerCoinIcon} />
                   <Text style={styles.headerCoinText}>{displayHoldingCoin}개</Text>
                 </View>
                 <AnimatedPressable
@@ -963,7 +964,10 @@ export function CoinBattleScreen(): JSX.Element {
                 <View style={styles.coinInfoHeader}>
                   <View>
                     <Text style={styles.coinInfoEyebrow}>COIN GUIDE</Text>
-                    <Text style={styles.coinInfoTitle}>코인 안내</Text>
+                    <View style={styles.coinInfoTitleRow}>
+                      <Text style={styles.coinInfoTitle}>코인 안내</Text>
+                      <LottieView autoPlay loop source={coinLottie} style={styles.coinInfoCoinLottie} />
+                    </View>
                   </View>
                   <AnimatedPressable
                     accessibilityLabel="코인 안내 닫기"
@@ -977,12 +981,12 @@ export function CoinBattleScreen(): JSX.Element {
                 <View style={styles.coinInfoSection}>
                   <Text style={styles.coinInfoSectionTitle}>코인 획득 방법</Text>
                   <Text style={styles.coinInfoDescription}>
-                    사전 설문 참여 -> 10코인 {'\n'}
-                    매일 출석체크 -> 일일 1~3코인 랜덤 지급 {'\n'}
-                    피드 게시글 작성 -> 게시글 +1코인 (일 최대 2회) {'\n'}
-                    코인대전 미니게임 -> 코인 쟁탈! {'\n'}
-                    승부예측 적중 -> 게임별 +2코인! {'\n'}
-                    다양한 현장 이벤트 참여 -> 추가 코인 획득!❤️
+                    사전 설문 참여 {'->'} 10코인 {'\n'}
+                    매일 출석체크 {'->'} 일일 1~3코인 랜덤 지급 {'\n'}
+                    피드 게시글 작성 {'->'} 게시글 +1코인 (일 최대 2회) {'\n'}
+                    코인대전 미니게임 {'->'} 코인 쟁탈! {'\n'}
+                    승부예측 적중 {'->'} 게임별 +2코인! {'\n'}
+                    다양한 현장 이벤트 참여 {'->'} 추가 코인 획득!❤️
                   </Text>
                 </View>
 
@@ -1055,12 +1059,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    paddingRight: 10,
   },
   headerCoinIcon: {
-    width: 16,
-    height: 16,
-    marginRight: 6,
+    width: 34,
+    height: 34,
   },
   headerCoinText: {
     color: '#FFFFFF',
@@ -1473,18 +1476,26 @@ const styles = StyleSheet.create({
   },
   coinInfoHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+  },
+  coinInfoTitleRow: {
+    marginTop: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  coinInfoCoinLottie: {
+    width: 34,
+    height: 34,
   },
   coinInfoEyebrow: {
     color: '#E50914',
     ...FONTS.font11B,
     lineHeight: 14,
-    letterSpacing: 0.8,
   },
   coinInfoTitle: {
-    marginTop: 5,
     color: '#FFFFFF',
     ...FONTS.font22B,
     lineHeight: 28,
@@ -1506,8 +1517,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#252525',
     backgroundColor: '#111114',
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   coinInfoSectionTitle: {
     color: '#FFFFFF',
