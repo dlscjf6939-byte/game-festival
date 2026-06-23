@@ -24,6 +24,7 @@ import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {normalizeCoinBattleRoom, useCoinBattleRooms, type CoinBattleRoom} from '../hooks/useCoinBattleRooms';
+import {showCoinPaymentNotification} from '../utils/localCoinNotification';
 import {
   normalizeRpsResult,
   useCoinBattleRpsGame,
@@ -1753,6 +1754,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
     coinDeductionAlertRoomRef.current = roomId;
     Alert.alert('패배로 코인이 차감되었습니다', `${roomBetAmount}코인이 차감되었습니다.`);
+    showCoinPaymentNotification(roomBetAmount).catch(notificationError => {
+      console.log('[CoinBattleRoomScreen] coin deduction notification failed', notificationError);
+    });
   }, [finalMyMatchResult, isMatchFinished, roomBetAmount, roomId]);
 
   useEffect(() => {

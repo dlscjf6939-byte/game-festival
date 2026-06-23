@@ -977,7 +977,12 @@ export function CoinBattleScreen(): JSX.Element {
                 <View style={styles.coinInfoSection}>
                   <Text style={styles.coinInfoSectionTitle}>코인 획득 방법</Text>
                   <Text style={styles.coinInfoDescription}>
-                    출석체크, 게시글/댓글 참여, 승부예측, 코인대전 등 이벤트 활동에 참여하면 코인을 모을 수 있어요.
+                    사전 설문 참여 -> 10코인 {'\n'}
+                    매일 출석체크 -> 일일 1~3코인 랜덤 지급 {'\n'}
+                    피드 게시글 작성 -> 게시글 +1코인 (일 최대 2회) {'\n'}
+                    코인대전 미니게임 -> 코인 쟁탈! {'\n'}
+                    승부예측 적중 -> 게임별 +2코인! {'\n'}
+                    다양한 현장 이벤트 참여 -> 추가 코인 획득!❤️
                   </Text>
                 </View>
 

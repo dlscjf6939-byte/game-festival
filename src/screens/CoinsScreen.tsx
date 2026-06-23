@@ -3,6 +3,7 @@ import {
   Animated,
   Image,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -19,6 +20,7 @@ import {type CoinRanking} from '../dummyData/coinDummyData';
 import {icon} from '../assets/icons';
 import {image} from '../assets/images';
 import {withMinimumLoadingTime} from '../utils/loading';
+import {showCoinPaymentNotification} from '../utils/localCoinNotification';
 import {SlidingSegmentedTabs, SwipeableTabView} from '../components/SlidingSegmentedTabs';
 
 const giftLottie = require('../assets/lotties/Gift.json');
@@ -33,6 +35,24 @@ const coinTabs = [
 const raffleTabs = [
   {id: 'apply', label: '응모하기'},
   {id: 'history', label: '응모이력'},
+] as const;
+
+const coinEarningGuideItems = [
+  {badge: '①', description: '+10코인', title: '사전 설문 참여'},
+  {badge: '②', description: '일일 1~3코인 랜덤 지급', title: '매일 출석체크'},
+  {badge: '③', description: '게시글당 +1코인, 일 최대 2회', title: '피드 게시글 작성'},
+  {badge: '④', description: '미니게임으로 코인 쟁탈', title: '코인대전'},
+  {badge: '⑤', description: '게임별 +2코인', title: '승부예측 적중'},
+  {badge: '⑥', description: '추가 코인 획득 ❤️', title: '다양한 현장 이벤트 참여'},
+] as const;
+
+const coinBenefitGuideItems = [
+  {badge: '✓', description: '누적 코인 차감 없음', title: '상품 응모🍀'},
+  {badge: '✓', description: '참가하고 추가 코인 획득', title: '코인대전'},
+  {badge: '✓', description: '누적 코인 기준으로 반영', title: '랭킹 반영'},
+  {badge: '🏆', description: '랭킹 TOP30 특별 상품 증정', title: '랭킹 보상', reward: true},
+  {badge: '🥇', description: '100만원 ~ 30만원 상당 상품', title: 'TOP 3', reward: true},
+  {badge: '🎁', description: '10만원 상당 상품', title: 'TOP 30', reward: true},
 ] as const;
 
 type CoinTabId = (typeof coinTabs)[number]['id'];
@@ -657,6 +677,9 @@ export function CoinsScreen(): JSX.Element {
 
       await fetchRaffleHistories();
       await refreshAllCoins();
+      showCoinPaymentNotification(item.applyPrice).catch(notificationError => {
+        console.log('[CoinsScreen] raffle coin payment notification failed', notificationError);
+      });
 
       setRaffleProducts(currentProducts =>
         currentProducts.map(product =>
@@ -1044,40 +1067,74 @@ export function CoinsScreen(): JSX.Element {
             style={styles.coinInfoBackdrop}
           />
           <View style={styles.coinInfoCard}>
-            <View style={styles.coinInfoHeader}>
-              <View>
-                <Text style={styles.coinInfoEyebrow}>COIN GUIDE</Text>
-                <Text style={styles.coinInfoTitle}>코인 안내</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.coinInfoHeader}>
+                <View>
+                  <Text style={styles.coinInfoEyebrow}>COIN GUIDE</Text>
+                  <Text style={styles.coinInfoTitle}>코인 안내</Text>
+                </View>
+                <AnimatedPressable
+                  accessibilityLabel="코인 안내 닫기"
+                  accessibilityRole="button"
+                  onPress={() => setIsCoinInfoVisible(false)}
+                  style={styles.coinInfoCloseButton}>
+                  <Image source={icon.closeBtn} style={styles.coinInfoCloseIcon} resizeMode="contain" />
+                </AnimatedPressable>
               </View>
+
+              <View style={styles.coinInfoHero}>
+                <Text style={styles.coinInfoHeroTitle}>이벤트 참여로 코인을 모으고, 응모와 랭킹 혜택에 사용해보세요.</Text>
+              </View>
+
+              <View style={styles.coinInfoSection}>
+                <Text style={styles.coinInfoSectionTitle}>코인 획득 방법</Text>
+                <View style={styles.coinInfoList}>
+                  {coinEarningGuideItems.map(item => (
+                    <View key={item.title} style={styles.coinInfoItem}>
+                      <View style={styles.coinInfoItemBadge}>
+                        <Text style={styles.coinInfoItemBadgeText}>{item.badge}</Text>
+                      </View>
+                      <View style={styles.coinInfoItemText}>
+                        <Text style={styles.coinInfoItemTitle}>{item.title}</Text>
+                        <Text style={styles.coinInfoItemDescription}>{item.description}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.coinInfoSection}>
+                <Text style={styles.coinInfoSectionTitle}>코인을 모으면 좋은 점</Text>
+                <Text style={styles.coinInfoSectionLead}>모은 코인은 다양한 혜택으로 사용할 수 있어요!</Text>
+                <View style={styles.coinInfoList}>
+                  {coinBenefitGuideItems.map(item => (
+                    <View
+                      key={item.title}
+                      style={[styles.coinInfoItem, item.reward && styles.coinInfoRewardItem]}>
+                      <View
+                        style={[
+                          styles.coinInfoItemBadge,
+                          styles.coinInfoBenefitBadge,
+                          item.reward && styles.coinInfoRewardBadge,
+                        ]}>
+                        <Text style={styles.coinInfoItemBadgeText}>{item.badge}</Text>
+                      </View>
+                      <View style={styles.coinInfoItemText}>
+                        <Text style={styles.coinInfoItemTitle}>{item.title}</Text>
+                        <Text style={styles.coinInfoItemDescription}>{item.description}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
               <AnimatedPressable
-                accessibilityLabel="코인 안내 닫기"
                 accessibilityRole="button"
                 onPress={() => setIsCoinInfoVisible(false)}
-                style={styles.coinInfoCloseButton}>
-                <Image source={icon.closeBtn} style={styles.coinInfoCloseIcon} resizeMode="contain" />
+                style={styles.coinInfoConfirmButton}>
+                <Text style={styles.coinInfoConfirmText}>확인</Text>
               </AnimatedPressable>
-            </View>
-
-            <View style={styles.coinInfoSection}>
-              <Text style={styles.coinInfoSectionTitle}>코인 획득 방법</Text>
-              <Text style={styles.coinInfoDescription}>
-                출석체크, 게시글/댓글 참여, 승부예측, 코인대전 등 이벤트 활동에 참여하면 코인을 모을 수 있어요.
-              </Text>
-            </View>
-
-            <View style={styles.coinInfoSection}>
-              <Text style={styles.coinInfoSectionTitle}>코인을 모으면 좋은 점</Text>
-              <Text style={styles.coinInfoDescription}>
-                모은 코인은 상품 응모와 코인대전 참가에 사용할 수 있고, 누적 코인은 랭킹에 반영됩니다.
-              </Text>
-            </View>
-
-            <AnimatedPressable
-              accessibilityRole="button"
-              onPress={() => setIsCoinInfoVisible(false)}
-              style={styles.coinInfoConfirmButton}>
-              <Text style={styles.coinInfoConfirmText}>확인</Text>
-            </AnimatedPressable>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1179,7 +1236,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.68)',
     justifyContent: 'center',
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
   },
   coinInfoBackdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -1187,9 +1244,15 @@ const styles = StyleSheet.create({
   coinInfoCard: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#252525',
+    borderColor: 'rgba(255,255,255,0.14)',
     backgroundColor: '#171717',
-    padding: 18,
+    padding: 16,
+    maxHeight: '82%',
+    shadowColor: '#000000',
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    elevation: 8,
   },
   coinInfoHeader: {
     flexDirection: 'row',
@@ -1204,10 +1267,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   coinInfoTitle: {
-    marginTop: 5,
+    marginTop: 4,
     color: '#FFFFFF',
-    ...FONTS.font22B,
-    lineHeight: 28,
+    ...FONTS.font20B,
+    lineHeight: 26,
   },
   coinInfoCloseButton: {
     width: 32,
@@ -1220,30 +1283,93 @@ const styles = StyleSheet.create({
     height: 18,
     tintColor: '#A9ABB2',
   },
+  coinInfoHero: {
+    marginTop: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(229,9,20,0.22)',
+    backgroundColor: 'rgba(229,9,20,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  coinInfoHeroTitle: {
+    color: '#E9E9EC',
+    ...FONTS.font13B,
+    lineHeight: 19,
+  },
   coinInfoSection: {
-    marginTop: 18,
+    marginTop: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#252525',
-    backgroundColor: '#111114',
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderColor: 'rgba(255,255,255,0.09)',
+    backgroundColor: '#131315',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   coinInfoSectionTitle: {
     color: '#FFFFFF',
-    ...FONTS.font15B,
-    lineHeight: 20,
-  },
-  coinInfoDescription: {
-    marginTop: 7,
-    color: '#C7C8CC',
-    ...FONTS.font13M,
+    ...FONTS.font14B,
     lineHeight: 19,
   },
+  coinInfoSectionLead: {
+    marginTop: 6,
+    color: '#D6D7DB',
+    ...FONTS.font12M,
+    lineHeight: 18,
+  },
+  coinInfoList: {
+    marginTop: 10,
+    gap: 2,
+  },
+  coinInfoItem: {
+    minHeight: 38,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+  },
+  coinInfoItemBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    backgroundColor: '#E50914',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 9,
+  },
+  coinInfoBenefitBadge: {
+    backgroundColor: '#2D2D2D',
+  },
+  coinInfoRewardItem: {
+    backgroundColor: 'rgba(229,9,20,0.055)',
+  },
+  coinInfoRewardBadge: {
+    backgroundColor: '#E50914',
+  },
+  coinInfoItemBadgeText: {
+    color: '#FFFFFF',
+    ...FONTS.font11B,
+    lineHeight: 14,
+  },
+  coinInfoItemText: {
+    flex: 1,
+  },
+  coinInfoItemTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font12B,
+    lineHeight: 16,
+  },
+  coinInfoItemDescription: {
+    marginTop: 1,
+    color: '#C7C8CC',
+    ...FONTS.font11M,
+    lineHeight: 15,
+  },
   coinInfoConfirmButton: {
-    height: 48,
-    marginTop: 18,
-    borderRadius: 12,
+    height: 44,
+    marginTop: 14,
+    borderRadius: 10,
     backgroundColor: '#E50914',
     alignItems: 'center',
     justifyContent: 'center',
