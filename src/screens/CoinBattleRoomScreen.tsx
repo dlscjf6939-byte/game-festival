@@ -7,6 +7,7 @@ import {
   Animated,
   BackHandler,
   Image,
+  Platform,
   SafeAreaView,
   ScrollView,
   StatusBar,
@@ -24,7 +25,7 @@ import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {normalizeCoinBattleRoom, useCoinBattleRooms, type CoinBattleRoom} from '../hooks/useCoinBattleRooms';
-import {showCoinPaymentNotification} from '../utils/localCoinNotification';
+import {showCoinRewardNotification} from '../utils/localCoinNotification';
 import {
   normalizeRpsResult,
   useCoinBattleRpsGame,
@@ -81,6 +82,8 @@ const maxRoundCountByGameId: Record<number, number> = {
 const START_COUNTDOWN_SECONDS = 3;
 const PICTURE_MATCH_LOCAL_REVEAL_MS = 2000;
 const PICTURE_MATCH_REVEAL_STAGGER_MS = 90;
+const IS_ANDROID = Platform.OS === 'android';
+const SHOULD_USE_COUNTDOWN_BLUR = !IS_ANDROID;
 const fanfareLottie = require('../assets/lotties/Fanfare.json');
 const coinLottie = require('../assets/lotties/Coin.json');
 
@@ -698,6 +701,25 @@ function PictureMatchGamePanel({
     : isMyTurn
     ? '내 턴'
     : '상대 턴';
+  const isPlayableMyTurn = !isFinished && !isPreparingLocalReveal && !allVisibleAtStart && !isLocalRevealActive && isMyTurn;
+  const turnStatusTitle = isFinished
+    ? '게임이 종료되었습니다'
+    : isPreparingLocalReveal
+    ? '카드를 준비하고 있어요'
+    : allVisibleAtStart || isLocalRevealActive
+    ? '카드 위치를 기억하세요'
+    : isMyTurn
+    ? '내 턴입니다'
+    : '상대 턴입니다';
+  const turnStatusHint = isFinished
+    ? '최종 결과를 확인해주세요'
+    : isPreparingLocalReveal
+    ? '곧 카드가 공개됩니다'
+    : allVisibleAtStart || isLocalRevealActive
+    ? '잠시 후 카드가 뒤집힙니다'
+    : isMyTurn
+    ? '같은 그림으로 보이는 카드 2장을 선택하세요'
+    : `${currentTurnPlayer?.employeeName ?? '상대'}님이 카드를 선택하고 있어요`;
 
   useEffect(() => {
     if (!boardKey || !isInitialUnmatchedBoard || isFinished || handledRevealBoardKey === boardKey) {
@@ -756,7 +778,16 @@ function PictureMatchGamePanel({
         </View>
       </View>
 
-      <View style={styles.pictureMatchBoard}>
+      <View style={[styles.pictureMatchTurnBanner, isPlayableMyTurn && styles.pictureMatchTurnBannerActive]}>
+        <Text style={[styles.pictureMatchTurnBannerTitle, isPlayableMyTurn && styles.pictureMatchTurnBannerTitleActive]}>
+          {turnStatusTitle}
+        </Text>
+        <Text style={[styles.pictureMatchTurnBannerHint, isPlayableMyTurn && styles.pictureMatchTurnBannerHintActive]}>
+          {turnStatusHint}
+        </Text>
+      </View>
+
+      <View style={[styles.pictureMatchBoard, isPlayableMyTurn && styles.pictureMatchBoardMyTurn]}>
         {rows.map((row, rowIndex) => (
           <View key={`row-${rowIndex}`} style={styles.pictureMatchRow}>
             {row.map((picture, columnIndex) => {
@@ -1270,6 +1301,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const [pendingRpsChoice, setPendingRpsChoice] = useState<RpsChoice | null>(null);
   const [hasSeenActiveTypingPayload, setHasSeenActiveTypingPayload] = useState(false);
   const [isReturningToWaitingRoom, setIsReturningToWaitingRoom] = useState(false);
+  const [leaveModalType, setLeaveModalType] = useState<'blocked' | 'confirm' | null>(null);
   const [stickyTypingSentence, setStickyTypingSentence] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1279,7 +1311,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
   const latestPresentedRoundRef = useRef(0);
   const latestTypingSyncRequestedRoundRef = useRef(0);
   const coinRefreshRoomIdRef = useRef<string | null>(null);
-  const coinDeductionAlertRoomRef = useRef<string | null>(null);
+  const coinRewardNotificationRoomRef = useRef<string | null>(null);
   const balanceExitRoomRef = useRef<string | null>(null);
   const confirmedLeaveRef = useRef(false);
   const countdownExitAlertShownRef = useRef(false);
@@ -1538,7 +1570,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     setOptimisticReady(null);
     setReady(false);
     balanceExitRoomRef.current = null;
-    coinDeductionAlertRoomRef.current = null;
+    coinRewardNotificationRoomRef.current = null;
     confirmedLeaveRef.current = false;
     opponentDisconnectHandledRoomRef.current = null;
   }, [roomId]);
@@ -1749,14 +1781,13 @@ export function CoinBattleRoomScreen(): JSX.Element {
   }, [gameRoomSnapshot, isMatchFinished, liveRoom, refreshAllCoins, refreshProfile, roomId]);
 
   useEffect(() => {
-    if (!isMatchFinished || finalMyMatchResult !== 'LOSE' || coinDeductionAlertRoomRef.current === roomId) {
+    if (!isMatchFinished || finalMyMatchResult !== 'WIN' || coinRewardNotificationRoomRef.current === roomId) {
       return;
     }
 
-    coinDeductionAlertRoomRef.current = roomId;
-    Alert.alert('패배로 코인이 차감되었습니다', `${roomBetAmount}코인이 차감되었습니다.`);
-    showCoinPaymentNotification(roomBetAmount).catch(notificationError => {
-      console.log('[CoinBattleRoomScreen] coin deduction notification failed', notificationError);
+    coinRewardNotificationRoomRef.current = roomId;
+    showCoinRewardNotification(roomBetAmount).catch(notificationError => {
+      console.log('[CoinBattleRoomScreen] coin reward notification failed', notificationError);
     });
   }, [finalMyMatchResult, isMatchFinished, roomBetAmount, roomId]);
 
@@ -2025,26 +2056,12 @@ export function CoinBattleRoomScreen(): JSX.Element {
     }
 
     countdownExitAlertShownRef.current = true;
-    Alert.alert(
-      '게임이 곧 시작됩니다',
-      '카운트다운 중에는 방을 나갈 수 없습니다.',
-      [
-        {
-          onPress: () => {
-            countdownExitAlertShownRef.current = false;
-          },
-          text: '확인',
-        },
-      ],
-      {
-        onDismiss: () => {
-          countdownExitAlertShownRef.current = false;
-        },
-      },
-    );
+    setLeaveModalType('blocked');
   }, []);
 
   const leaveCurrentRoom = React.useCallback(() => {
+    setLeaveModalType(null);
+
     if (isStartCountdownBlocking) {
       showCountdownExitBlockedAlert();
       return;
@@ -2083,21 +2100,24 @@ export function CoinBattleRoomScreen(): JSX.Element {
       return;
     }
 
-    Alert.alert('방에서 퇴장하시겠습니까?', '진행 중인 준비 상태와 게임 참여가 취소됩니다.', [
-      {
-        style: 'cancel',
-        text: '취소',
-      },
-      {
-        onPress: leaveCurrentRoom,
-        style: 'destructive',
-        text: '퇴장',
-      },
-    ]);
-  }, [isStartCountdownBlocking, leaveCurrentRoom, showCountdownExitBlockedAlert]);
+    setLeaveModalType('confirm');
+  }, [isStartCountdownBlocking, showCountdownExitBlockedAlert]);
+
+  const closeLeaveModal = React.useCallback(() => {
+    if (leaveModalType === 'blocked') {
+      countdownExitAlertShownRef.current = false;
+    }
+
+    setLeaveModalType(null);
+  }, [leaveModalType]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (leaveModalType) {
+        closeLeaveModal();
+        return true;
+      }
+
       handleLeaveRoom();
       return true;
     });
@@ -2105,7 +2125,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
     return () => {
       subscription.remove();
     };
-  }, [handleLeaveRoom]);
+  }, [closeLeaveModal, handleLeaveRoom, leaveModalType]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', event => {
@@ -2185,7 +2205,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
       latestPresentedRoundRef.current = 0;
       latestTypingSyncRequestedRoundRef.current = 0;
       coinRefreshRoomIdRef.current = null;
-      coinDeductionAlertRoomRef.current = null;
+      coinRewardNotificationRoomRef.current = null;
       setHasSeenActiveTypingPayload(false);
       resetRpsGame();
       resetPictureMatchGame();
@@ -2337,7 +2357,11 @@ export function CoinBattleRoomScreen(): JSX.Element {
                           <Text style={styles.latestResultEyebrow}>
                             {latestJudgedRound.roundNumber ?? '-'}라운드 결과
                           </Text>
-                          <Text style={styles.latestResultTitle}>
+                          <Text
+                            style={[
+                              styles.latestResultTitle,
+                              latestMyRoundResult === 'WIN' && styles.latestResultTitleWin,
+                            ]}>
                             {latestMyRoundResult === 'WIN'
                               ? '승리'
                               : latestMyRoundResult === 'LOSE'
@@ -2556,8 +2580,10 @@ export function CoinBattleRoomScreen(): JSX.Element {
 
         {startCountdownSeconds !== null ? (
           <Animated.View pointerEvents="none" style={[styles.countdownOverlay, {opacity: countdownBackdropOpacity}]}>
-            <BlurView blurAmount={12} blurType="dark" style={styles.countdownBlur} />
-            <View style={styles.countdownTint} />
+            {SHOULD_USE_COUNTDOWN_BLUR ? (
+              <BlurView blurAmount={12} blurType="dark" style={styles.countdownBlur} />
+            ) : null}
+            <View style={[styles.countdownTint, IS_ANDROID && styles.countdownTintAndroid]} />
             <Animated.View
               style={[
                 styles.countdownCenter,
@@ -2567,7 +2593,9 @@ export function CoinBattleRoomScreen(): JSX.Element {
                 },
               ]}>
               <Text style={styles.countdownEyebrow}>READY</Text>
-              <Text style={styles.countdownValue}>{startCountdownSeconds === 0 ? 'START' : startCountdownSeconds}</Text>
+              <Text style={[styles.countdownValue, IS_ANDROID && styles.countdownValueAndroid]}>
+                {startCountdownSeconds === 0 ? 'START' : startCountdownSeconds}
+              </Text>
               <Text style={styles.countdownHint}>{startCountdownSeconds === 0 ? '게임 시작' : '곧 시작합니다'}</Text>
             </Animated.View>
           </Animated.View>
@@ -2609,13 +2637,16 @@ export function CoinBattleRoomScreen(): JSX.Element {
         {roundResultOverlay ? (
           <Animated.View
             pointerEvents="none"
-            style={[
-              styles.resultOverlay,
-              roundResultOverlay.result === 'WIN' && styles.resultOverlayWin,
-              roundResultOverlay.result === 'LOSE' && styles.resultOverlayLose,
-              roundResultOverlay.result === 'DRAW' && styles.resultOverlayDraw,
-              {opacity: resultBackdropOpacity},
-            ]}>
+            style={styles.resultOverlay}>
+            <Animated.View
+              style={[
+                styles.resultOverlayBackdrop,
+                roundResultOverlay.result === 'WIN' && styles.resultOverlayWin,
+                roundResultOverlay.result === 'LOSE' && styles.resultOverlayLose,
+                roundResultOverlay.result === 'DRAW' && styles.resultOverlayDraw,
+                {opacity: resultBackdropOpacity},
+              ]}
+            />
             <Animated.View
               style={[
                 styles.resultCenter,
@@ -2638,7 +2669,7 @@ export function CoinBattleRoomScreen(): JSX.Element {
               <Text style={styles.resultEyebrow}>
                 {isMatchFinished ? 'FINAL ROUND' : `ROUND ${roundResultOverlay.roundNumber}`}
               </Text>
-              <Text style={styles.resultValue}>
+              <Text style={[styles.resultValue, roundResultOverlay.result === 'WIN' && styles.resultValueWin]}>
                 {roundResultOverlay.result === 'WIN'
                   ? '승리'
                   : roundResultOverlay.result === 'LOSE'
@@ -2668,6 +2699,59 @@ export function CoinBattleRoomScreen(): JSX.Element {
               </Text>
             </Animated.View>
           </Animated.View>
+        ) : null}
+
+        {leaveModalType ? (
+          <View style={styles.leaveConfirmOverlay}>
+            <BlurView blurAmount={12} blurType="dark" style={styles.leaveConfirmBlur} />
+            <AnimatedPressable
+              accessibilityLabel="닫기"
+              accessibilityRole="button"
+              activeScale={1}
+              onPress={closeLeaveModal}
+              style={styles.leaveConfirmBackdrop}
+            />
+            <View style={styles.leaveConfirmCard}>
+              <Text style={styles.leaveConfirmEyebrow}>
+                {leaveModalType === 'blocked' ? '잠시만요' : '방 나가기'}
+              </Text>
+              <Text style={styles.leaveConfirmTitle}>
+                {leaveModalType === 'blocked' ? '게임이 곧 시작됩니다' : '방에서 퇴장하시겠습니까?'}
+              </Text>
+              <Text style={styles.leaveConfirmDescription}>
+                {leaveModalType === 'blocked'
+                  ? '카운트다운 중에는 방을 나갈 수 없습니다.'
+                  : '진행 중인 준비 상태와 게임 참여가 취소됩니다.'}
+              </Text>
+              {leaveModalType === 'blocked' ? (
+                <AnimatedPressable
+                  accessibilityRole="button"
+                  onPress={closeLeaveModal}
+                  style={[
+                    styles.leaveConfirmButton,
+                    styles.leaveConfirmPrimaryButton,
+                    styles.leaveConfirmSingleButton,
+                  ]}>
+                  <Text style={styles.leaveConfirmPrimaryText}>확인</Text>
+                </AnimatedPressable>
+              ) : (
+                <View style={styles.leaveConfirmActions}>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    onPress={closeLeaveModal}
+                    style={[styles.leaveConfirmButton, styles.leaveConfirmCancelButton]}>
+                    <Text style={styles.leaveConfirmCancelText}>취소</Text>
+                  </AnimatedPressable>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    onPress={leaveCurrentRoom}
+                    style={[styles.leaveConfirmButton, styles.leaveConfirmPrimaryButton]}>
+                    <Text style={styles.leaveConfirmPrimaryText}>퇴장</Text>
+                  </AnimatedPressable>
+                </View>
+              )}
+            </View>
+          </View>
         ) : null}
       </SafeAreaView>
     </TabSceneTransition>
@@ -2759,7 +2843,7 @@ function RpsRoundRow({
               myRoundResult === 'LOSE' && styles.roundResultChipLose,
               myRoundResult === 'DRAW' && styles.roundResultChipDraw,
             ]}>
-            <Text style={styles.roundResultChipText}>
+            <Text style={[styles.roundResultChipText, myRoundResult === 'WIN' && styles.roundResultChipTextWin]}>
               내 결과 {myRoundResult === 'WIN' ? '승' : myRoundResult === 'LOSE' ? '패' : '무'}
             </Text>
           </View>
@@ -2849,6 +2933,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.58)',
   },
+  countdownTintAndroid: {
+    backgroundColor: 'rgba(0, 0, 0, 0.78)',
+  },
   countdownCenter: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -2867,6 +2954,10 @@ const styles = StyleSheet.create({
     textShadowOffset: {width: 0, height: 3},
     textShadowRadius: 12,
   },
+  countdownValueAndroid: {
+    textShadowOffset: {width: 0, height: 1},
+    textShadowRadius: 3,
+  },
   countdownHint: {
     marginTop: -2,
     color: '#FFFFFF',
@@ -2876,9 +2967,14 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 30,
+    elevation: 30,
+  },
+  resultOverlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   resultOverlayWin: {
-    backgroundColor: 'rgba(80, 4, 12, 0.58)',
+    backgroundColor: 'rgba(5, 62, 35, 0.84)',
   },
   resultOverlayLose: {
     backgroundColor: 'rgba(28, 5, 8, 0.88)',
@@ -2889,6 +2985,8 @@ const styles = StyleSheet.create({
   resultCenter: {
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 1,
+    elevation: 1,
   },
   resultCenterWin: {
     minWidth: 250,
@@ -2896,10 +2994,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 28,
     borderRadius: 28,
-    backgroundColor: 'rgba(229, 9, 20, 0.18)',
+    backgroundColor: '#073B24',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    shadowColor: '#E50914',
+    borderColor: 'rgba(74, 222, 128, 0.5)',
+    shadowColor: '#22C55E',
     shadowOpacity: 0.42,
     shadowRadius: 28,
     shadowOffset: {width: 0, height: 12},
@@ -2910,6 +3008,8 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     backgroundColor: 'transparent',
+    zIndex: 0,
+    elevation: 0,
   },
   resultEyebrow: {
     color: '#FFFFFF',
@@ -2922,9 +3022,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font44B,
     lineHeight: 56,
+    zIndex: 2,
+    elevation: 2,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: {width: 0, height: 3},
     textShadowRadius: 12,
+  },
+  resultValueWin: {
+    color: '#86EFAC',
   },
   resultHint: {
     marginTop: 6,
@@ -3144,6 +3249,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: '#FFFFFF',
     ...FONTS.font24B,
+  },
+  latestResultTitleWin: {
+    color: '#86EFAC',
   },
   playerCard: {
     flex: 1,
@@ -3414,6 +3522,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font11B,
   },
+  roundResultChipTextWin: {
+    color: '#86EFAC',
+  },
   roundPlayerLine: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -3521,9 +3632,46 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font22B,
   },
+  pictureMatchTurnBanner: {
+    marginTop: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    backgroundColor: '#151515',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  pictureMatchTurnBannerActive: {
+    borderColor: 'rgba(74, 222, 128, 0.72)',
+    backgroundColor: 'rgba(10, 72, 43, 0.92)',
+  },
+  pictureMatchTurnBannerTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font17B,
+  },
+  pictureMatchTurnBannerTitleActive: {
+    color: '#86EFAC',
+  },
+  pictureMatchTurnBannerHint: {
+    marginTop: 4,
+    color: '#A5A7AD',
+    ...FONTS.font12M,
+    lineHeight: 18,
+  },
+  pictureMatchTurnBannerHintActive: {
+    color: '#D9FBE5',
+  },
   pictureMatchBoard: {
     gap: 8,
     marginTop: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    padding: 4,
+  },
+  pictureMatchBoardMyTurn: {
+    borderColor: 'rgba(74, 222, 128, 0.72)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
   },
   pictureMatchRow: {
     flexDirection: 'row',
@@ -3836,6 +3984,87 @@ const styles = StyleSheet.create({
   },
   leaveButtonText: {
     color: '#D7D7D7',
+    ...FONTS.font14B,
+  },
+  leaveConfirmOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  leaveConfirmBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  leaveConfirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+  },
+  leaveConfirmCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#303030',
+    backgroundColor: '#151515',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 18,
+    shadowColor: '#000000',
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    shadowOffset: {width: 0, height: 12},
+    elevation: 14,
+  },
+  leaveConfirmEyebrow: {
+    color: '#FF8A94',
+    ...FONTS.font11B,
+    letterSpacing: 0.6,
+  },
+  leaveConfirmTitle: {
+    marginTop: 8,
+    color: '#FFFFFF',
+    ...FONTS.font20B,
+  },
+  leaveConfirmDescription: {
+    marginTop: 10,
+    color: '#B7B7BE',
+    lineHeight: 20,
+    ...FONTS.font13M,
+  },
+  leaveConfirmActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 22,
+  },
+  leaveConfirmButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leaveConfirmCancelButton: {
+    borderWidth: 1,
+    borderColor: '#353535',
+    backgroundColor: '#1E1E1E',
+  },
+  leaveConfirmPrimaryButton: {
+    backgroundColor: '#E50914',
+  },
+  leaveConfirmSingleButton: {
+    marginTop: 22,
+  },
+  leaveConfirmCancelText: {
+    color: '#D7D7D7',
+    ...FONTS.font14B,
+  },
+  leaveConfirmPrimaryText: {
+    color: '#FFFFFF',
     ...FONTS.font14B,
   },
 });

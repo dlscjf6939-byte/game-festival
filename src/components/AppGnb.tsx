@@ -1,12 +1,15 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Alert, Image, Linking, StyleSheet, View} from 'react-native';
 import {useNavigation, type NavigationProp} from '@react-navigation/native';
 import {icon} from '../assets/icons';
 import {image} from '../assets/images';
+import {useAuth} from '../auth/AuthProvider';
 import {AnimatedPressable} from './AnimatedPressable';
 import type {MainStackParamList, RootStackParamList} from '../navigation/types';
 
 const SURVEY_FORM_URL = 'https://forms.gle/Lq5j3gAoJhPYzftw6';
+const LOGO_LOGOUT_PRESS_COUNT = 5;
+const LOGO_LOGOUT_PRESS_WINDOW_MS = 2000;
 
 // 2026년 7월 3일 오후 4시 50분 KST
 const SURVEY_VISIBLE_AT = new Date('2026-07-03T16:50:00+09:00').getTime();
@@ -66,9 +69,45 @@ type AppGnbProps = {
 
 export function AppGnb(_: AppGnbProps): JSX.Element {
   const navigation = useNavigation<NavigationProp<MainStackParamList>>();
+  const {clearAuth} = useAuth();
   const isSurveyVisible = useSurveyVisible();
+  const logoPressCountRef = useRef(0);
+  const logoPressResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (logoPressResetTimerRef.current) {
+        clearTimeout(logoPressResetTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleLogoPress = () => {
+    logoPressCountRef.current += 1;
+
+    if (logoPressResetTimerRef.current) {
+      clearTimeout(logoPressResetTimerRef.current);
+    }
+
+    logoPressResetTimerRef.current = setTimeout(() => {
+      logoPressCountRef.current = 0;
+      logoPressResetTimerRef.current = null;
+    }, LOGO_LOGOUT_PRESS_WINDOW_MS);
+
+    if (logoPressCountRef.current >= LOGO_LOGOUT_PRESS_COUNT) {
+      logoPressCountRef.current = 0;
+
+      if (logoPressResetTimerRef.current) {
+        clearTimeout(logoPressResetTimerRef.current);
+        logoPressResetTimerRef.current = null;
+      }
+
+      clearAuth().catch(() => {
+        Alert.alert('로그아웃할 수 없습니다', '잠시 후 다시 시도해주세요.');
+      });
+      return;
+    }
+
     if (navigation.getState().routeNames.includes('Home')) {
       navigation.navigate('Home');
       return;

@@ -181,7 +181,11 @@ type PostLikeSyncState = {
 };
 
 type FeedCreatePostResponse = {
-  data?: unknown;
+  data?: {
+    postId?: number | string;
+    rewardedCoin?: unknown;
+  };
+  code?: string;
   message?: string;
   rewardedCoin?: unknown;
   success?: boolean;
@@ -294,8 +298,7 @@ function getRewardedCoinFromResponse(responseBody: unknown): number | null {
 
   const directRewardedCoin = (responseBody as {rewardedCoin?: unknown}).rewardedCoin;
   const data = (responseBody as {data?: unknown}).data;
-  const dataRewardedCoin =
-    data && typeof data === 'object' ? (data as {rewardedCoin?: unknown}).rewardedCoin : undefined;
+  const dataRewardedCoin = data?.rewardedCoin;
   const value = directRewardedCoin ?? dataRewardedCoin;
 
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -1170,10 +1173,10 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
       );
 
       const responseText = await response.text();
-      let responseBody: {message?: string; success?: boolean} | null = null;
+      let responseBody: FeedCreatePostResponse | null = null;
 
       try {
-        responseBody = JSON.parse(responseText) as {message?: string; success?: boolean};
+        responseBody = JSON.parse(responseText) as FeedCreatePostResponse;
       } catch {
         responseBody = null;
       }
@@ -1312,9 +1315,13 @@ export function FeedProvider({children}: {children: React.ReactNode}): JSX.Eleme
 
       const rewardedCoin = getRewardedCoinFromResponse(responseBody);
 
-      if (rewardedCoin && rewardedCoin > 0) {
+      if (rewardedCoin !== null && rewardedCoin > 0) {
         showCoinRewardNotification(rewardedCoin).catch(error => {
-          console.log('[FeedProvider] rewarded coin notification failed', {error, rewardedCoin});
+          console.log('[FeedProvider] rewarded coin notification failed', {
+            error,
+            responseBody,
+            rewardedCoin,
+          });
         });
       }
 
