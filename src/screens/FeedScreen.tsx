@@ -3,6 +3,7 @@ import BottomSheet, {BottomSheetBackdrop, BottomSheetFlatList, BottomSheetTextIn
 import {
   ActivityIndicator,
   Animated,
+  FlatList,
   Easing,
   Image,
   Keyboard,
@@ -20,6 +21,7 @@ import {
   TouchableWithoutFeedback,
   View,
   type ImageSourcePropType,
+  type ListRenderItem,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type StyleProp,
@@ -106,6 +108,7 @@ type LikeButtonProps = {
 const MAX_COMPOSE_IMAGE_COUNT = 5;
 const FEED_API_BASE = 'http://121.254.240.93:8090';
 const FEED_BOARD_ID = 21;
+const AnimatedFeedFlatList = Animated.createAnimatedComponent(FlatList<FeedPost>);
 
 function LikeButton({isLiked, onPress, style}: LikeButtonProps): JSX.Element {
   const likeEffectProgress = useRef(new Animated.Value(0)).current;
@@ -222,7 +225,7 @@ function normalizeEmployeeProfile(data: EmployeeProfileResponse['data']): Employ
 
 export function FeedScreen(): JSX.Element {
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const feedScrollRef = useRef<ScrollView | null>(null);
+  const feedScrollRef = useRef<FlatList<FeedPost> | null>(null);
   const feedScrollOffsetYRef = useRef(0);
   const prefetchedHighlightIdsRef = useRef<Set<string>>(new Set());
   const {auth} = useAuth();
@@ -251,6 +254,7 @@ export function FeedScreen(): JSX.Element {
   const profileCardProgress = useRef(new Animated.Value(0)).current;
   const profileModalOpacity = useRef(new Animated.Value(0)).current;
   const employeePostDetailProgress = useRef(new Animated.Value(0)).current;
+  const highlightDragY = useRef(new Animated.Value(0)).current;
   const snapPoints = useMemo(() => ['66%'], []);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentActionError, setCommentActionError] = useState<string | null>(null);
@@ -402,10 +406,27 @@ export function FeedScreen(): JSX.Element {
       },
     ],
   };
+  const highlightViewerAnimatedStyle = {
+    opacity: highlightDragY.interpolate({
+      inputRange: [-220, 0, 220],
+      outputRange: [0.18, 1, 0.18],
+      extrapolate: 'clamp',
+    }),
+    transform: [
+      {translateY: highlightDragY},
+      {
+        scale: highlightDragY.interpolate({
+          inputRange: [-220, 0, 220],
+          outputRange: [0.94, 1, 0.94],
+          extrapolate: 'clamp',
+        }),
+      },
+    ],
+  };
 
   useEffect(() => {
     return registerScrollToTopHandler('Feed', () => {
-      feedScrollRef.current?.scrollTo({animated: true, y: 0});
+      feedScrollRef.current?.scrollToOffset({animated: true, offset: 0});
     });
   }, []);
 
@@ -521,22 +542,66 @@ export function FeedScreen(): JSX.Element {
   );
 
   const closeHighlight = useCallback(() => {
+    highlightDragY.stopAnimation();
+    highlightDragY.setValue(0);
     setSelectedHighlightId(null);
     setSelectedHighlightIndex(0);
-  }, []);
+  }, [highlightDragY]);
 
-  const highlightSwipeResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dy) > 18 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2;
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (Math.abs(gestureState.dy) > 70) {
-          closeHighlight();
+  const dismissHighlightWithDrag = useCallback(
+    (direction: number) => {
+      Animated.timing(highlightDragY, {
+        toValue: direction * screenHeight,
+        duration: 190,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({finished}) => {
+        if (!finished) {
+          return;
         }
-      },
-    }),
-  ).current;
+
+        closeHighlight();
+      });
+    },
+    [closeHighlight, highlightDragY, screenHeight],
+  );
+
+  const highlightSwipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.15;
+        },
+        onPanResponderGrant: () => {
+          highlightDragY.stopAnimation();
+        },
+        onPanResponderMove: (_, gestureState) => {
+          highlightDragY.setValue(gestureState.dy);
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (Math.abs(gestureState.dy) > 96 || Math.abs(gestureState.vy) > 1.05) {
+            dismissHighlightWithDrag(gestureState.dy >= 0 ? 1 : -1);
+            return;
+          }
+
+          Animated.spring(highlightDragY, {
+            toValue: 0,
+            speed: 18,
+            bounciness: 5,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(highlightDragY, {
+            toValue: 0,
+            speed: 18,
+            bounciness: 5,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [dismissHighlightWithDrag, highlightDragY],
+  );
 
   const showPreviousHighlight = useCallback(() => {
     setSelectedHighlightIndex(currentIndex => Math.max(currentIndex - 1, 0));
@@ -677,7 +742,7 @@ export function FeedScreen(): JSX.Element {
       await deletePost(post.id);
       closePostActions();
       requestAnimationFrame(() => {
-        feedScrollRef.current?.scrollTo({animated: false, y: restoreScrollY});
+        feedScrollRef.current?.scrollToOffset({animated: false, offset: restoreScrollY});
       });
     } catch (error) {
       setPostActionError(error instanceof Error && error.message ? error.message : '게시글 삭제에 실패했습니다.');
@@ -1255,19 +1320,239 @@ export function FeedScreen(): JSX.Element {
 
   const handleFeedScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const {contentOffset, contentSize, layoutMeasurement} = event.nativeEvent;
-      feedScrollOffsetYRef.current = contentOffset.y;
-      const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-
-      if (distanceFromBottom > 520 || !posts.length || !hasMorePosts || isLoading || isLoadingMorePosts) {
-        return;
-      }
-
-      loadMorePosts().catch(error => {
-        console.log('[FeedScreen] load more posts failed', error);
-      });
+      feedScrollOffsetYRef.current = event.nativeEvent.contentOffset.y;
     },
-    [hasMorePosts, isLoading, isLoadingMorePosts, loadMorePosts, posts.length],
+    [],
+  );
+
+  const handleFeedEndReached = useCallback(() => {
+    if (!posts.length || !hasMorePosts || isLoading || isLoadingMorePosts) {
+      return;
+    }
+
+    loadMorePosts().catch(error => {
+      console.log('[FeedScreen] load more posts failed', error);
+    });
+  }, [hasMorePosts, isLoading, isLoadingMorePosts, loadMorePosts, posts.length]);
+
+  const renderFeedHeader = useCallback(
+    () => (
+      <View>
+        {highlightGroups.length ? (
+          <ScrollView horizontal contentContainerStyle={styles.highlightRow} showsHorizontalScrollIndicator={false}>
+            {highlightGroups.map((group, index) => (
+              <AnimatedPressable
+                key={group.id}
+                onPress={() => openHighlight(group.id)}
+                style={[styles.highlightItem, index === highlightGroups.length - 1 && styles.highlightItemLast]}>
+                <View style={styles.storyAvatarWrap}>
+                  <LinearGradient
+                    colors={['#E50914', '#E50914', '#85000C']}
+                    start={{x: 0.2, y: 0}}
+                    end={{x: 0.85, y: 1}}
+                    style={styles.storyRingGradient}>
+                    <View style={styles.storyRing}>
+                      <Image
+                        fadeDuration={0}
+                        resizeMethod="resize"
+                        source={group.cover}
+                        style={styles.storyImage}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  </LinearGradient>
+                  <View style={styles.highlightCountBadge}>
+                    <Text style={styles.highlightCountText}>{group.postCount ?? group.items.length}</Text>
+                  </View>
+                </View>
+                <Text numberOfLines={1} style={styles.storyName}>
+                  {group.label}
+                </Text>
+              </AnimatedPressable>
+            ))}
+          </ScrollView>
+        ) : null}
+        <View style={styles.postStack} />
+      </View>
+    ),
+    [highlightGroups, openHighlight],
+  );
+
+  const renderFeedPost: ListRenderItem<FeedPost> = useCallback(
+    ({item: post}) => {
+      const isLiked = Boolean(post.isLiked);
+      const isCaptionExpanded = expandedCaptionPostIds.includes(post.id);
+      const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
+      const comments = commentsByPost[post.id] ?? [];
+      const likeCount = post.likes;
+      const commentCount = typeof post.commentCount === 'number' ? post.commentCount : 0;
+      const postImages = post.images ?? (post.image ? [post.image] : []);
+      const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
+      const isMyPost =
+        myEmployeeId !== undefined && post.writerEmployeeId !== undefined
+          ? String(myEmployeeId) === String(post.writerEmployeeId)
+          : post.user === myName;
+
+      return (
+        <View style={styles.postCard}>
+          <View style={styles.postHeader}>
+            <AnimatedPressable
+              accessibilityLabel={`${post.user} 회원 정보 보기`}
+              accessibilityRole="button"
+              onPress={() => openEmployeeProfile(post)}
+              style={styles.postHeaderLeft}>
+              <View style={styles.profileRing}>
+                <Image fadeDuration={0} resizeMethod="resize" source={post.avatar} style={styles.profileImage} />
+              </View>
+              <View>
+                <Text style={styles.profileName}>{post.user}</Text>
+                <Text style={styles.profileRole}>{post.role}</Text>
+              </View>
+            </AnimatedPressable>
+            {isMyPost ? (
+              <AnimatedPressable accessibilityRole="button" onPress={() => openPostActions(post)} style={styles.moreButton}>
+                <Text style={styles.moreIcon}>...</Text>
+              </AnimatedPressable>
+            ) : null}
+          </View>
+
+          {postImages.length ? (
+            <View style={styles.postImageWrap}>
+              <ScrollView
+                horizontal
+                pagingEnabled
+                directionalLockEnabled
+                nestedScrollEnabled
+                removeClippedSubviews
+                style={styles.postImageCarousel}
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={({nativeEvent}) => {
+                  const nextIndex = Math.round(nativeEvent.contentOffset.x / nativeEvent.layoutMeasurement.width);
+                  setActivePostImageIndex(post.id, nextIndex);
+                }}>
+                {postImages.map((postImage, index) => (
+                  <View key={`${post.id}-image-${index}`} style={[styles.postImageSlide, {width: screenWidth}]}>
+                    <Image
+                      fadeDuration={0}
+                      resizeMethod="resize"
+                      source={postImage}
+                      style={styles.postImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.78)']}
+                style={styles.postImageGradient}
+              />
+              {postImages.length > 1 ? (
+                <>
+                  <View pointerEvents="none" style={styles.postImageCountBadge}>
+                    <Text style={styles.postImageCountText}>
+                      {activeImageIndex + 1}/{postImages.length}
+                    </Text>
+                  </View>
+                  <View pointerEvents="none" style={styles.postImageDotRow}>
+                    {postImages.map((_, index) => (
+                      <View
+                        key={`${post.id}-dot-${index}`}
+                        style={[styles.postImageDot, index === activeImageIndex && styles.postImageDotActive]}
+                      />
+                    ))}
+                  </View>
+                </>
+              ) : null}
+              <View pointerEvents="none" style={[styles.imageTitleWrap, postImages.length > 1 && styles.imageTitleWrapWithDots]}>
+                <Text style={styles.imageTitle}>{post.title}</Text>
+                <Text style={styles.imageTime}>{post.time}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.textOnlyPostIntro}>
+              <Text style={styles.textOnlyPostTitle}>{post.title}</Text>
+              <Text style={styles.textOnlyPostTime}>{post.time}</Text>
+            </View>
+          )}
+
+          <View style={styles.actionRow}>
+            <View style={styles.leftActions}>
+              <LikeButton isLiked={isLiked} onPress={() => toggleLike(post.id)} style={styles.iconButton} />
+              <AnimatedPressable
+                accessibilityLabel="댓글 보기"
+                accessibilityRole="button"
+                onPress={() => openComments(post.id)}
+                style={styles.iconButton}>
+                <Image source={icon.commentOutline} style={styles.actionIconImage} resizeMode="contain" />
+              </AnimatedPressable>
+            </View>
+          </View>
+
+          <View style={styles.captionBlock}>
+            <AnimatedPressable
+              accessibilityLabel={`좋아요 ${formatCount(likeCount)}개, 누른 사람 보기`}
+              accessibilityRole="button"
+              disabled={likeCount === 0}
+              hitSlop={10}
+              onPress={() => openLikedMembers(post)}
+              style={styles.likeTextButton}>
+              <Text style={[styles.likeText, likeCount === 0 && styles.likeTextDisabled]}>
+                좋아요 {formatCount(likeCount)}개
+              </Text>
+            </AnimatedPressable>
+            <Text
+              style={styles.captionMeasureLine}
+              onTextLayout={({nativeEvent}) => markCaptionAsTruncated(post.id, nativeEvent.lines.length)}>
+              <Text style={styles.captionUser}>{post.user} </Text>
+              {post.caption}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={isCaptionExpanded ? undefined : 2} style={styles.captionLine}>
+              <Text style={styles.captionUser}>{post.user} </Text>
+              {post.caption}
+            </Text>
+            {isCaptionTruncated && !isCaptionExpanded ? (
+              <AnimatedPressable accessibilityRole="button" onPress={() => expandCaption(post.id)}>
+                <Text style={styles.captionMoreText}>더보기</Text>
+              </AnimatedPressable>
+            ) : null}
+            <View style={styles.hashtagRow}>
+              {post.hashtags.map(hashtag => (
+                <Text key={hashtag} style={styles.hashtagText}>
+                  {hashtag}
+                </Text>
+              ))}
+            </View>
+            <AnimatedPressable onPress={() => openComments(post.id)}>
+              <Text style={styles.commentLink}>댓글 {commentCount}개 모두 보기</Text>
+            </AnimatedPressable>
+            {comments[0] ? (
+              <Text numberOfLines={1} style={styles.previewComment}>
+                <Text style={styles.captionUser}>{comments[0].user} </Text>
+                {comments[0].text}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      );
+    },
+    [
+      activePostImageIndexes,
+      commentsByPost,
+      expandCaption,
+      expandedCaptionPostIds,
+      markCaptionAsTruncated,
+      myEmployeeId,
+      myName,
+      openComments,
+      openEmployeeProfile,
+      openLikedMembers,
+      openPostActions,
+      screenWidth,
+      setActivePostImageIndex,
+      toggleLike,
+      truncatedCaptionPostIds,
+    ],
   );
 
   return (
@@ -1278,11 +1563,33 @@ export function FeedScreen(): JSX.Element {
         <View style={styles.screen}>
           <AppGnb scrollY={scrollY} />
 
-          <Animated.ScrollView
+          <AnimatedFeedFlatList
             ref={feedScrollRef}
             bounces
+            data={posts}
             contentContainerStyle={styles.feedFrame}
-            removeClippedSubviews
+            initialNumToRender={3}
+            keyExtractor={post => post.id}
+            ListEmptyComponent={
+              isLoading ? (
+                <View style={styles.feedLoadingState}>
+                  <AppLoading label="피드를 불러오는 중..." />
+                </View>
+              ) : (
+                <Text style={styles.emptyFeedText}>표시할 게시글이 없습니다.</Text>
+              )
+            }
+            ListFooterComponent={
+              isLoadingMorePosts ? (
+                <View style={styles.feedPaginationLoading}>
+                  <ActivityIndicator color="#E50914" />
+                </View>
+              ) : null
+            }
+            ListHeaderComponent={renderFeedHeader}
+            maxToRenderPerBatch={3}
+            onEndReached={handleFeedEndReached}
+            onEndReachedThreshold={0.6}
             refreshControl={
               <RefreshControl
                 colors={['#E50914']}
@@ -1292,251 +1599,16 @@ export function FeedScreen(): JSX.Element {
                 onRefresh={handleFeedRefresh}
               />
             }
+            renderItem={renderFeedPost}
             showsVerticalScrollIndicator={false}
+            updateCellsBatchingPeriod={80}
+            windowSize={5}
             onScroll={Animated.event([{nativeEvent: {contentOffset: {y: scrollY}}}], {
               listener: handleFeedScroll,
               useNativeDriver: true,
             })}
-            scrollEventThrottle={16}>
-            {highlightGroups.length ? (
-              <ScrollView
-                horizontal
-                contentContainerStyle={styles.highlightRow}
-                removeClippedSubviews
-                showsHorizontalScrollIndicator={false}>
-                {highlightGroups.map((group, index) => (
-                  <AnimatedPressable
-                    key={group.id}
-                    onPress={() => openHighlight(group.id)}
-                    style={[styles.highlightItem, index === highlightGroups.length - 1 && styles.highlightItemLast]}>
-                    <View style={styles.storyAvatarWrap}>
-                      <LinearGradient
-                        colors={['#E50914', '#E50914', '#85000C']}
-                        start={{x: 0.2, y: 0}}
-                        end={{x: 0.85, y: 1}}
-                        style={styles.storyRingGradient}>
-                        <View style={styles.storyRing}>
-                          <Image
-                            fadeDuration={0}
-                            resizeMethod="resize"
-                            source={group.cover}
-                            style={styles.storyImage}
-                            resizeMode="cover"
-                          />
-                        </View>
-                      </LinearGradient>
-                      <View style={styles.highlightCountBadge}>
-                        <Text style={styles.highlightCountText}>{group.postCount ?? group.items.length}</Text>
-                      </View>
-                    </View>
-                    <Text numberOfLines={1} style={styles.storyName}>
-                      {group.label}
-                    </Text>
-                  </AnimatedPressable>
-                ))}
-              </ScrollView>
-            ) : null}
-
-            <View style={[styles.postStack, isLoading && !posts.length && styles.feedLoadingStack]}>
-              {isLoading && !posts.length ? (
-                <View style={styles.feedLoadingState}>
-                  <AppLoading label="피드를 불러오는 중..." />
-                </View>
-              ) : !posts.length ? (
-                <Text style={styles.emptyFeedText}>표시할 게시글이 없습니다.</Text>
-              ) : (
-                <>
-                  {posts.map(post => {
-                    const isLiked = Boolean(post.isLiked);
-                    const isCaptionExpanded = expandedCaptionPostIds.includes(post.id);
-                    const isCaptionTruncated = truncatedCaptionPostIds.includes(post.id);
-                    const comments = commentsByPost[post.id] ?? [];
-                    const likeCount = post.likes;
-                    const commentCount = typeof post.commentCount === 'number' ? post.commentCount : 0;
-                    const postImages = post.images ?? (post.image ? [post.image] : []);
-                    const activeImageIndex = activePostImageIndexes[post.id] ?? 0;
-                    const isMyPost =
-                      myEmployeeId !== undefined && post.writerEmployeeId !== undefined
-                        ? String(myEmployeeId) === String(post.writerEmployeeId)
-                        : post.user === myName;
-
-                    return (
-                      <View key={post.id} style={styles.postCard}>
-                        <View style={styles.postHeader}>
-                          <AnimatedPressable
-                            accessibilityLabel={`${post.user} 회원 정보 보기`}
-                            accessibilityRole="button"
-                            onPress={() => openEmployeeProfile(post)}
-                            style={styles.postHeaderLeft}>
-                            <View style={styles.profileRing}>
-                              <Image
-                                fadeDuration={0}
-                                resizeMethod="resize"
-                                source={post.avatar}
-                                style={styles.profileImage}
-                                resizeMode="cover"
-                              />
-                            </View>
-                            <View>
-                              <Text style={styles.profileName}>{post.user}</Text>
-                              <Text style={styles.profileRole}>{post.role}</Text>
-                            </View>
-                          </AnimatedPressable>
-                          {isMyPost ? (
-                            <AnimatedPressable
-                              accessibilityRole="button"
-                              onPress={() => openPostActions(post)}
-                              style={styles.moreButton}>
-                              <Text style={styles.moreIcon}>...</Text>
-                            </AnimatedPressable>
-                          ) : null}
-                        </View>
-
-                        {postImages.length ? (
-                          <View style={styles.postImageWrap}>
-                            <ScrollView
-                              horizontal
-                              pagingEnabled
-                              directionalLockEnabled
-                              nestedScrollEnabled
-                              removeClippedSubviews
-                              style={styles.postImageCarousel}
-                              showsHorizontalScrollIndicator={false}
-                              onMomentumScrollEnd={({nativeEvent}) => {
-                                const nextIndex = Math.round(
-                                  nativeEvent.contentOffset.x / nativeEvent.layoutMeasurement.width,
-                                );
-                                setActivePostImageIndex(post.id, nextIndex);
-                              }}>
-                              {postImages.map((postImage, index) => (
-                                <View
-                                  key={`${post.id}-image-${index}`}
-                                  style={[styles.postImageSlide, {width: screenWidth}]}>
-                                  <Image
-                                    fadeDuration={0}
-                                    resizeMethod="resize"
-                                    source={postImage}
-                                    style={styles.postImage}
-                                    resizeMode="contain"
-                                  />
-                                </View>
-                              ))}
-                            </ScrollView>
-                            <LinearGradient
-                              pointerEvents="none"
-                              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.78)']}
-                              style={styles.postImageGradient}
-                            />
-                            {postImages.length > 1 ? (
-                              <>
-                                <View pointerEvents="none" style={styles.postImageCountBadge}>
-                                  <Text style={styles.postImageCountText}>
-                                    {activeImageIndex + 1}/{postImages.length}
-                                  </Text>
-                                </View>
-                                <View pointerEvents="none" style={styles.postImageDotRow}>
-                                  {postImages.map((_, index) => (
-                                    <View
-                                      key={`${post.id}-dot-${index}`}
-                                      style={[
-                                        styles.postImageDot,
-                                        index === activeImageIndex && styles.postImageDotActive,
-                                      ]}
-                                    />
-                                  ))}
-                                </View>
-                              </>
-                            ) : null}
-                            <View
-                              pointerEvents="none"
-                              style={[styles.imageTitleWrap, postImages.length > 1 && styles.imageTitleWrapWithDots]}>
-                              <Text style={styles.imageTitle}>{post.title}</Text>
-                              <Text style={styles.imageTime}>{post.time}</Text>
-                            </View>
-                          </View>
-                        ) : (
-                          <View style={styles.textOnlyPostIntro}>
-                            <Text style={styles.textOnlyPostTitle}>{post.title}</Text>
-                            <Text style={styles.textOnlyPostTime}>{post.time}</Text>
-                          </View>
-                        )}
-
-                        <View style={styles.actionRow}>
-                          <View style={styles.leftActions}>
-                            <LikeButton
-                              isLiked={isLiked}
-                              onPress={() => toggleLike(post.id)}
-                              style={styles.iconButton}
-                            />
-                            <AnimatedPressable
-                              accessibilityLabel="댓글 보기"
-                              accessibilityRole="button"
-                              onPress={() => openComments(post.id)}
-                              style={styles.iconButton}>
-                              <Image source={icon.commentOutline} style={styles.actionIconImage} resizeMode="contain" />
-                            </AnimatedPressable>
-                          </View>
-                        </View>
-
-                        <View style={styles.captionBlock}>
-                          <AnimatedPressable
-                            accessibilityLabel={`좋아요 ${formatCount(likeCount)}개, 누른 사람 보기`}
-                            accessibilityRole="button"
-                            disabled={likeCount === 0}
-                            hitSlop={10}
-                            onPress={() => openLikedMembers(post)}
-                            style={styles.likeTextButton}>
-                            <Text style={[styles.likeText, likeCount === 0 && styles.likeTextDisabled]}>
-                              좋아요 {formatCount(likeCount)}개
-                            </Text>
-                          </AnimatedPressable>
-                          <Text
-                            style={styles.captionMeasureLine}
-                            onTextLayout={({nativeEvent}) => markCaptionAsTruncated(post.id, nativeEvent.lines.length)}>
-                            <Text style={styles.captionUser}>{post.user} </Text>
-                            {post.caption}
-                          </Text>
-                          <Text
-                            ellipsizeMode="tail"
-                            numberOfLines={isCaptionExpanded ? undefined : 2}
-                            style={styles.captionLine}>
-                            <Text style={styles.captionUser}>{post.user} </Text>
-                            {post.caption}
-                          </Text>
-                          {isCaptionTruncated && !isCaptionExpanded ? (
-                            <AnimatedPressable accessibilityRole="button" onPress={() => expandCaption(post.id)}>
-                              <Text style={styles.captionMoreText}>더보기</Text>
-                            </AnimatedPressable>
-                          ) : null}
-                          <View style={styles.hashtagRow}>
-                            {post.hashtags.map(hashtag => (
-                              <Text key={hashtag} style={styles.hashtagText}>
-                                {hashtag}
-                              </Text>
-                            ))}
-                          </View>
-                          <AnimatedPressable onPress={() => openComments(post.id)}>
-                            <Text style={styles.commentLink}>댓글 {commentCount}개 모두 보기</Text>
-                          </AnimatedPressable>
-                          {comments[0] ? (
-                            <Text numberOfLines={1} style={styles.previewComment}>
-                              <Text style={styles.captionUser}>{comments[0].user} </Text>
-                              {comments[0].text}
-                            </Text>
-                          ) : null}
-                        </View>
-                      </View>
-                    );
-                  })}
-                  {isLoadingMorePosts ? (
-                    <View style={styles.feedPaginationLoading}>
-                      <ActivityIndicator color="#E50914" />
-                    </View>
-                  ) : null}
-                </>
-              )}
-            </View>
-          </Animated.ScrollView>
+            scrollEventThrottle={16}
+          />
 
           <AnimatedPressable
             accessibilityLabel="게시글 등록"
@@ -1746,7 +1818,10 @@ export function FeedScreen(): JSX.Element {
 
           <Modal animationType="fade" onRequestClose={closeHighlight} transparent visible={isHighlightVisible}>
             {selectedHighlightGroup ? (
-              <View style={styles.highlightViewer} {...highlightSwipeResponder.panHandlers}>
+              <View style={styles.highlightDismissBackdrop}>
+                <Animated.View
+                  style={[styles.highlightViewer, highlightViewerAnimatedStyle]}
+                  {...highlightSwipeResponder.panHandlers}>
                 {selectedHighlightItem ? (
                   <View style={[styles.highlightProgressRow, {top: highlightProgressTop}]}>
                     {selectedHighlightGroup.items.map((item, index) => (
@@ -1832,6 +1907,7 @@ export function FeedScreen(): JSX.Element {
                     )}
                   </View>
                 )}
+                </Animated.View>
               </View>
             ) : null}
           </Modal>
@@ -2359,9 +2435,6 @@ const styles = StyleSheet.create({
   postStack: {
     borderTopWidth: 1,
     borderTopColor: '#161616',
-  },
-  feedLoadingStack: {
-    minHeight: 520,
   },
   feedLoadingState: {
     flex: 1,
@@ -3602,6 +3675,10 @@ const styles = StyleSheet.create({
   highlightViewer: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  highlightDismissBackdrop: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   highlightLoadingState: {
     flex: 1,

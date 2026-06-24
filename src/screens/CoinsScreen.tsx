@@ -50,9 +50,9 @@ const coinEarningGuideItems = [
 ] as const;
 
 const coinBenefitGuideItems = [
-  {badge: '1', description: '누적 코인 차감 없음', title: '상품 응모🍀'},
-  {badge: '2', description: '참가하고 추가 코인 획득', title: '코인대전'},
-  {badge: '3', description: '누적 코인 기준으로 반영', title: '랭킹 반영'},
+  {badge: '1', description: '누적 코인 차감 없음', title: '상품 응모🍀', reward: false},
+  {badge: '2', description: '참가하고 추가 코인 획득', title: '코인대전', reward: false},
+  {badge: '3', description: '누적 코인 기준으로 반영', title: '랭킹 반영', reward: false},
   {badge: '4', description: '랭킹 TOP30 특별 상품 증정', title: '랭킹 보상', reward: true},
   {badge: '5', description: '100만원 ~ 30만원 상당 상품', title: 'TOP 3', reward: true},
   {badge: '6', description: '10만원 상당 상품', title: 'TOP 30', reward: true},

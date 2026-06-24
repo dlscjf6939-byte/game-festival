@@ -1,7 +1,17 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {Animated, Image, RefreshControl, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View} from 'react-native';
+import {
+  Animated,
+  Image,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {AnimatedPressable} from '../components/AnimatedPressable';
 import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
@@ -58,13 +68,13 @@ const fallbackPredictionCards: PredictionCardItem[] = [
     posterSource: image.maskSinger,
     wordmarkSource: image.maskSingerLetter,
   },
-   {
+  {
     id: 'executive',
     title: '임원전 철권',
-    description: '복면을 쓴 프로들의 대결! 과연 누가 우승할 것 인가?',
+    description: '임원진과 프로들의 1:1 대결! 승자는 누구?',
     posterSource: image.executive,
     wordmarkSource: image.executiveLetter,
-  }
+  },
 ];
 
 type GameApiItem = {
@@ -186,7 +196,7 @@ function toPredictionCard(game: GameApiItem): PredictionCardItem | null {
       : game.gameId === EXECUTIVE_GAME_ID
       ? fallbackPredictionCards[4]
       : getFallbackCardByTitle(gameTitle);
-    
+
   return {
     ...fallbackCard,
     gameId: game.gameId,
@@ -271,7 +281,9 @@ function toRateFromParticipant(participant: PredictionParticipant): number {
   return 0;
 }
 
-function getParticipantDisplayName(participant: Pick<PredictionParticipant, 'name' | 'participantName'>): string | null {
+function getParticipantDisplayName(
+  participant: Pick<PredictionParticipant, 'name' | 'participantName'>,
+): string | null {
   const displayName = participant.participantName?.trim() || participant.name?.trim() || '';
   const hasVisibleName = displayName.replace(/[\s()[\]{}]/g, '').length > 0;
 
@@ -406,7 +418,11 @@ function PredictionCard({
           <Image
             source={card.wordmarkSource}
             resizeMode="contain"
-            style={[styles.cardWordmark, isMaskSingerPredictionCard(card) && styles.maskSingerCardWordmark, isExecutivePredictionCard(card) && styles.executiveCardWordmark]}
+            style={[
+              styles.cardWordmark,
+              isMaskSingerPredictionCard(card) && styles.maskSingerCardWordmark,
+              isExecutivePredictionCard(card) && styles.executiveCardWordmark,
+            ]}
           />
           <Text style={styles.cardTitle}>{card.title}</Text>
           <Text numberOfLines={2} style={styles.cardDescription}>
@@ -588,123 +604,106 @@ export function PredictionScreen(): JSX.Element {
     }).start();
   }, [activeTab, tabContentProgress]);
 
-  const fetchPredictionData = useCallback(async (showLoading = true) => {
-    const accessToken = auth?.accessToken;
+  const fetchPredictionData = useCallback(
+    async (showLoading = true) => {
+      const accessToken = auth?.accessToken;
 
-    if (!accessToken) {
-      setIsGamesLoading(false);
-      setIsParticipatedLoading(false);
-      return;
-    }
+      if (!accessToken) {
+        setIsGamesLoading(false);
+        setIsParticipatedLoading(false);
+        return;
+      }
 
-    if (showLoading) {
-      setIsGamesLoading(true);
-      setIsParticipatedLoading(true);
-    }
+      if (showLoading) {
+        setIsGamesLoading(true);
+        setIsParticipatedLoading(true);
+      }
 
-    setGamesErrorMessage(null);
-    setParticipatedErrorMessage(null);
-
-    try {
-      const response = await withMinimumLoadingTime(
-        fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games`, {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }),
-      );
-      const responseText = await response.text();
-      let responseBody: GamesApiResponse | null = null;
+      setGamesErrorMessage(null);
+      setParticipatedErrorMessage(null);
 
       try {
-        responseBody = JSON.parse(responseText) as GamesApiResponse;
-      } catch {
-        throw new Error('게임 목록 응답을 해석하지 못했습니다.');
-      }
-
-      if (!response.ok || responseBody.success === false) {
-        throw new Error(responseBody.message || '게임 목록 조회에 실패했습니다.');
-      }
-
-      const gamesWithId = (responseBody.data ?? []).filter(
-        (game): game is GameApiItem & {gameId: number} => typeof game.gameId === 'number',
-      );
-      const nextCards = (responseBody.data ?? [])
-        .map(toPredictionCard)
-        .filter((card): card is PredictionCardItem => Boolean(card));
-
-      setPredictionCards(nextCards);
-
-      const gameDetailResults = await Promise.allSettled(
-        gamesWithId.map(async game => {
-          const gameDetailResponse = await fetch(
-            `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}`,
-            {
-              headers: {
-                Accept: 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-              },
+        const response = await withMinimumLoadingTime(
+          fetch(`${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games`, {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${accessToken}`,
             },
-          );
-          const gameDetailBody = (await gameDetailResponse.json()) as GameDetailApiResponse;
+          }),
+        );
+        const responseText = await response.text();
+        let responseBody: GamesApiResponse | null = null;
 
-          if (!gameDetailResponse.ok || gameDetailBody.success === false || !gameDetailBody.data) {
-            throw new Error(gameDetailBody.message || '게임 상세 조회에 실패했습니다.');
-          }
-
-          return {
-            detail: gameDetailBody.data,
-            game,
-          };
-        }),
-      );
-      const validGameDetails = gameDetailResults
-        .filter(
-          (
-            result,
-          ): result is PromiseFulfilledResult<{
-            detail: NonNullable<GameDetailApiResponse['data']>;
-            game: GameApiItem & {gameId: number};
-          }> => result.status === 'fulfilled',
-        )
-        .map(result => result.value);
-
-      gameDetailResults.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          console.log('[PredictionScreen] skipped participated game detail', {
-            error: result.reason,
-            gameId: gamesWithId[index]?.gameId,
-          });
+        try {
+          responseBody = JSON.parse(responseText) as GamesApiResponse;
+        } catch {
+          throw new Error('게임 목록 응답을 해석하지 못했습니다.');
         }
-      });
 
-      const participatedResults = await Promise.allSettled(
-        validGameDetails.map(async ({detail: gameDetail, game}) => {
-          const matchResults = await Promise.allSettled(
-            (gameDetail.matches ?? [])
-              .filter(match => typeof match.matchId === 'number')
-              .map(async match => {
-                const matchDetailResponse = await fetch(
-                  `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}`,
-                  {
-                    headers: {
-                      Accept: 'application/json',
-                      Authorization: `Bearer ${accessToken}`,
-                    },
-                  },
-                );
-                const matchDetailBody = (await matchDetailResponse.json()) as MatchDetailApiResponse;
+        if (!response.ok || responseBody.success === false) {
+          throw new Error(responseBody.message || '게임 목록 조회에 실패했습니다.');
+        }
 
-                if (!matchDetailResponse.ok || matchDetailBody.success === false) {
-                  throw new Error(matchDetailBody.message || '경기 상세 조회에 실패했습니다.');
-                }
+        const gamesWithId = (responseBody.data ?? []).filter(
+          (game): game is GameApiItem & {gameId: number} => typeof game.gameId === 'number',
+        );
+        const nextCards = (responseBody.data ?? [])
+          .map(toPredictionCard)
+          .filter((card): card is PredictionCardItem => Boolean(card));
 
-                let overviewData: MatchOverviewApiResponse['data'] | undefined;
+        setPredictionCards(nextCards);
 
-                try {
-                  const matchOverviewResponse = await fetch(
-                    `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}/overview`,
+        const gameDetailResults = await Promise.allSettled(
+          gamesWithId.map(async game => {
+            const gameDetailResponse = await fetch(
+              `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}`,
+              {
+                headers: {
+                  Accept: 'application/json',
+                  Authorization: `Bearer ${accessToken}`,
+                },
+              },
+            );
+            const gameDetailBody = (await gameDetailResponse.json()) as GameDetailApiResponse;
+
+            if (!gameDetailResponse.ok || gameDetailBody.success === false || !gameDetailBody.data) {
+              throw new Error(gameDetailBody.message || '게임 상세 조회에 실패했습니다.');
+            }
+
+            return {
+              detail: gameDetailBody.data,
+              game,
+            };
+          }),
+        );
+        const validGameDetails = gameDetailResults
+          .filter(
+            (
+              result,
+            ): result is PromiseFulfilledResult<{
+              detail: NonNullable<GameDetailApiResponse['data']>;
+              game: GameApiItem & {gameId: number};
+            }> => result.status === 'fulfilled',
+          )
+          .map(result => result.value);
+
+        gameDetailResults.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            console.log('[PredictionScreen] skipped participated game detail', {
+              error: result.reason,
+              gameId: gamesWithId[index]?.gameId,
+            });
+          }
+        });
+
+        const participatedResults = await Promise.allSettled(
+          validGameDetails.map(async ({detail: gameDetail, game}) => {
+            const matchResults = await Promise.allSettled(
+              (gameDetail.matches ?? [])
+                .filter(match => typeof match.matchId === 'number')
+                .map(async match => {
+                  const matchDetailResponse = await fetch(
+                    `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}`,
                     {
                       headers: {
                         Accept: 'application/json',
@@ -712,55 +711,75 @@ export function PredictionScreen(): JSX.Element {
                       },
                     },
                   );
-                  const matchOverviewBody = (await matchOverviewResponse.json()) as MatchOverviewApiResponse;
+                  const matchDetailBody = (await matchDetailResponse.json()) as MatchDetailApiResponse;
 
-                  if (matchOverviewResponse.ok && matchOverviewBody.success !== false) {
-                    overviewData = matchOverviewBody.data;
+                  if (!matchDetailResponse.ok || matchDetailBody.success === false) {
+                    throw new Error(matchDetailBody.message || '경기 상세 조회에 실패했습니다.');
                   }
-                } catch (error) {
-                  console.log('[PredictionScreen] match overview request failed', {
-                    error,
-                    gameId: game.gameId,
-                    matchId: match.matchId,
-                  });
-                }
 
-                return toParticipatedPrediction(gameDetail, match, matchDetailBody.data, overviewData);
-              }),
-          );
+                  let overviewData: MatchOverviewApiResponse['data'] | undefined;
 
-          return matchResults
-            .filter(
-              (result): result is PromiseFulfilledResult<ParticipatedPrediction | null> =>
-                result.status === 'fulfilled',
-            )
-            .map(result => result.value)
-            .filter((item): item is ParticipatedPrediction => Boolean(item));
-        }),
-      );
+                  try {
+                    const matchOverviewResponse = await fetch(
+                      `${API_BASE}/api/festivals/${PREDICTION_FESTIVAL_ID}/games/${game.gameId}/matches/${match.matchId}/overview`,
+                      {
+                        headers: {
+                          Accept: 'application/json',
+                          Authorization: `Bearer ${accessToken}`,
+                        },
+                      },
+                    );
+                    const matchOverviewBody = (await matchOverviewResponse.json()) as MatchOverviewApiResponse;
 
-      const nextParticipatedPredictions = participatedResults
-        .filter((result): result is PromiseFulfilledResult<ParticipatedPrediction[]> => result.status === 'fulfilled')
-        .flatMap(result => result.value);
+                    if (matchOverviewResponse.ok && matchOverviewBody.success !== false) {
+                      overviewData = matchOverviewBody.data;
+                    }
+                  } catch (error) {
+                    console.log('[PredictionScreen] match overview request failed', {
+                      error,
+                      gameId: game.gameId,
+                      matchId: match.matchId,
+                    });
+                  }
 
-      setParticipatedPredictions(nextParticipatedPredictions);
-    } catch (error) {
-      console.log('[PredictionScreen] games request failed', error);
+                  return toParticipatedPrediction(gameDetail, match, matchDetailBody.data, overviewData);
+                }),
+            );
 
-      if (showLoading) {
+            return matchResults
+              .filter(
+                (result): result is PromiseFulfilledResult<ParticipatedPrediction | null> =>
+                  result.status === 'fulfilled',
+              )
+              .map(result => result.value)
+              .filter((item): item is ParticipatedPrediction => Boolean(item));
+          }),
+        );
+
+        const nextParticipatedPredictions = participatedResults
+          .filter((result): result is PromiseFulfilledResult<ParticipatedPrediction[]> => result.status === 'fulfilled')
+          .flatMap(result => result.value);
+
+        setParticipatedPredictions(nextParticipatedPredictions);
+      } catch (error) {
+        console.log('[PredictionScreen] games request failed', error);
+
+        if (showLoading) {
           setPredictionCards([]);
           setParticipatedPredictions([]);
-      }
+        }
 
-      setGamesErrorMessage(error instanceof Error ? error.message : '게임 목록 조회에 실패했습니다.');
-      setParticipatedErrorMessage('예측현황을 불러오지 못했습니다.');
-    } finally {
-      if (showLoading) {
-        setIsGamesLoading(false);
-        setIsParticipatedLoading(false);
+        setGamesErrorMessage(error instanceof Error ? error.message : '게임 목록 조회에 실패했습니다.');
+        setParticipatedErrorMessage('예측현황을 불러오지 못했습니다.');
+      } finally {
+        if (showLoading) {
+          setIsGamesLoading(false);
+          setIsParticipatedLoading(false);
+        }
       }
-    }
-  }, [auth?.accessToken]);
+    },
+    [auth?.accessToken],
+  );
 
   useEffect(() => {
     fetchPredictionData().catch(error => {
