@@ -36,16 +36,17 @@ const coinTabs = [
 ] as const;
 
 const raffleTabs = [
-  {id: 'apply', label: '응모하기'},
+  {id: 'apply', label: '경품 응모'},
+  {id: 'kboApply', label: 'KBO 응모'},
   {id: 'history', label: '응모이력'},
 ] as const;
 
 const coinEarningGuideItems = [
   {badge: '1', description: '+10코인', title: '사전 설문 참여'},
-  {badge: '2', description: '일일 1~4코인 랜덤 지급 ( 개근시 +5코인 )', title: '매일 출석체크'},
-  {badge: '3', description: '게시글당 +1코인, 일 최대 2회', title: '피드 게시글 작성'},
+  {badge: '2', description: '일일 3~6코인 랜덤 지급 ( 연속출석시 +n코인 )', title: '매일 출석체크'},
+  {badge: '3', description: '게시글당 +2코인, 일 최대 5회', title: '피드 게시글 작성'},
   {badge: '4', description: '미니게임으로 코인 쟁탈 ( 누적 코인 증감 없음 )', title: '코인대전'},
-  {badge: '5', description: '게임별 +2코인', title: '승부예측 적중'},
+  {badge: '5', description: '게임별 +5코인', title: '승부예측 적중'},
   {badge: '6', description: '추가 코인 획득 ❤️', title: '다양한 현장 이벤트 참여'},
 ] as const;
 
@@ -55,12 +56,13 @@ const coinBenefitGuideItems = [
   {badge: '3', description: '누적 코인 기준으로 반영', title: '랭킹 반영', reward: false},
   {badge: '4', description: '랭킹 TOP30 특별 상품 증정', title: '랭킹 보상', reward: true},
   {badge: '5', description: '100만원 ~ 30만원 상당 상품', title: 'TOP 3', reward: true},
-  {badge: '6', description: '10만원 상당 상품', title: 'TOP 30', reward: true},
+  {badge: '6', description: '10만원 이하의 다양한 특별 상품', title: 'TOP 30', reward: true},
 ] as const;
 
 type CoinTabId = (typeof coinTabs)[number]['id'];
 type CoinViewMode = 'overview' | 'raffle';
 type RaffleTabId = (typeof raffleTabs)[number]['id'];
+type RaffleProductType = 'NORMAL' | 'KBO';
 
 type RaffleHistory = {
   applyPrice: number;
@@ -72,10 +74,15 @@ type RaffleHistory = {
 type RaffleProduct = {
   applyCount: number;
   applyPrice: number;
+  applyWinnerCount: number;
   id: number;
   image: ImageSourcePropType;
   productName: string;
 };
+
+function getRaffleProductType(tabId: RaffleTabId): RaffleProductType {
+  return tabId === 'kboApply' ? 'KBO' : 'NORMAL';
+}
 
 type RaffleProductsResponse = {
   code?: string;
@@ -162,6 +169,7 @@ type RankingProfileFeedResponse = {
 type RaffleProductApiItem = {
   applyCount?: number | string;
   applyPrice?: number | string;
+  applyWinnerCount?: number | string;
   imageUrl?: string;
   productId?: number | string;
   productName?: string;
@@ -192,16 +200,18 @@ function formatRaffleHistoryAppliedAt(value: unknown): string {
 function getRaffleProductImage(imageUrl: unknown): ImageSourcePropType {
   if (typeof imageUrl === 'string' && imageUrl.trim()) {
     const trimmedImageUrl = imageUrl.trim();
+    const markdownUrlMatch = trimmedImageUrl.match(/\((https?:\/\/[^)]+)\)/i);
+    const normalizedImageUrl = markdownUrlMatch?.[1] ?? trimmedImageUrl;
 
-    if (/^(https?:|file:|data:)/i.test(trimmedImageUrl)) {
-      return {uri: trimmedImageUrl};
+    if (/^(https?:|file:|data:)/i.test(normalizedImageUrl)) {
+      return {uri: normalizedImageUrl};
     }
 
-    if (trimmedImageUrl.startsWith('/')) {
-      return {uri: `${API_BASE}${trimmedImageUrl}`};
+    if (normalizedImageUrl.startsWith('/')) {
+      return {uri: `${API_BASE}${normalizedImageUrl}`};
     }
 
-    return {uri: `${API_BASE}/${trimmedImageUrl.replace(/^\/+/, '')}`};
+    return {uri: `${API_BASE}/${normalizedImageUrl.replace(/^\/+/, '')}`};
   }
 
   return image.product1;
@@ -246,6 +256,7 @@ function toRaffleProduct(item: unknown): RaffleProduct | null {
   const productName = typeof record.productName === 'string' ? record.productName.trim() : '';
   const applyPrice = toCoinNumber(record.applyPrice);
   const applyCount = toCoinNumber(record.applyCount);
+  const applyWinnerCount = toCoinNumber(record.applyWinnerCount);
 
   if (productId === null || !productName || applyPrice === null) {
     return null;
@@ -254,6 +265,7 @@ function toRaffleProduct(item: unknown): RaffleProduct | null {
   return {
     applyCount: applyCount ?? 0,
     applyPrice,
+    applyWinnerCount: applyWinnerCount ?? 0,
     id: productId,
     image: getRaffleProductImage(record.imageUrl),
     productName,
@@ -539,12 +551,14 @@ function RaffleItemCard({
   isAffordable,
   isSelected,
   item,
+  productNameLineLimit = 2,
   onPress,
 }: {
   index: number;
   isAffordable: boolean;
   isSelected: boolean;
   item: RaffleProduct;
+  productNameLineLimit?: 2 | 4;
   onPress: () => void;
 }): JSX.Element {
   const entranceProgress = useRef(new Animated.Value(0)).current;
@@ -581,13 +595,20 @@ function RaffleItemCard({
           isSelected && styles.raffleItemCardSelected,
           !isAffordable && styles.raffleItemCardDisabled,
         ]}>
-        <View style={[styles.raffleCheck, isSelected && styles.raffleCheckSelected]}>
-          {isSelected ? <Image source={icon.check} style={styles.raffleCheckIcon} /> : null}
+        <View style={styles.raffleCheckWrap}>
+          <View style={[styles.raffleCheck, isSelected && styles.raffleCheckSelected]}>
+            {isSelected ? <Image source={icon.check} style={styles.raffleCheckIcon} /> : null}
+          </View>
+          <View style={styles.raffleCheckLabelWrap}>
+            <Text style={styles.raffleCheckLabel}>{item.applyWinnerCount}명</Text>
+          </View>
         </View>
         <View style={styles.rafflePrizeVisual}>
           <Image source={item.image} style={styles.rafflePrizeIcon} />
         </View>
-        <Text numberOfLines={2} style={styles.raffleItemLabel}>
+        <Text
+          numberOfLines={productNameLineLimit}
+          style={[styles.raffleItemLabel, productNameLineLimit === 4 && styles.raffleItemLabelExpanded]}>
           {item.productName}
         </Text>
         <View style={styles.raffleItemMeta}>
@@ -595,7 +616,7 @@ function RaffleItemCard({
             응모가격 {item.applyPrice}코인
           </Text>
           <Text numberOfLines={1} style={styles.raffleItemCount}>
-            전체 응모 {item.applyCount}회
+            응모인원 {item.applyCount}명
           </Text>
         </View>
       </AnimatedPressable>
@@ -638,6 +659,8 @@ export function CoinsScreen(): JSX.Element {
   const [rankingProfileError, setRankingProfileError] = useState<string | null>(null);
   const [selectedRankingProfile, setSelectedRankingProfile] = useState<EmployeeProfile | null>(null);
   const rankingProfileProgress = useRef(new Animated.Value(0)).current;
+  const isRaffleProductTab = activeRaffleTab === 'apply' || activeRaffleTab === 'kboApply';
+  const activeRaffleProductType = getRaffleProductType(activeRaffleTab);
   const rankingProfileOpacity = useRef(new Animated.Value(0)).current;
   const viewTransitionProgress = useRef(new Animated.Value(1)).current;
   const tabContentProgress = useRef(new Animated.Value(1)).current;
@@ -835,7 +858,7 @@ export function CoinsScreen(): JSX.Element {
   };
 
   const fetchRaffleProducts = useCallback(
-    async (showLoading = true) => {
+    async (showLoading = true, productType: RaffleProductType = activeRaffleProductType) => {
       if (!auth?.accessToken) {
         setRaffleProducts([]);
         setIsRaffleProductsLoading(false);
@@ -850,7 +873,7 @@ export function CoinsScreen(): JSX.Element {
 
       try {
         const response = await withMinimumLoadingTime(
-          fetch(`${API_BASE}/api/products?useApply=true`, {
+          fetch(`${API_BASE}/api/products?useApply=true&productType=${productType}`, {
             headers: {
               Accept: 'application/json',
               Authorization: `Bearer ${auth.accessToken}`,
@@ -899,14 +922,18 @@ export function CoinsScreen(): JSX.Element {
         }
       }
     },
-    [auth?.accessToken],
+    [activeRaffleProductType, auth?.accessToken],
   );
 
   useEffect(() => {
+    if (!isRaffleProductTab) {
+      return;
+    }
+
     fetchRaffleProducts().catch(error => {
       console.log('[CoinsScreen] raffle products effect failed', error);
     });
-  }, [fetchRaffleProducts]);
+  }, [fetchRaffleProducts, isRaffleProductTab]);
 
   const fetchRaffleHistories = useCallback(async () => {
     if (!auth?.accessToken) {
@@ -1087,42 +1114,48 @@ export function CoinsScreen(): JSX.Element {
     try {
       await Promise.allSettled([
         refreshAllCoins(),
-        fetchRaffleProducts(false),
+        isRaffleProductTab ? fetchRaffleProducts(false) : Promise.resolve(),
         fetchRaffleHistories(),
         refreshProfile(),
       ]);
     } finally {
       setIsRefreshingCoins(false);
     }
-  }, [fetchRaffleHistories, fetchRaffleProducts, isRefreshingCoins, refreshAllCoins, refreshProfile]);
+  }, [
+    fetchRaffleHistories,
+    fetchRaffleProducts,
+    isRaffleProductTab,
+    isRefreshingCoins,
+    refreshAllCoins,
+    refreshProfile,
+  ]);
 
   if (viewMode === 'raffle') {
-    const raffleApplyFooter =
-      activeRaffleTab === 'apply' ? (
-        <View style={styles.raffleFixedFooter}>
-          <View style={styles.raffleSummary}>
-            <View style={styles.raffleSummaryTextWrap}>
-              <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
-              <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={styles.raffleSummaryTitle}>
-                {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
-              </Text>
-            </View>
-            <AnimatedPressable
-              accessibilityRole="button"
-              disabled={!canApply}
-              onPress={openRaffleConfirm}
-              style={[styles.raffleApplyButton, !canApply && styles.raffleApplyButtonDisabled]}>
-              <Text style={[styles.raffleApplyText, !canApply && styles.raffleApplyTextDisabled]}>
-                {selectedRaffleItem === null ? '상품 없음' : canApply ? '응모하기' : '코인 부족'}
-              </Text>
-            </AnimatedPressable>
+    const raffleApplyFooter = isRaffleProductTab ? (
+      <View style={styles.raffleFixedFooter}>
+        <View style={styles.raffleSummary}>
+          <View style={styles.raffleSummaryTextWrap}>
+            <Text style={styles.raffleSummaryLabel}>선택 상품</Text>
+            <Text adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={styles.raffleSummaryTitle}>
+              {selectedRaffleItem?.productName ?? '상품을 선택하세요'}
+            </Text>
           </View>
+          <AnimatedPressable
+            accessibilityRole="button"
+            disabled={!canApply}
+            onPress={openRaffleConfirm}
+            style={[styles.raffleApplyButton, !canApply && styles.raffleApplyButtonDisabled]}>
+            <Text style={[styles.raffleApplyText, !canApply && styles.raffleApplyTextDisabled]}>
+              {selectedRaffleItem === null ? '상품 없음' : canApply ? '응모하기' : '코인 부족'}
+            </Text>
+          </AnimatedPressable>
         </View>
-      ) : undefined;
+      </View>
+    ) : undefined;
 
     return (
       <MainScaffold
-        contentContainerStyle={activeRaffleTab === 'apply' ? styles.raffleFixedFooterContent : null}
+        contentContainerStyle={isRaffleProductTab ? styles.raffleFixedFooterContent : null}
         fixedFooter={raffleApplyFooter}
         onRefresh={handleCoinsRefresh}
         refreshing={isRefreshingCoins}
@@ -1157,11 +1190,11 @@ export function CoinsScreen(): JSX.Element {
                 transform: [...viewTransitionStyle.transform, {translateY: tabContentTranslateY}],
               },
             ]}>
-            {activeRaffleTab === 'apply' ? (
+            {isRaffleProductTab ? (
               <>
                 <View style={styles.raffleHero}>
                   <Text numberOfLines={1} style={styles.raffleTitle}>
-                    행운의 주인공이 되어보세요
+                    {activeRaffleTab === 'kboApply' ? 'KBO 경품에 응모해보세요' : '행운의 주인공이 되어보세요'}
                   </Text>
                   <View style={styles.raffleBalancePill}>
                     <LottieView autoPlay loop source={coinLottie} style={styles.raffleBalanceIcon} />
@@ -1192,6 +1225,7 @@ export function CoinsScreen(): JSX.Element {
                           isSelected={isSelected}
                           item={item}
                           onPress={() => setSelectedRaffleProductId(item.id)}
+                          productNameLineLimit={activeRaffleTab === 'kboApply' ? 4 : 2}
                         />
                       );
                     })}
@@ -1199,10 +1233,13 @@ export function CoinsScreen(): JSX.Element {
                 ) : (
                   <View style={styles.raffleEmptyState}>
                     <Text style={styles.raffleEmptyTitle}>응모 가능한 경품이 없습니다.</Text>
-                    <Text style={styles.raffleEmptyText}>경품이 등록되면 이곳에 표시됩니다.</Text>
+                    <Text style={styles.raffleEmptyText}>
+                      {activeRaffleTab === 'kboApply'
+                        ? 'KBO 경품이 등록되면 이곳에 표시됩니다.'
+                        : '경품이 등록되면 이곳에 표시됩니다.'}
+                    </Text>
                   </View>
                 )}
-
               </>
             ) : (
               <View style={styles.raffleHistorySection}>
@@ -1313,115 +1350,115 @@ export function CoinsScreen(): JSX.Element {
             opacity: tabContentProgress,
             transform: [{translateY: tabContentTranslateY}],
           }}>
-        {activeTab === 'coinHistory' ? (
-          <>
-            <View style={styles.balanceCard}>
-              <View style={styles.balanceHeaderRow}>
-                <Text style={styles.label}>나의 코인 현황</Text>
-                <AnimatedPressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setActiveRaffleTab('apply');
-                    switchViewMode('raffle');
-                  }}
-                  style={styles.raffleEntryButton}>
-                  <Text style={styles.raffleEntryText}>응모하기</Text>
-                </AnimatedPressable>
-              </View>
-              <View style={styles.balanceSummaryRow}>
-                <View style={styles.balanceSummaryBadge}>
-                  <Text style={styles.balanceSummaryLabel}>보유코인</Text>
-                  <Text style={styles.value}>{coinBalance}개</Text>
-                </View>
-                <View style={styles.balanceSummaryBadge}>
-                  <Text style={styles.balanceSummaryLabel}>누적코인</Text>
-                  <Text style={styles.value}>{displayAccumulatedCoin}개</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>최근 내역</Text>
-                <Text style={styles.sectionMeta}>총 {coinHistories.length}건</Text>
-              </View>
-
-              {isCoinHistoriesLoading ? (
-                <View style={styles.loadingCenterState}>
-                  <AppLoading label="코인 내역을 불러오는 중..." />
-                </View>
-              ) : coinHistoriesError ? (
-                <View style={styles.coinHistoryState}>
-                  <Text style={styles.raffleHistoryEmptyTitle}>코인 내역을 불러오지 못했습니다.</Text>
-                  <Text style={styles.raffleHistoryEmptyText}>{coinHistoriesError}</Text>
+          {activeTab === 'coinHistory' ? (
+            <>
+              <View style={styles.balanceCard}>
+                <View style={styles.balanceHeaderRow}>
+                  <Text style={styles.label}>나의 코인 현황</Text>
                   <AnimatedPressable
                     accessibilityRole="button"
                     onPress={() => {
-                      refreshCoinHistory().catch(error => {
-                        console.log('[CoinsScreen] coin history retry failed', error);
-                      });
+                      setActiveRaffleTab('apply');
+                      switchViewMode('raffle');
                     }}
-                    style={styles.raffleHistoryEmptyButton}>
-                    <Text style={styles.raffleHistoryEmptyButtonText}>다시 불러오기</Text>
+                    style={styles.raffleEntryButton}>
+                    <Text style={styles.raffleEntryText}>응모하기</Text>
                   </AnimatedPressable>
                 </View>
-              ) : coinHistories.length ? (
-                coinHistories.map((item, index) => <HistoryItem key={item.id} index={index} item={item} />)
+                <View style={styles.balanceSummaryRow}>
+                  <View style={styles.balanceSummaryBadge}>
+                    <Text style={styles.balanceSummaryLabel}>보유코인</Text>
+                    <Text style={styles.value}>{coinBalance}개</Text>
+                  </View>
+                  <View style={styles.balanceSummaryBadge}>
+                    <Text style={styles.balanceSummaryLabel}>누적코인</Text>
+                    <Text style={styles.value}>{displayAccumulatedCoin}개</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>최근 내역</Text>
+                  <Text style={styles.sectionMeta}>총 {coinHistories.length}건</Text>
+                </View>
+
+                {isCoinHistoriesLoading ? (
+                  <View style={styles.loadingCenterState}>
+                    <AppLoading label="코인 내역을 불러오는 중..." />
+                  </View>
+                ) : coinHistoriesError ? (
+                  <View style={styles.coinHistoryState}>
+                    <Text style={styles.raffleHistoryEmptyTitle}>코인 내역을 불러오지 못했습니다.</Text>
+                    <Text style={styles.raffleHistoryEmptyText}>{coinHistoriesError}</Text>
+                    <AnimatedPressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        refreshCoinHistory().catch(error => {
+                          console.log('[CoinsScreen] coin history retry failed', error);
+                        });
+                      }}
+                      style={styles.raffleHistoryEmptyButton}>
+                      <Text style={styles.raffleHistoryEmptyButtonText}>다시 불러오기</Text>
+                    </AnimatedPressable>
+                  </View>
+                ) : coinHistories.length ? (
+                  coinHistories.map((item, index) => <HistoryItem key={item.id} index={index} item={item} />)
+                ) : (
+                  <Text style={styles.emptyText}>표시할 코인 내역이 없습니다.</Text>
+                )}
+              </View>
+            </>
+          ) : (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>코인 랭킹</Text>
+                <View style={styles.topRankingBadge}>
+                  <Text style={styles.topRankingBadgeText}>TOP 10</Text>
+                </View>
+              </View>
+
+              {isRankingLoading ? (
+                <View style={styles.loadingCenterState}>
+                  <AppLoading label="코인 랭킹을 불러오는 중..." />
+                </View>
               ) : (
-                <Text style={styles.emptyText}>표시할 코인 내역이 없습니다.</Text>
+                <>
+                  {rankingError ? <Text style={styles.errorText}>{rankingError}</Text> : null}
+
+                  {sortedRankingItems.length ? (
+                    <>
+                      {topRankingItems.length ? (
+                        <View style={[styles.rankingGroup, styles.topRankingGroup]}>
+                          {topRankingItems.map((item, index) => (
+                            <RankingItem
+                              key={item.id}
+                              index={index}
+                              item={item}
+                              onPress={item.rank <= 3 ? openRankingProfile : undefined}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+                      {restRankingItems.length ? (
+                        <View style={styles.rankingGroup}>
+                          <View style={styles.rankingGroupHeader}>
+                            <Text style={styles.rankingGroupTitle}>11~30위</Text>
+                            <Text style={styles.rankingGroupMeta}>전체 랭킹</Text>
+                          </View>
+                          {restRankingItems.map((item, index) => (
+                            <RankingItem key={item.id} index={index + topRankingItems.length} item={item} />
+                          ))}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={styles.emptyText}>표시할 랭킹이 없습니다.</Text>
+                  )}
+                </>
               )}
             </View>
-          </>
-        ) : (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>코인 랭킹</Text>
-              <View style={styles.topRankingBadge}>
-                <Text style={styles.topRankingBadgeText}>TOP 10</Text>
-              </View>
-            </View>
-
-            {isRankingLoading ? (
-              <View style={styles.loadingCenterState}>
-                <AppLoading label="코인 랭킹을 불러오는 중..." />
-              </View>
-            ) : (
-              <>
-                {rankingError ? <Text style={styles.errorText}>{rankingError}</Text> : null}
-
-                {sortedRankingItems.length ? (
-                  <>
-                    {topRankingItems.length ? (
-                      <View style={[styles.rankingGroup, styles.topRankingGroup]}>
-                        {topRankingItems.map((item, index) => (
-                          <RankingItem
-                            key={item.id}
-                            index={index}
-                            item={item}
-                            onPress={item.rank <= 3 ? openRankingProfile : undefined}
-                          />
-                        ))}
-                      </View>
-                    ) : null}
-                    {restRankingItems.length ? (
-                      <View style={styles.rankingGroup}>
-                        <View style={styles.rankingGroupHeader}>
-                          <Text style={styles.rankingGroupTitle}>11~30위</Text>
-                          <Text style={styles.rankingGroupMeta}>전체 랭킹</Text>
-                        </View>
-                        {restRankingItems.map((item, index) => (
-                          <RankingItem key={item.id} index={index + topRankingItems.length} item={item} />
-                        ))}
-                      </View>
-                    ) : null}
-                  </>
-                ) : (
-                  <Text style={styles.emptyText}>표시할 랭킹이 없습니다.</Text>
-                )}
-              </>
-            )}
-          </View>
-        )}
+          )}
         </Animated.View>
       </SwipeableTabView>
 
@@ -1478,9 +1515,7 @@ export function CoinsScreen(): JSX.Element {
                 <Text style={styles.coinInfoSectionLead}>모은 코인은 다양한 혜택으로 사용할 수 있어요!</Text>
                 <View style={styles.coinInfoList}>
                   {coinBenefitGuideItems.map(item => (
-                    <View
-                      key={item.title}
-                      style={[styles.coinInfoItem, item.reward && styles.coinInfoRewardItem]}>
+                    <View key={item.title} style={[styles.coinInfoItem, item.reward && styles.coinInfoRewardItem]}>
                       <View
                         style={[
                           styles.coinInfoItemBadge,
@@ -1513,11 +1548,7 @@ export function CoinsScreen(): JSX.Element {
         <Animated.View style={[styles.profileModalOverlay, {opacity: rankingProfileOpacity}]}>
           {selectedRankingProfile ? (
             <Animated.View
-              style={[
-                styles.employeeProfileCard,
-                {height: rankingProfileCardHeight},
-                rankingProfileCardAnimatedStyle,
-              ]}>
+              style={[styles.employeeProfileCard, {height: rankingProfileCardHeight}, rankingProfileCardAnimatedStyle]}>
               <View style={styles.employeeProfileHeader}>
                 <View style={styles.employeeProfileHeaderButton} />
                 <Text numberOfLines={1} style={styles.employeeProfileTitle}>
@@ -1648,7 +1679,7 @@ const styles = StyleSheet.create({
     color: '#8A8D95',
     ...FONTS.font11B,
     lineHeight: 14,
-    top : 1
+    top: 1,
   },
   coinStickyPill: {
     flexDirection: 'row',
@@ -2268,7 +2299,7 @@ const styles = StyleSheet.create({
   },
   raffleItemCard: {
     width: '100%',
-    height: 236,
+    height: 'auto',
     borderRadius: 12,
     padding: 12,
     backgroundColor: '#171717',
@@ -2281,6 +2312,30 @@ const styles = StyleSheet.create({
   },
   raffleItemCardDisabled: {
     opacity: 0.58,
+  },
+  raffleCheckWrap: {
+    flexDirection: 'row',
+    // alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 12,
+  },
+  raffleCheckLabelWrap: {
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderRadius: 6,
+    borderColor: '#555555',
+  },
+  raffleCheckLabel: {
+    color: '#FFFFFF',
+    ...FONTS.font12M,
+  },
+  raffleCheckMeta: {
+    color: '#8A8D95',
+    ...FONTS.font12M,
+    lineHeight: 16,
   },
   raffleCheck: {
     width: 24,
@@ -2306,6 +2361,7 @@ const styles = StyleSheet.create({
     height: 98,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 10,
   },
   rafflePrizeIcon: {
     width: 96,
@@ -2319,6 +2375,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
     marginTop: 9,
+  },
+  raffleItemLabelExpanded: {
+    height: 82,
   },
   raffleItemMeta: {
     marginTop: 8,
@@ -2375,6 +2434,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font16B,
     lineHeight: 21,
+    paddingRight: 12,
   },
   raffleApplyButton: {
     minWidth: 96,

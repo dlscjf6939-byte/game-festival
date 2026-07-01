@@ -56,24 +56,24 @@ type MainScreenNavigation = CompositeNavigationProp<
 
 const storyCards = [
   {
-    id: 'left',
-    posterImage: image.poster1,
-  },
-  {
-    id: 'center',
-    posterImage: image.poster2,
-  },
-  {
-    id: 'right',
-    posterImage: image.poster3,
-  },
-  {
     id: 'maskSinger',
     posterImage: image.poster4,
   },
   {
     id: 'executiveLineup',
     posterImage: image.poster5,
+  },
+  {
+    id: 'center',
+    posterImage: image.poster2,
+  },
+  {
+    id: 'left',
+    posterImage: image.poster1,
+  },
+  {
+    id: 'right',
+    posterImage: image.poster3,
   },
 ];
 type StoryCard = (typeof storyCards)[number];
@@ -393,29 +393,26 @@ function MainScreen(): JSX.Element {
     }, [refreshHomeData]),
   );
 
-  const handleStoryListMomentumEnd = React.useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      setIsStoryUserScrolling(false);
+  const handleStoryListMomentumEnd = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    setIsStoryUserScrolling(false);
 
-      const offsetX = event.nativeEvent.contentOffset.x;
-      const nextIndex = Math.round(offsetX / STORY_SNAP_INTERVAL);
-      const nextCard = LOOPED_STORY_CARDS[nextIndex];
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const nextIndex = Math.round(offsetX / STORY_SNAP_INTERVAL);
+    const nextCard = LOOPED_STORY_CARDS[nextIndex];
 
-      if (nextCard) {
-        currentStoryIndexRef.current = nextIndex;
-        setActiveStoryIndex(nextIndex % storyCards.length);
-      }
+    if (nextCard) {
+      currentStoryIndexRef.current = nextIndex;
+      setActiveStoryIndex(nextIndex % storyCards.length);
+    }
 
-      if (nextCard && (nextIndex < STORY_LOOP_SAFE_START_INDEX || nextIndex >= STORY_LOOP_SAFE_END_INDEX)) {
-        const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (nextIndex % storyCards.length);
-        currentStoryIndexRef.current = normalizedIndex;
-        requestAnimationFrame(() => {
-          storyListRef.current?.scrollToIndex({animated: false, index: normalizedIndex});
-        });
-      }
-    },
-    [],
-  );
+    if (nextCard && (nextIndex < STORY_LOOP_SAFE_START_INDEX || nextIndex >= STORY_LOOP_SAFE_END_INDEX)) {
+      const normalizedIndex = STORY_LOOP_MIDDLE_START_INDEX + (nextIndex % storyCards.length);
+      currentStoryIndexRef.current = normalizedIndex;
+      requestAnimationFrame(() => {
+        storyListRef.current?.scrollToIndex({animated: false, index: normalizedIndex});
+      });
+    }
+  }, []);
   const moveStoryListWithoutAnimation = React.useCallback(
     (index: number) => {
       const offset = index * STORY_SNAP_INTERVAL;
@@ -754,7 +751,7 @@ function MainScreen(): JSX.Element {
             </View>
             <Text style={styles.attendanceModalCountText}>
               {hasWeeklyReward
-                ? '7일 개근 완료'
+                ? '연속 출석 완료'
                 : modalWeeklyCount > 0
                 ? `이번 주 ${modalWeeklyCount}일 출석`
                 : '출석 완료'}
@@ -765,7 +762,7 @@ function MainScreen(): JSX.Element {
 
             {hasWeeklyReward ? (
               <View style={styles.attendanceModalPerfectBadge}>
-                <Text style={styles.attendanceModalPerfectText}>개근상 +{weeklyRewardCoins}코인</Text>
+                <Text style={styles.attendanceModalPerfectText}>연속 출석 +{weeklyRewardCoins}코인</Text>
               </View>
             ) : null}
 

@@ -340,7 +340,9 @@ export function FeedScreen(): JSX.Element {
   );
   const myName = auth?.name ?? '이인철';
   const myEmployeeId = auth?.employeeId;
-  const isComposeSubmittable = Boolean(composeTitle.trim()) && Boolean(composeCaption.trim()) && !isSubmittingCompose;
+  const hasComposeImages = composeImageAssets.length > 0;
+  const isComposeSubmittable =
+    hasComposeImages && Boolean(composeTitle.trim()) && Boolean(composeCaption.trim()) && !isSubmittingCompose;
   const commentSubmitAnimatedStyle = {
     backgroundColor: commentSubmitProgress.interpolate({
       inputRange: [0, 1],
@@ -901,9 +903,14 @@ export function FeedScreen(): JSX.Element {
   }, []);
 
   const goToComposeDetails = useCallback(() => {
+    if (!hasComposeImages) {
+      setComposeErrorMessage('사진을 먼저 선택해주세요.');
+      return;
+    }
+
     setComposeErrorMessage(null);
     setComposeStep('details');
-  }, []);
+  }, [hasComposeImages]);
 
   const addComposeTags = useCallback((rawTags: string[]) => {
     setComposeTags(prevTags => {
@@ -974,6 +981,12 @@ export function FeedScreen(): JSX.Element {
 
     if (!caption) {
       setComposeErrorMessage('내용을 입력해주세요.');
+      return;
+    }
+
+    if (!composeImageAssets.length) {
+      setComposeErrorMessage('사진을 먼저 선택해주세요.');
+      setComposeStep('select');
       return;
     }
 
@@ -2227,7 +2240,7 @@ export function FeedScreen(): JSX.Element {
                     <View style={styles.composeAlbumBar}>
                       <View>
                         <Text style={styles.composeAlbumTitle}>최근 항목</Text>
-                        <Text style={styles.composeAlbumDescription}>최대 5장까지 선택 가능해요</Text>
+                        <Text style={styles.composeAlbumDescription}>사진은 필수이며 최대 5장까지 선택 가능해요</Text>
                       </View>
                       <AnimatedPressable
                         accessibilityRole="button"
@@ -2254,7 +2267,7 @@ export function FeedScreen(): JSX.Element {
                     </View>
 
                     <View style={styles.composePhotoBlock}>
-                      <Text style={styles.composeLabel}>사진</Text>
+                      <Text style={styles.composeLabel}>사진 필수</Text>
                       {composeImageUris.length ? (
                         <ScrollView
                           horizontal
@@ -2332,15 +2345,20 @@ export function FeedScreen(): JSX.Element {
               <View style={[styles.composeFooter, {paddingBottom: Math.max(insets.bottom + 12, 24)}]}>
                 <AnimatedPressable
                   accessibilityRole="button"
-                  disabled={composeStep === 'details' && !isComposeSubmittable}
+                  disabled={
+                    (composeStep === 'select' && !hasComposeImages) ||
+                    (composeStep === 'details' && !isComposeSubmittable)
+                  }
                   onPress={handleComposePrimaryPress}
                   style={[
                     styles.composePrimaryButton,
+                    composeStep === 'select' && !hasComposeImages && styles.composePrimaryButtonDisabled,
                     composeStep === 'details' && !isComposeSubmittable && styles.composePrimaryButtonDisabled,
                   ]}>
                   <Text
                     style={[
                       styles.composePrimaryButtonText,
+                      composeStep === 'select' && !hasComposeImages && styles.composePrimaryButtonTextDisabled,
                       composeStep === 'details' && !isComposeSubmittable && styles.composePrimaryButtonTextDisabled,
                     ]}>
                     {composeStep === 'select' ? '다음' : isSubmittingCompose ? '공유 중...' : '공유하기'}

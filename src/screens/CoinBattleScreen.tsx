@@ -44,7 +44,7 @@ const coinLottie = require('../assets/lotties/Coin.json');
 
 const coinEarningGuideItems = [
   {badge: '1', description: '+10코인', title: '사전 설문 참여'},
-  {badge: '2', description: '일일 1~4코인 랜덤 지급 ( 개근시 +5코인 )', title: '매일 출석체크'},
+  {badge: '2', description: '일일 1~4코인 랜덤 지급 ( 연속출석시 +n코인 )', title: '매일 출석체크'},
   {badge: '3', description: '게시글당 +1코인, 일 최대 2회', title: '피드 게시글 작성'},
   {badge: '4', description: '미니게임으로 코인 쟁탈 ( 누적 코인 증감 없음 )', title: '코인대전'},
   {badge: '5', description: '게임별 +2코인', title: '승부예측 적중'},
