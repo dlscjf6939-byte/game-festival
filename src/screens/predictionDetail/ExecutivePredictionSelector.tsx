@@ -80,7 +80,10 @@ function splitProfileText(profile: ExecutiveSelectorProfile): {department?: stri
 }
 
 function getExecutiveImageSource(profile: ExecutiveSelectorProfile, name: string): ImageSourcePropType {
-  return executiveImageByName[name.replace(/\s/g, '')] ?? profile.imageSource ?? image.human;
+  const normalizedName = name.replace(/\s/g, '');
+  const matchedName = Object.keys(executiveImageByName).find(executiveName => normalizedName.includes(executiveName));
+
+  return (matchedName ? executiveImageByName[matchedName] : undefined) ?? profile.imageSource ?? image.human;
 }
 
 export function ExecutivePredictionSelector({profile}: ExecutivePredictionSelectorProps): JSX.Element {

@@ -121,8 +121,8 @@ export function PredictionSelectScreen(): JSX.Element {
   const [isResolvingSelectedMatch, setIsResolvingSelectedMatch] = useState(false);
   const isMaskSingerGame = route.params.gameId === MASK_SINGER_GAME_ID;
   const isExecutiveGame = route.params.gameId === EXECUTIVE_GAME_ID || gameTitle.includes('임원');
-  const isVoteOnlyGame = isMaskSingerGame || isExecutiveGame;
   const selectedMatch = matches.find(match => match.matchId === selectedMatchId) ?? null;
+  const selectedMatchStatus = normalizeMatchStatus(selectedMatch?.matchStatus);
   const isEmptyMatchState = !isGameLoading && !loadErrorMessage && matches.length === 0;
 
   const fetchGameDetail = useCallback(async (showLoading = true) => {
@@ -237,11 +237,10 @@ export function PredictionSelectScreen(): JSX.Element {
       return;
     }
 
-    const normalizedSelectedStatus = normalizeMatchStatus(selectedMatch?.matchStatus);
     let pickedParticipantId: number | null = null;
     let startStep: PredictionDetailStartStep;
 
-    if (isMaskSingerGame && normalizedSelectedStatus === 'COUNTING' && auth?.accessToken) {
+    if (isMaskSingerGame && selectedMatchStatus === 'COUNTING' && auth?.accessToken) {
       setIsResolvingSelectedMatch(true);
 
       try {
@@ -408,7 +407,7 @@ export function PredictionSelectScreen(): JSX.Element {
                   ]}>
                   {isResolvingSelectedMatch
                     ? '확인 중...'
-                    : isVoteOnlyGame && selectedMatch?.matchStatus === 'FINISHED'
+                    : selectedMatchStatus === 'FINISHED'
                     ? '결과 보기'
                     : isExecutiveGame
                     ? '투표하기'

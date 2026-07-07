@@ -33,6 +33,7 @@ export const PARTICIPANT_POSTER_STAGE_HEIGHT = PARTICIPANT_POSTER_CARD_HEIGHT + 
 
 export type PosterParticipant = {
   department?: string;
+  description?: string;
   id: string;
   imageSource?: ImageSourcePropType;
   isIndividual?: boolean;
@@ -40,13 +41,17 @@ export type PosterParticipant = {
   name: string;
 };
 
+type ParticipantPosterSecondaryTextSource = 'department' | 'description';
+
 type ParticipantPosterText = {
   department: string;
   name: string;
 };
 
 type ParticipantPosterCarouselProps = {
+  hideDepartment?: boolean;
   onSelectTeam: (teamId: string) => void;
+  secondaryTextSource?: ParticipantPosterSecondaryTextSource;
   selectedTeamId: string;
   teams: PosterParticipant[];
 };
@@ -76,9 +81,14 @@ function splitInlineDepartment(rawName: string): ParticipantPosterText | null {
   };
 }
 
-function getParticipantPosterText(team: PosterParticipant): ParticipantPosterText {
+function getParticipantPosterText(
+  team: PosterParticipant,
+  secondaryTextSource: ParticipantPosterSecondaryTextSource,
+): ParticipantPosterText {
   const rawName = team.name.trim();
-  const rawDepartment = (team.department ?? (team.isIndividual ? team.members.join(' / ') : '')).trim();
+  const secondaryText =
+    secondaryTextSource === 'description' ? team.description?.trim() || team.department : team.department;
+  const rawDepartment = (secondaryText ?? (team.isIndividual ? team.members.join(' / ') : '')).trim();
 
   if (rawDepartment) {
     const name = rawName
@@ -105,7 +115,9 @@ function getParticipantPosterText(team: PosterParticipant): ParticipantPosterTex
 }
 
 export function ParticipantPosterCarousel({
+  hideDepartment = false,
   onSelectTeam,
+  secondaryTextSource = 'department',
   selectedTeamId,
   teams,
 }: ParticipantPosterCarouselProps): JSX.Element {
@@ -203,7 +215,7 @@ export function ParticipantPosterCarousel({
           },
         ],
       };
-      const posterText = getParticipantPosterText(team);
+      const posterText = getParticipantPosterText(team, secondaryTextSource);
 
       return (
         <Animated.View style={[styles.participantPosterItem, itemIntroStyle]}>
@@ -232,9 +244,11 @@ export function ParticipantPosterCarousel({
                   <Text numberOfLines={1} adjustsFontSizeToFit style={styles.participantPosterName}>
                     {posterText.name}
                   </Text>
-                  <Text numberOfLines={1} adjustsFontSizeToFit style={styles.participantPosterDepartment}>
-                    {posterText.department}
-                  </Text>
+                  {!hideDepartment && (
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={styles.participantPosterDepartment}>
+                      {posterText.department}
+                    </Text>
+                  )}
                 </View>
               </View>
             </Animated.View>
@@ -251,7 +265,7 @@ export function ParticipantPosterCarousel({
         </Animated.View>
       );
     },
-    [entranceProgress, onSelectTeam, scrollX],
+    [entranceProgress, hideDepartment, onSelectTeam, scrollX, secondaryTextSource],
   );
 
   return (

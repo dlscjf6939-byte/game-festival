@@ -4,7 +4,6 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   Image,
@@ -27,6 +26,7 @@ import {AppLoading} from '../components/AppLoading';
 import {AppGnb} from '../components/AppGnb';
 import {TabSceneTransition} from '../components/TabSceneTransition';
 import {useAuth} from '../auth/AuthProvider';
+import {useCoin} from '../coin/CoinProvider';
 import {image} from '../assets/images';
 import {icon} from '../assets/icons';
 import {logo} from '../assets/logo';
@@ -46,6 +46,7 @@ const API_BASE = 'http://121.254.240.93:8090';
 const PREDICTION_FESTIVAL_ID = 3;
 const MASK_SINGER_GAME_ID = 86;
 const EXECUTIVE_GAME_ID = 106;
+const PREDICTION_REQUIRED_COINS = 10;
 const countingLottie = require('../assets/lotties/Counting.json');
 const participantTones = ['#E50914', '#3F8CFF', '#F4B740', '#21B37B', '#B05CFF'];
 
@@ -70,6 +71,7 @@ type PredictionStep = 'select' | 'comment' | 'counting' | 'result';
 
 type PredictionTeam = {
   department?: string;
+  description?: string;
   id: string;
   imageSource?: ImageSourcePropType;
   isIndividual?: boolean;
@@ -89,6 +91,7 @@ type ExecutiveProfile = {
 
 type MatchParticipant = {
   department?: string;
+  description?: string;
   logoImageUrl?: string;
   name?: string;
   participantName?: string;
@@ -143,6 +146,7 @@ type MatchDetailApiResponse = {
       participantId?: number;
       name?: string;
       department?: string;
+      description?: string;
       predictionRate?: number;
       participantType?: string;
       participantMembers?: Array<{
@@ -187,6 +191,7 @@ type MatchOverviewApiResponse = {
     matchType?: string;
     participants?: Array<{
       department?: string;
+      description?: string;
       logoImageUrl?: string;
       participantId?: number;
       participantName?: string;
@@ -249,6 +254,19 @@ function toPredictionRate(value: unknown): number | undefined {
   return Math.max(0, Math.min(100, numericValue));
 }
 
+function toCoinNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 function normalizeMatchStatus(value: unknown): string {
   return typeof value === 'string' ? value.trim().toUpperCase() : 'READY';
 }
@@ -277,6 +295,25 @@ function getInitialPredictionStep(
   }
 
   return 'select';
+}
+
+function shouldDefaultToTopTeamSelection(gameTitle: string | undefined, gameId: number | undefined): boolean {
+  const normalizedTitle = gameTitle?.trim() ?? '';
+
+  if (gameId === MASK_SINGER_GAME_ID || gameId === EXECUTIVE_GAME_ID) {
+    return false;
+  }
+
+  if (normalizedTitle.includes('복면') || normalizedTitle.includes('임원')) {
+    return false;
+  }
+
+  return (
+    normalizedTitle.includes('철권') ||
+    normalizedTitle.includes('스타') ||
+    normalizedTitle.includes('크레이지') ||
+    normalizedTitle.includes('아케이드')
+  );
 }
 
 function toGameDetail(data: GameDetailApiResponse['data']): GameDetail | null {
@@ -356,9 +393,22 @@ function getSeparatedParticipantName(participant: MatchParticipant, preferNameFi
   );
 }
 
-function isKimHyungSeokParticipant(participant: MatchParticipant): boolean {
+const executiveImageEntries: Array<[string, ImageSourcePropType]> = [
+  ['김보람', image.executiveKimBoRam],
+  ['김형석', image.executiveKimHyungSeok],
+  ['박성호', image.executiveParkSungHo],
+  ['추연진', image.executiveChooYeonJin],
+  ['추종원', image.executiveChooJongWon],
+  ['이준석', image.executiveLeeJoonSuck],
+  ['강성구', image.executiveKangSungGoo],
+];
+
+function getExecutiveImageSourceFromParticipant(participant: MatchParticipant): ImageSourcePropType | undefined {
   const rawName = `${participant.name ?? ''} ${participant.participantName ?? ''}`;
-  return rawName.replace(/\s/g, '').includes('김형석');
+  const normalizedName = rawName.replace(/\s/g, '');
+  const matchedEntry = executiveImageEntries.find(([name]) => normalizedName.includes(name));
+
+  return matchedEntry?.[1];
 }
 
 function toExecutiveProfile(participant: MatchParticipant | undefined): ExecutiveProfile | null {
@@ -377,7 +427,7 @@ function toExecutiveProfile(participant: MatchParticipant | undefined): Executiv
 
   return {
     department: participant.department?.trim() || parsedName?.department,
-    imageSource: logoImageUrl ? {uri: logoImageUrl} : isKimHyungSeokParticipant(participant) ? image.executiveKimHyungSeok : image.human,
+    imageSource: logoImageUrl ? {uri: logoImageUrl} : getExecutiveImageSourceFromParticipant(participant) ?? image.human,
     name,
     participantId: participant.participantId,
   };
@@ -388,13 +438,16 @@ function toPredictionTeam(
   index = 0,
   matchType?: string,
   isExecutiveGame = false,
+  isMaskSingerGame = false,
 ): PredictionTeam | null {
   if (typeof participant.participantId !== 'number') {
     return null;
   }
 
   const normalizedMatchType = typeof matchType === 'string' ? matchType.trim().toUpperCase() : '';
-  const isIndividual = normalizedMatchType === 'INDIVIDUAL' || Boolean(participant.department?.trim());
+  const description = participant.description?.trim() || undefined;
+  const isIndividual =
+    isMaskSingerGame || normalizedMatchType === 'INDIVIDUAL' || Boolean(participant.department?.trim());
   const teamId = isIndividual
     ? `participant-${participant.participantId}`
     : getTeamIdFromParticipantType(participant.participantType, participant.participantId, index);
@@ -405,15 +458,17 @@ function toPredictionTeam(
   const department = participant.department?.trim() || parsedName?.department;
   const fallbackName = isExecutiveGame && index === 1 ? '일반사원' : `참가자 ${index + 1}`;
   const displayName = getSeparatedParticipantName(participant, isExecutiveGame);
+  const executiveImageSource = isExecutiveGame ? getExecutiveImageSourceFromParticipant(participant) : undefined;
   const fallbackImageSource =
-    isExecutiveGame && isKimHyungSeokParticipant(participant)
-      ? image.executiveKimHyungSeok
+    executiveImageSource
+      ? executiveImageSource
       : isIndividual
         ? image.human
         : fallbackTeam.imageSource;
 
   return {
     department,
+    description,
     id: isIndividual ? teamId : fallbackTeam.id,
     imageSource: logoImageUrl ? {uri: logoImageUrl} : fallbackImageSource,
     isIndividual,
@@ -473,12 +528,18 @@ export function PredictionDetailScreen(): JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<PredictionStackParamList>>();
   const route = useRoute<RouteProp<PredictionStackParamList, 'PredictionDetail'>>();
   const {auth, refreshProfile} = useAuth();
+  const {holdingCoin: latestHoldingCoin, refreshCoinSummary} = useCoin();
   const routeGameId = route.params?.gameId;
   const routeGameTitle = route.params?.gameTitle;
   const routeMatchId = route.params?.matchId;
   const isMaskSingerGame = routeGameId === MASK_SINGER_GAME_ID;
   const isExecutiveGame = routeGameId === EXECUTIVE_GAME_ID || routeGameTitle?.includes('임원') === true;
   const isVoteOnlyGame = isMaskSingerGame || isExecutiveGame;
+  const shouldDefaultToTopTeam = shouldDefaultToTopTeamSelection(routeGameTitle, routeGameId);
+  const requiresPredictionCoins = !isMaskSingerGame;
+  const coinBalance = latestHoldingCoin ?? toCoinNumber(auth?.profile?.holdingCoin) ?? 0;
+  const hasEnoughPredictionCoins = !requiresPredictionCoins || coinBalance >= PREDICTION_REQUIRED_COINS;
+  const insufficientPredictionCoinsMessage = `승부예측에는 ${PREDICTION_REQUIRED_COINS}코인이 필요해요.`;
   const profileImageUri = getProfileImageUriFromRecord(auth?.profile);
   const myAvatarSource = profileImageUri ? {uri: profileImageUri} : image.profile;
   const myName = auth?.name ?? '이인철';
@@ -505,6 +566,7 @@ export function PredictionDetailScreen(): JSX.Element {
   const [isMatchDetailLoading, setIsMatchDetailLoading] = useState(false);
   const [isRefreshingDetail, setIsRefreshingDetail] = useState(false);
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
+  const [isClosedMatchModalVisible, setIsClosedMatchModalVisible] = useState(false);
   const [isSubmittingPrediction, setIsSubmittingPrediction] = useState(false);
   const [predictionSubmitError, setPredictionSubmitError] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
@@ -902,7 +964,9 @@ export function PredictionDetailScreen(): JSX.Element {
 
     const responseMatchType = responseBody.data?.matchType?.trim().toUpperCase() ?? matchType;
     const nextTeams = responseParticipants
-      .map((participant, index) => toPredictionTeam(participant, index, responseMatchType, isExecutiveGame))
+      .map((participant, index) =>
+        toPredictionTeam(participant, index, responseMatchType, isExecutiveGame, isMaskSingerGame),
+      )
       .filter((team): team is PredictionTeam => Boolean(team));
 
     if (nextTeams.length) {
@@ -914,6 +978,7 @@ export function PredictionDetailScreen(): JSX.Element {
 
           return {
             ...team,
+            description: team.description ?? previousTeam?.description,
             members: team.members.length ? team.members : previousTeam?.members ?? [],
             predictionRate: team.predictionRate ?? previousTeam?.predictionRate,
           };
@@ -934,6 +999,8 @@ export function PredictionDetailScreen(): JSX.Element {
 
     if (pickedTeam) {
       setSelectedTeam(pickedTeam.id);
+    } else if (shouldDefaultToTopTeam && !isParticipatedDetail) {
+      setSelectedTeam(currentTeamId => currentTeamId || nextTeams[0]?.id || currentTeamId);
     }
 
     return true;
@@ -942,10 +1009,13 @@ export function PredictionDetailScreen(): JSX.Element {
     auth?.employeeId,
     auth?.name,
     isExecutiveGame,
+    isMaskSingerGame,
+    isParticipatedDetail,
     isVoteOnlyGame,
     matchType,
     routeGameId,
     routeMatchId,
+    shouldDefaultToTopTeam,
   ]);
 
   const handleDetailRefresh = useCallback(async () => {
@@ -1100,7 +1170,9 @@ export function PredictionDetailScreen(): JSX.Element {
 
         const responseMatchType = responseBody.data?.matchType?.trim().toUpperCase() ?? matchType;
         const nextTeams = responseParticipants
-          .map((participant, index) => toPredictionTeam(participant, index, responseMatchType, isExecutiveGame))
+          .map((participant, index) =>
+            toPredictionTeam(participant, index, responseMatchType, isExecutiveGame, isMaskSingerGame),
+          )
           .filter((team): team is PredictionTeam => Boolean(team));
 
         if (isMounted && nextTeams.length) {
@@ -1112,6 +1184,7 @@ export function PredictionDetailScreen(): JSX.Element {
 
               return {
                 ...team,
+                description: team.description ?? previousTeam?.description,
                 predictionRate: previousTeam?.predictionRate ?? team.predictionRate,
               };
             }),
@@ -1124,6 +1197,8 @@ export function PredictionDetailScreen(): JSX.Element {
 
           if (pickedTeam) {
             setSelectedTeam(pickedTeam.id);
+          } else if (shouldDefaultToTopTeam && !isParticipatedDetail) {
+            setSelectedTeam(currentTeamId => currentTeamId || nextTeams[0]?.id || currentTeamId);
           }
         }
       } catch (error) {
@@ -1140,7 +1215,17 @@ export function PredictionDetailScreen(): JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [auth?.accessToken, isExecutiveGame, isParticipatedDetail, isVoteOnlyGame, matchType, routeGameId, routeMatchId]);
+  }, [
+    auth?.accessToken,
+    isExecutiveGame,
+    isMaskSingerGame,
+    isParticipatedDetail,
+    isVoteOnlyGame,
+    matchType,
+    routeGameId,
+    routeMatchId,
+    shouldDefaultToTopTeam,
+  ]);
 
   useEffect(() => {
     if (!auth?.accessToken || typeof routeGameId !== 'number' || typeof routeMatchId !== 'number') {
@@ -1242,14 +1327,24 @@ export function PredictionDetailScreen(): JSX.Element {
       return;
     }
 
+    if (matchStatus === 'FINISHED') {
+      transitionToStep('result');
+      return;
+    }
+
     if (isVoteOnlyGame) {
-      if (matchStatus === 'FINISHED') {
-        transitionToStep('result');
+      if (!hasEnoughPredictionCoins) {
+        setPredictionSubmitError(insufficientPredictionCoinsMessage);
         return;
       }
 
       setPredictionSubmitError(null);
       setIsConfirmVisible(true);
+      return;
+    }
+
+    if (!hasEnoughPredictionCoins) {
+      setPredictionSubmitError(insufficientPredictionCoinsMessage);
       return;
     }
 
@@ -1269,6 +1364,12 @@ export function PredictionDetailScreen(): JSX.Element {
     }
 
     setSelectedTeam(team.id);
+
+    if (!hasEnoughPredictionCoins) {
+      setPredictionSubmitError(insufficientPredictionCoinsMessage);
+      return;
+    }
+
     setPredictionSubmitError(null);
     setIsConfirmVisible(true);
   };
@@ -1276,12 +1377,17 @@ export function PredictionDetailScreen(): JSX.Element {
   const openSubmitConfirm = () => {
     const trimmedComment = cheerDraft.trim();
 
+    if (matchStatus === 'FINISHED') {
+      transitionToStep('result');
+      return;
+    }
+
     if (!isVoteOnlyGame && !trimmedComment) {
       return;
     }
 
-    if (isVoteOnlyGame && matchStatus === 'FINISHED') {
-      transitionToStep('result');
+    if (!hasEnoughPredictionCoins) {
+      setPredictionSubmitError(insufficientPredictionCoinsMessage);
       return;
     }
 
@@ -1363,36 +1469,39 @@ export function PredictionDetailScreen(): JSX.Element {
       return;
     }
 
+    if (!hasEnoughPredictionCoins) {
+      setPredictionSubmitError(insufficientPredictionCoinsMessage);
+      return;
+    }
+
     setIsSubmittingPrediction(true);
     setPredictionSubmitError(null);
 
     try {
-      if (isVoteOnlyGame) {
-        const latestStatus = await requestLatestMatchStatus();
+      const latestStatus = await requestLatestMatchStatus();
 
-        if (latestStatus === 'FINISHED') {
-          setMatchStatus(latestStatus);
-          setIsConfirmVisible(false);
-          Alert.alert('이미 끝난 경기입니다');
+      if (latestStatus === 'FINISHED') {
+        setMatchStatus(latestStatus);
+        setIsConfirmVisible(false);
+        setIsClosedMatchModalVisible(true);
 
-          try {
-            await fetchMatchOverview();
-          } catch (overviewError) {
-            console.log('[PredictionDetailScreen] overview refresh after closed vote failed', overviewError);
-          }
-
-          transitionToStep('result');
-          return;
+        try {
+          await fetchMatchOverview();
+        } catch (overviewError) {
+          console.log('[PredictionDetailScreen] overview refresh after closed prediction failed', overviewError);
         }
 
-        if (latestStatus) {
-          setMatchStatus(latestStatus);
-        }
+        transitionToStep('result');
+        return;
+      }
+
+      if (latestStatus) {
+        setMatchStatus(latestStatus);
       }
 
       await submitPrediction(participantId, isVoteOnlyGame ? undefined : trimmedComment);
       setPickedParticipantId(participantId);
-      await refreshProfile();
+      await Promise.all([refreshProfile(), refreshCoinSummary(false)]);
       let didRefreshOverview = false;
 
       try {
@@ -1752,6 +1861,9 @@ export function PredictionDetailScreen(): JSX.Element {
                       onVote={handleExecutiveVotePress}
                       selectedTeamId={selectedTeam}
                     />
+                    {predictionSubmitError ? (
+                      <Text style={styles.predictionInlineErrorText}>{predictionSubmitError}</Text>
+                    ) : null}
                   </Animated.View>
                 ) : (
                   <Animated.View
@@ -1769,6 +1881,9 @@ export function PredictionDetailScreen(): JSX.Element {
                         {isMaskSingerGame ? '투표하기' : '다음'}
                       </Text>
                     </AnimatedPressable>
+                    {predictionSubmitError ? (
+                      <Text style={styles.predictionInlineErrorText}>{predictionSubmitError}</Text>
+                    ) : null}
                   </Animated.View>
                 )}
               </KeyboardAvoidingView>
@@ -1805,7 +1920,11 @@ export function PredictionDetailScreen(): JSX.Element {
                           {selectedTeamInfo.name}
                         </Text>
                         <Text style={styles.selectedTeamMembers}>
-                          {selectedTeamInfo.department ?? selectedTeamInfo.members.join(' / ')}
+                          {isMaskSingerGame
+                            ? selectedTeamInfo.description ??
+                              selectedTeamInfo.department ??
+                              selectedTeamInfo.members.join(' / ')
+                            : selectedTeamInfo.department ?? selectedTeamInfo.members.join(' / ')}
                         </Text>
                         {/* <Text style={styles.selectedTeamDescription}>응원댓글을 남기면 투표 결과를 볼 수 있어요.</Text> */}
                       </View>
@@ -1849,6 +1968,9 @@ export function PredictionDetailScreen(): JSX.Element {
                       다음
                     </Text>
                   </AnimatedPressable>
+                  {predictionSubmitError ? (
+                    <Text style={styles.predictionInlineErrorText}>{predictionSubmitError}</Text>
+                  ) : null}
                 </View>
               </KeyboardAvoidingView>
             )}
@@ -1925,6 +2047,34 @@ export function PredictionDetailScreen(): JSX.Element {
                         ? '응원'
                         : '등록'}
                     </Text>
+                  </AnimatedPressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          <Modal
+            animationType="fade"
+            onRequestClose={() => setIsClosedMatchModalVisible(false)}
+            transparent
+            visible={isClosedMatchModalVisible}>
+            <View style={styles.confirmOverlay}>
+              <Pressable
+                accessibilityLabel="종료된 경기 안내 닫기"
+                accessibilityRole="button"
+                onPress={() => setIsClosedMatchModalVisible(false)}
+                style={styles.confirmBackdrop}
+              />
+              <View style={styles.confirmCard}>
+                <Text style={styles.confirmEyebrow}>경기 종료</Text>
+                <Text style={styles.confirmTitle}>이미 끝난 경기입니다</Text>
+                <Text style={styles.closedMatchDescription}>결과 화면에서 현재 투표 결과를 확인해주세요.</Text>
+                <View style={styles.confirmActions}>
+                  <AnimatedPressable
+                    accessibilityRole="button"
+                    onPress={() => setIsClosedMatchModalVisible(false)}
+                    style={[styles.confirmButton, styles.confirmSubmitButton]}>
+                    <Text style={styles.confirmSubmitText}>확인</Text>
                   </AnimatedPressable>
                 </View>
               </View>
@@ -2323,9 +2473,22 @@ const styles = StyleSheet.create({
     ...FONTS.font14R,
     lineHeight: 21,
   },
+  closedMatchDescription: {
+    marginTop: 12,
+    color: '#B9BBC3',
+    ...FONTS.font14M,
+    lineHeight: 20,
+  },
   confirmErrorText: {
     marginTop: 10,
     color: '#E66B70',
+    ...FONTS.font12M,
+    lineHeight: 17,
+  },
+  predictionInlineErrorText: {
+    marginTop: 10,
+    color: '#FF8A90',
+    textAlign: 'center',
     ...FONTS.font12M,
     lineHeight: 17,
   },

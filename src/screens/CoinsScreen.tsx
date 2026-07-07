@@ -1,7 +1,8 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   Animated,
   Easing,
+  FlatList,
   Image,
   Modal,
   ScrollView,
@@ -46,7 +47,7 @@ const coinEarningGuideItems = [
   {badge: '2', description: '일일 3~6코인 랜덤 지급 ( 연속출석시 +n코인 )', title: '매일 출석체크'},
   {badge: '3', description: '게시글당 +2코인, 일 최대 5회', title: '피드 게시글 작성'},
   {badge: '4', description: '미니게임으로 코인 쟁탈 ( 누적 코인 증감 없음 )', title: '코인대전'},
-  {badge: '5', description: '게임별 +5코인', title: '승부예측 적중'},
+  {badge: '5', description: '승부예측 성공시 +25코인 실패시 -10코인 (누적코인 증감 및 랭킹 반영)', title: '승부예측 적중'},
   {badge: '6', description: '추가 코인 획득 ❤️', title: '다양한 현장 이벤트 참여'},
 ] as const;
 
@@ -140,27 +141,6 @@ type EmployeeProfileResponse = {
     }>;
     profileImageUri?: string | null;
     profileImageUrl?: string | null;
-  };
-  message?: string;
-  success?: boolean;
-};
-
-type RankingProfileFeedWriter = {
-  department?: string | null;
-  employeeId?: number | string;
-  employeeName?: string | null;
-  profileImageUri?: string | null;
-  profileImageUrl?: string | null;
-};
-
-type RankingProfileFeedPost = {
-  writer?: RankingProfileFeedWriter | null;
-};
-
-type RankingProfileFeedResponse = {
-  code?: string;
-  data?: {
-    content?: RankingProfileFeedPost[];
   };
   message?: string;
   success?: boolean;
@@ -369,47 +349,6 @@ function getFallbackProfileFromRanking(item: CoinRanking): EmployeeProfile {
   };
 }
 
-function getEmployeeIdFromFeedWriter(writer?: RankingProfileFeedWriter | null): number | null {
-  const parsedId = Number(writer?.employeeId);
-
-  return Number.isInteger(parsedId) && parsedId > 0 ? parsedId : null;
-}
-
-function getProfileImageUriFromFeedWriter(writer?: RankingProfileFeedWriter | null): string | null {
-  return normalizeProfileImageUri(writer?.profileImageUri ?? writer?.profileImageUrl);
-}
-
-async function fetchRankingProfileFeedWriter(
-  accessToken: string,
-  rankingName: string,
-): Promise<RankingProfileFeedWriter | null> {
-  const response = await fetch(`${API_BASE}/api/boards/21/posts?page=0&size=100`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-  const responseText = await response.text();
-  let responseBody: RankingProfileFeedResponse | null = null;
-
-  try {
-    responseBody = JSON.parse(responseText) as RankingProfileFeedResponse;
-  } catch {
-    throw new Error('피드 응답을 해석하지 못했습니다.');
-  }
-
-  if (!response.ok || responseBody.success === false) {
-    throw new Error(responseBody.message || responseText || '피드 조회에 실패했습니다.');
-  }
-
-  const normalizedRankingName = rankingName.trim();
-  const matchedPost = (responseBody.data?.content ?? []).find(post => {
-    return post.writer?.employeeName?.trim() === normalizedRankingName;
-  });
-
-  return matchedPost?.writer ?? null;
-}
-
 function HistoryItem({index, item}: {index: number; item: CoinHistory}): JSX.Element {
   const entranceProgress = useRef(new Animated.Value(0)).current;
   const translateY = entranceProgress.interpolate({
@@ -449,7 +388,7 @@ function HistoryItem({index, item}: {index: number; item: CoinHistory}): JSX.Ele
   );
 }
 
-function RankingItem({
+function RankingItemBase({
   item,
   index,
   onPress,
@@ -508,6 +447,8 @@ function RankingItem({
     </Animated.View>
   );
 }
+
+const RankingItem = memo(RankingItemBase);
 
 function RaffleHistoryItem({index, item}: {index: number; item: RaffleHistory}): JSX.Element {
   const entranceProgress = useRef(new Animated.Value(0)).current;
@@ -658,7 +599,9 @@ export function CoinsScreen(): JSX.Element {
   const [isRankingProfileLoading, setIsRankingProfileLoading] = useState(false);
   const [rankingProfileError, setRankingProfileError] = useState<string | null>(null);
   const [selectedRankingProfile, setSelectedRankingProfile] = useState<EmployeeProfile | null>(null);
+  const [selectedRankingPost, setSelectedRankingPost] = useState<EmployeeProfilePost | null>(null);
   const rankingProfileProgress = useRef(new Animated.Value(0)).current;
+  const rankingPostDetailProgress = useRef(new Animated.Value(0)).current;
   const isRaffleProductTab = activeRaffleTab === 'apply' || activeRaffleTab === 'kboApply';
   const activeRaffleProductType = getRaffleProductType(activeRaffleTab);
   const rankingProfileOpacity = useRef(new Animated.Value(0)).current;
@@ -695,6 +638,30 @@ export function CoinsScreen(): JSX.Element {
       },
     ],
   };
+  const rankingPostDetailAnimatedStyle = {
+    opacity: rankingPostDetailProgress,
+    transform: [
+      {
+        translateX: rankingPostDetailProgress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [24, 0],
+        }),
+      },
+    ],
+  };
+
+  const closeRankingPostDetail = useCallback(() => {
+    Animated.timing(rankingPostDetailProgress, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({finished}) => {
+      if (finished) {
+        setSelectedRankingPost(null);
+      }
+    });
+  }, [rankingPostDetailProgress]);
 
   const closeRankingProfile = useCallback(() => {
     Animated.parallel([
@@ -715,19 +682,67 @@ export function CoinsScreen(): JSX.Element {
       setIsRankingProfileLoading(false);
       setRankingProfileError(null);
       setSelectedRankingProfile(null);
+      setSelectedRankingPost(null);
+      rankingPostDetailProgress.setValue(0);
     });
-  }, [rankingProfileOpacity, rankingProfileProgress]);
+  }, [rankingPostDetailProgress, rankingProfileOpacity, rankingProfileProgress]);
+
+  const openRankingPostDetail = useCallback(
+    (post: EmployeeProfilePost) => {
+      setSelectedRankingPost(post);
+      rankingPostDetailProgress.setValue(0);
+      Animated.timing(rankingPostDetailProgress, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    },
+    [rankingPostDetailProgress],
+  );
+
+  const renderRankingProfilePost = useCallback(
+    ({item: post}: {item: EmployeeProfilePost}) => (
+      <AnimatedPressable
+        accessibilityLabel={`${post.title} 게시글 보기`}
+        accessibilityRole="button"
+        onPress={() => openRankingPostDetail(post)}
+        style={styles.employeePostTile}>
+        <View style={styles.employeePostTileInner}>
+          {post.thumbnailUrl ? (
+            <Image source={{uri: post.thumbnailUrl}} style={styles.employeePostThumbnail} resizeMode="cover" />
+          ) : (
+            <View style={styles.employeePostFallback}>
+              <Text numberOfLines={3} style={styles.employeePostFallbackTitle}>
+                {post.title}
+              </Text>
+            </View>
+          )}
+          <View style={styles.employeePostTileOverlay}>
+            <Text numberOfLines={2} style={styles.employeePostTileTitle}>
+              {post.title}
+            </Text>
+          </View>
+        </View>
+      </AnimatedPressable>
+    ),
+    [openRankingPostDetail],
+  );
+
+  const getRankingProfilePostKey = useCallback((post: EmployeeProfilePost) => String(post.postId), []);
 
   const openRankingProfile = useCallback(
     async (item: CoinRanking) => {
-      let employeeId = getRankingEmployeeId(item);
+      const employeeId = getRankingEmployeeId(item);
 
       setSelectedRankingProfile(getFallbackProfileFromRanking(item));
+      setSelectedRankingPost(null);
       setRankingProfileError(null);
       setIsRankingProfileVisible(true);
       setIsRankingProfileLoading(true);
       rankingProfileProgress.setValue(0);
       rankingProfileOpacity.setValue(0);
+      rankingPostDetailProgress.setValue(0);
       Animated.parallel([
         Animated.timing(rankingProfileOpacity, {
           toValue: 1,
@@ -750,26 +765,9 @@ export function CoinsScreen(): JSX.Element {
       }
 
       if (!employeeId) {
-        try {
-          const feedWriter = await fetchRankingProfileFeedWriter(auth.accessToken, item.name);
-          const feedEmployeeId = getEmployeeIdFromFeedWriter(feedWriter);
-          const feedProfileImageUri = getProfileImageUriFromFeedWriter(feedWriter);
-
-          if (feedProfileImageUri) {
-            setSelectedRankingProfile(previousProfile =>
-              previousProfile ? {...previousProfile, profileImageUri: feedProfileImageUri} : previousProfile,
-            );
-          }
-
-          employeeId = feedEmployeeId;
-        } catch (error) {
-          console.log('[CoinsScreen] ranking feed writer lookup failed', {name: item.name, error});
-        }
-
-        if (!employeeId) {
-          setIsRankingProfileLoading(false);
-          return;
-        }
+        setRankingProfileError('랭커의 회원 정보를 찾을 수 없습니다.');
+        setIsRankingProfileLoading(false);
+        return;
       }
 
       try {
@@ -808,7 +806,7 @@ export function CoinsScreen(): JSX.Element {
         setIsRankingProfileLoading(false);
       }
     },
-    [auth?.accessToken, rankingProfileOpacity, rankingProfileProgress],
+    [auth?.accessToken, rankingPostDetailProgress, rankingProfileOpacity, rankingProfileProgress],
   );
 
   useEffect(() => {
@@ -1544,15 +1542,29 @@ export function CoinsScreen(): JSX.Element {
         </View>
       </Modal>
 
-      <Modal animationType="fade" onRequestClose={closeRankingProfile} transparent visible={isRankingProfileVisible}>
+      <Modal
+        animationType="fade"
+        onRequestClose={selectedRankingPost ? closeRankingPostDetail : closeRankingProfile}
+        transparent
+        visible={isRankingProfileVisible}>
         <Animated.View style={[styles.profileModalOverlay, {opacity: rankingProfileOpacity}]}>
           {selectedRankingProfile ? (
             <Animated.View
               style={[styles.employeeProfileCard, {height: rankingProfileCardHeight}, rankingProfileCardAnimatedStyle]}>
               <View style={styles.employeeProfileHeader}>
-                <View style={styles.employeeProfileHeaderButton} />
+                {selectedRankingPost ? (
+                  <AnimatedPressable
+                    accessibilityLabel="회원 게시글 목록으로 돌아가기"
+                    accessibilityRole="button"
+                    onPress={closeRankingPostDetail}
+                    style={styles.employeeProfileHeaderButton}>
+                    <Image source={icon.backBtn} style={styles.employeeProfileHeaderIcon} />
+                  </AnimatedPressable>
+                ) : (
+                  <View style={styles.employeeProfileHeaderButton} />
+                )}
                 <Text numberOfLines={1} style={styles.employeeProfileTitle}>
-                  회원 정보
+                  {selectedRankingPost ? '게시글' : '회원 정보'}
                 </Text>
                 <AnimatedPressable
                   accessibilityLabel="회원 정보 닫기"
@@ -1563,72 +1575,145 @@ export function CoinsScreen(): JSX.Element {
                 </AnimatedPressable>
               </View>
 
-              <ScrollView
-                contentContainerStyle={styles.employeeProfileScrollContent}
-                showsVerticalScrollIndicator={false}
-                style={styles.employeeProfileScroll}>
-                <View style={styles.employeeProfileHero}>
-                  <Image source={rankingProfileImageSource} style={styles.employeeProfileAvatar} resizeMode="cover" />
-                  <Text numberOfLines={1} style={styles.employeeProfileName}>
-                    {selectedRankingProfile.employeeName}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.employeeProfileSubText}>
-                    {[selectedRankingProfile.division, selectedRankingProfile.department].filter(Boolean).join(' · ') ||
-                      '소속 정보 없음'}
-                  </Text>
-                </View>
-
-                <View style={styles.employeeInfoList}>
-                  <View style={styles.employeeInfoRow}>
-                    <Text style={styles.employeeInfoLabel}>소개</Text>
-                    <Text style={styles.employeeInfoValue}>
-                      {selectedRankingProfile.introduction ?? '소개가 아직 없습니다.'}
-                    </Text>
+              {selectedRankingPost ? (
+                <Animated.ScrollView
+                  contentContainerStyle={styles.employeePostDetailContent}
+                  showsVerticalScrollIndicator={false}
+                  style={[styles.employeeProfileScroll, rankingPostDetailAnimatedStyle]}>
+                  <View style={styles.employeePostDetailHeader}>
+                    <Image source={rankingProfileImageSource} style={styles.employeePostDetailHeaderAvatar} />
+                    <View style={styles.employeePostDetailHeaderText}>
+                      <Text numberOfLines={1} style={styles.employeePostDetailHeaderName}>
+                        {selectedRankingProfile.employeeName}
+                      </Text>
+                      <Text numberOfLines={1} style={styles.employeePostDetailHeaderRole}>
+                        {selectedRankingProfile.department ?? selectedRankingProfile.division ?? '소속 정보 없음'}
+                      </Text>
+                    </View>
                   </View>
-                </View>
 
-                <View style={styles.employeePostSectionHeader}>
-                  <Text style={styles.employeePostSectionTitle}>작성 게시글</Text>
-                  <Text style={styles.employeePostCountText}>{selectedRankingProfile.posts.length}개</Text>
-                </View>
-
-                {isRankingProfileLoading ? (
-                  <View style={styles.employeeProfileLoading}>
-                    <AppLoading label="회원 정보를 불러오는 중..." />
+                  <View style={styles.employeePostDetailHero}>
+                    {selectedRankingPost.thumbnailUrl ? (
+                      <>
+                        <Image
+                          blurRadius={16}
+                          source={{uri: selectedRankingPost.thumbnailUrl}}
+                          style={styles.employeePostDetailBackdrop}
+                          resizeMode="cover"
+                        />
+                        <Image
+                          source={{uri: selectedRankingPost.thumbnailUrl}}
+                          style={styles.employeePostDetailImage}
+                          resizeMode="contain"
+                        />
+                      </>
+                    ) : (
+                      <View style={styles.employeePostDetailFallback}>
+                        <Text numberOfLines={3} style={styles.employeePostDetailFallbackTitle}>
+                          {selectedRankingPost.title}
+                        </Text>
+                      </View>
+                    )}
                   </View>
-                ) : rankingProfileError ? (
-                  <Text style={styles.employeeProfileErrorText}>{rankingProfileError}</Text>
-                ) : selectedRankingProfile.posts.length ? (
-                  <View style={styles.employeePostGrid}>
-                    {selectedRankingProfile.posts.map(post => (
-                      <View key={post.postId} style={styles.employeePostTile}>
-                        <View style={styles.employeePostTileInner}>
-                          {post.thumbnailUrl ? (
-                            <Image
-                              source={{uri: post.thumbnailUrl}}
-                              style={styles.employeePostThumbnail}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={styles.employeePostFallback}>
-                              <Text numberOfLines={3} style={styles.employeePostFallbackTitle}>
-                                {post.title}
-                              </Text>
-                            </View>
-                          )}
-                          <View style={styles.employeePostTileOverlay}>
-                            <Text numberOfLines={2} style={styles.employeePostTileTitle}>
-                              {post.title}
-                            </Text>
-                          </View>
+
+                  <Text style={styles.employeePostDetailTitle}>{selectedRankingPost.title}</Text>
+                  <Text style={styles.employeePostDetailMeta}>
+                    {selectedRankingPost.createdAt || '작성일 정보 없음'}
+                  </Text>
+                  <Text style={styles.employeePostDetailBody}>
+                    {selectedRankingPost.content || '내용이 없습니다.'}
+                  </Text>
+                </Animated.ScrollView>
+              ) : !isRankingProfileLoading && !rankingProfileError && selectedRankingProfile.posts.length ? (
+                <FlatList
+                  data={selectedRankingProfile.posts}
+                  initialNumToRender={9}
+                  keyExtractor={getRankingProfilePostKey}
+                  maxToRenderPerBatch={6}
+                  numColumns={3}
+                  removeClippedSubviews
+                  renderItem={renderRankingProfilePost}
+                  scrollEventThrottle={16}
+                  showsVerticalScrollIndicator={false}
+                  style={styles.employeeProfileScroll}
+                  contentContainerStyle={styles.employeeProfileScrollContent}
+                  windowSize={5}
+                  ListHeaderComponent={
+                    <>
+                      <View style={styles.employeeProfileHero}>
+                        <Image
+                          source={rankingProfileImageSource}
+                          style={styles.employeeProfileAvatar}
+                          resizeMode="cover"
+                        />
+                        <Text numberOfLines={1} style={styles.employeeProfileName}>
+                          {selectedRankingProfile.employeeName}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.employeeProfileSubText}>
+                          {[selectedRankingProfile.division, selectedRankingProfile.department]
+                            .filter(Boolean)
+                            .join(' · ') || '소속 정보 없음'}
+                        </Text>
+                      </View>
+
+                      <View style={styles.employeeInfoList}>
+                        <View style={styles.employeeInfoRow}>
+                          <Text style={styles.employeeInfoLabel}>소개</Text>
+                          <Text style={styles.employeeInfoValue}>
+                            {selectedRankingProfile.introduction ?? '소개가 아직 없습니다.'}
+                          </Text>
                         </View>
                       </View>
-                    ))}
+
+                      <View style={styles.employeePostSectionHeader}>
+                        <Text style={styles.employeePostSectionTitle}>작성 게시글</Text>
+                        <Text style={styles.employeePostCountText}>{selectedRankingProfile.posts.length}개</Text>
+                      </View>
+                    </>
+                  }
+                />
+              ) : (
+                <ScrollView
+                  contentContainerStyle={styles.employeeProfileScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  style={styles.employeeProfileScroll}>
+                  <View style={styles.employeeProfileHero}>
+                    <Image source={rankingProfileImageSource} style={styles.employeeProfileAvatar} resizeMode="cover" />
+                    <Text numberOfLines={1} style={styles.employeeProfileName}>
+                      {selectedRankingProfile.employeeName}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.employeeProfileSubText}>
+                      {[selectedRankingProfile.division, selectedRankingProfile.department]
+                        .filter(Boolean)
+                        .join(' · ') || '소속 정보 없음'}
+                    </Text>
                   </View>
-                ) : (
-                  <Text style={styles.employeeProfileEmptyText}>아직 작성한 게시글이 없습니다.</Text>
-                )}
-              </ScrollView>
+
+                  <View style={styles.employeeInfoList}>
+                    <View style={styles.employeeInfoRow}>
+                      <Text style={styles.employeeInfoLabel}>소개</Text>
+                      <Text style={styles.employeeInfoValue}>
+                        {selectedRankingProfile.introduction ?? '소개가 아직 없습니다.'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.employeePostSectionHeader}>
+                    <Text style={styles.employeePostSectionTitle}>작성 게시글</Text>
+                    <Text style={styles.employeePostCountText}>{selectedRankingProfile.posts.length}개</Text>
+                  </View>
+
+                  {isRankingProfileLoading ? (
+                    <View style={styles.employeeProfileLoading}>
+                      <AppLoading label="회원 정보를 불러오는 중..." />
+                    </View>
+                  ) : rankingProfileError ? (
+                    <Text style={styles.employeeProfileErrorText}>{rankingProfileError}</Text>
+                  ) : (
+                    <Text style={styles.employeeProfileEmptyText}>아직 작성한 게시글이 없습니다.</Text>
+                  )}
+                </ScrollView>
+              )}
             </Animated.View>
           ) : null}
         </Animated.View>
@@ -2584,6 +2669,12 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
     tintColor: '#A9ABB2',
   },
+  employeeProfileHeaderIcon: {
+    width: 22,
+    height: 22,
+    resizeMode: 'contain',
+    tintColor: '#A9ABB2',
+  },
   employeeProfileScroll: {
     flex: 1,
   },
@@ -2665,6 +2756,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
+  employeeProfileLoadingText: {
+    color: '#A7AAB4',
+    ...FONTS.font13M,
+    lineHeight: 18,
+  },
   employeeProfileErrorText: {
     paddingVertical: 34,
     color: '#FF5962',
@@ -2726,5 +2822,85 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     ...FONTS.font11B,
     lineHeight: 14,
+  },
+  employeePostDetailContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 22,
+  },
+  employeePostDetailHeader: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  employeePostDetailHeaderAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#24262B',
+  },
+  employeePostDetailHeaderText: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  employeePostDetailHeaderName: {
+    color: '#FFFFFF',
+    ...FONTS.font15B,
+    lineHeight: 19,
+  },
+  employeePostDetailHeaderRole: {
+    marginTop: 3,
+    color: '#8F939D',
+    ...FONTS.font12R,
+    lineHeight: 15,
+  },
+  employeePostDetailHero: {
+    width: '100%',
+    aspectRatio: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 12,
+    backgroundColor: '#24262B',
+  },
+  employeePostDetailBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.34,
+    transform: [{scale: 1.08}],
+  },
+  employeePostDetailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  employeePostDetailFallback: {
+    flex: 1,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#24262B',
+  },
+  employeePostDetailFallbackTitle: {
+    color: '#F0F1F4',
+    textAlign: 'center',
+    ...FONTS.font20B,
+    lineHeight: 27,
+  },
+  employeePostDetailTitle: {
+    marginTop: 18,
+    color: '#FFFFFF',
+    ...FONTS.font22B,
+    lineHeight: 29,
+  },
+  employeePostDetailMeta: {
+    marginTop: 7,
+    color: '#8F939D',
+    ...FONTS.font12M,
+    lineHeight: 16,
+  },
+  employeePostDetailBody: {
+    marginTop: 16,
+    color: '#E5E7EC',
+    ...FONTS.font15R,
+    lineHeight: 23,
   },
 });

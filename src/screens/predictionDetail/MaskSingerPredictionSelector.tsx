@@ -12,5 +12,12 @@ export function MaskSingerPredictionSelector({
   selectedTeamId,
   teams,
 }: MaskSingerPredictionSelectorProps): JSX.Element {
-  return <ParticipantPosterCarousel teams={teams} selectedTeamId={selectedTeamId} onSelectTeam={onSelectTeam} />;
+  return (
+    <ParticipantPosterCarousel
+      secondaryTextSource="description"
+      teams={teams}
+      selectedTeamId={selectedTeamId}
+      onSelectTeam={onSelectTeam}
+    />
+  );
 }

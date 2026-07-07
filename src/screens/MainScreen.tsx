@@ -46,8 +46,28 @@ const STORY_ITEM_WIDTH = STORY_CARD_WIDTH + STORY_CARD_GAP;
 const STORY_SNAP_INTERVAL = STORY_ITEM_WIDTH;
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'] as const;
 const PROFILE_TIP_STORAGE_PREFIX = 'game_app_profile_tip_dismissed_v1';
+const COIN_GUIDE_STORAGE_PREFIX = 'game_app_coin_guide_dismissed_v1';
 const checkLottie = require('../assets/lotties/Check.json');
+const coinLottie = require('../assets/lotties/Coin.json');
 const fanfareLottie = require('../assets/lotties/Fanfare.json');
+
+const coinEarningGuideItems = [
+  {badge: '1', description: '+10코인', title: '사전 설문 참여'},
+  {badge: '2', description: '일일 3~6코인 랜덤 지급 ( 연속출석시 +n코인 )', title: '매일 출석체크'},
+  {badge: '3', description: '게시글당 +2코인, 일 최대 5회', title: '피드 게시글 작성'},
+  {badge: '4', description: '미니게임으로 코인 쟁탈 ( 누적 코인 증감 없음 )', title: '코인대전'},
+  {badge: '5', description: '승부예측 성공시 +25코인 실패시 -10코인 (누적코인 증감 및 랭킹 반영)', title: '승부예측 적중'},
+  {badge: '6', description: '추가 코인 획득 ❤️', title: '다양한 현장 이벤트 참여'},
+] as const;
+
+const coinBenefitGuideItems = [
+  {badge: '1', description: '누적 코인 차감 없음', title: '상품 응모🍀', reward: false},
+  {badge: '2', description: '참가하고 추가 코인 획득', title: '코인대전', reward: false},
+  {badge: '3', description: '누적 코인 기준으로 반영', title: '랭킹 반영', reward: false},
+  {badge: '4', description: '랭킹 TOP30 특별 상품 증정', title: '랭킹 보상', reward: true},
+  {badge: '5', description: '100만원 ~ 30만원 상당 상품', title: 'TOP 3', reward: true},
+  {badge: '6', description: '10만원 이하의 다양한 특별 상품', title: 'TOP 30', reward: true},
+] as const;
 
 type MainScreenNavigation = CompositeNavigationProp<
   NavigationProp<MainStackParamList, 'Home'>,
@@ -164,10 +184,15 @@ function MainScreen(): JSX.Element {
   const [isAttendanceSummaryModalVisible, setIsAttendanceSummaryModalVisible] = useState(false);
   const [isRefreshingHome, setIsRefreshingHome] = useState(false);
   const [isProfileTipVisible, setIsProfileTipVisible] = useState(false);
+  const [isCoinGuidePending, setIsCoinGuidePending] = useState(false);
+  const [isCoinGuideModalVisible, setIsCoinGuideModalVisible] = useState(false);
   const activeCheckInNotice = checkInNotice;
   const isAttendanceModalVisible = Boolean(activeCheckInNotice || isAttendanceSummaryModalVisible);
   const profile = auth?.profile;
   const profileTipStorageKey = `${PROFILE_TIP_STORAGE_PREFIX}:${
+    auth?.employeeId ?? profile?.employeeId ?? auth?.id ?? 'guest'
+  }`;
+  const coinGuideStorageKey = `${COIN_GUIDE_STORAGE_PREFIX}:${
     auth?.employeeId ?? profile?.employeeId ?? auth?.id ?? 'guest'
   }`;
   const coinBalance = latestHoldingCoin ?? toCoinNumber(profile?.holdingCoin) ?? 0;
@@ -304,6 +329,36 @@ function MainScreen(): JSX.Element {
   }, [profileTipStorageKey]);
 
   React.useEffect(() => {
+    let isMounted = true;
+
+    AsyncStorage.getItem(coinGuideStorageKey)
+      .then(storedValue => {
+        if (isMounted) {
+          setIsCoinGuidePending(storedValue !== 'true');
+        }
+      })
+      .catch(error => {
+        console.log('[MainScreen] coin guide storage read failed', error);
+
+        if (isMounted) {
+          setIsCoinGuidePending(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [coinGuideStorageKey]);
+
+  React.useEffect(() => {
+    if (!isCoinGuidePending || isAttendanceModalVisible || isCoinGuideModalVisible) {
+      return;
+    }
+
+    setIsCoinGuideModalVisible(true);
+  }, [isAttendanceModalVisible, isCoinGuideModalVisible, isCoinGuidePending]);
+
+  React.useEffect(() => {
     return registerScrollToTopHandler('Home', () => {
       mainScrollRef.current?.scrollTo({animated: true, y: 0});
     });
@@ -432,6 +487,13 @@ function MainScreen(): JSX.Element {
       console.log('[MainScreen] profile tip storage write failed', error);
     });
   }, [profileTipStorageKey]);
+  const dismissCoinGuide = React.useCallback(() => {
+    setIsCoinGuideModalVisible(false);
+    setIsCoinGuidePending(false);
+    AsyncStorage.setItem(coinGuideStorageKey, 'true').catch(error => {
+      console.log('[MainScreen] coin guide storage write failed', error);
+    });
+  }, [coinGuideStorageKey]);
   const handleProfilePress = React.useCallback(() => {
     dismissProfileTip();
     navigation.navigate('ProfileSetup');
@@ -731,6 +793,86 @@ function MainScreen(): JSX.Element {
           </View>
         </View>
       </SafeAreaView>
+
+      <Modal animationType="fade" onRequestClose={dismissCoinGuide} transparent visible={isCoinGuideModalVisible}>
+        <View style={styles.coinGuideModalOverlay}>
+          <AnimatedPressable
+            accessibilityLabel="코인 안내 닫기"
+            accessibilityRole="button"
+            onPress={dismissCoinGuide}
+            style={styles.coinGuideModalBackdrop}
+          />
+          <View style={styles.coinGuideModalCard}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.coinGuideModalHeader}>
+                <View>
+                  <Text style={styles.coinGuideModalEyebrow}>COIN GUIDE</Text>
+                  <View style={styles.coinGuideModalTitleRow}>
+                    <Text style={styles.coinGuideModalTitle}>코인 안내</Text>
+                    <LottieView autoPlay loop source={coinLottie} style={styles.coinGuideModalLottie} />
+                  </View>
+                </View>
+                <AnimatedPressable
+                  accessibilityLabel="코인 안내 닫기"
+                  accessibilityRole="button"
+                  onPress={dismissCoinGuide}
+                  style={styles.coinGuideModalCloseButton}>
+                  <Image source={icon.closeBtn} style={styles.coinGuideModalCloseIcon} resizeMode="contain" />
+                </AnimatedPressable>
+              </View>
+
+              <View style={styles.coinGuideModalSection}>
+                <Text style={styles.coinGuideModalSectionTitle}>코인 획득 방법</Text>
+                <View style={styles.coinGuideModalList}>
+                  {coinEarningGuideItems.map(item => (
+                    <View key={item.title} style={styles.coinGuideModalItem}>
+                      <View style={styles.coinGuideModalBadge}>
+                        <Text style={styles.coinGuideModalBadgeText}>{item.badge}</Text>
+                      </View>
+                      <View style={styles.coinGuideModalItemText}>
+                        <Text style={styles.coinGuideModalItemTitle}>{item.title}</Text>
+                        <Text style={styles.coinGuideModalItemDescription}>{item.description}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.coinGuideModalSection}>
+                <Text style={styles.coinGuideModalSectionTitle}>코인을 모으면 좋은 점</Text>
+                <Text style={styles.coinGuideModalSectionLead}>모은 코인은 다양한 혜택으로 사용할 수 있어요!</Text>
+                <View style={styles.coinGuideModalList}>
+                  {coinBenefitGuideItems.map(item => (
+                    <View
+                      key={item.title}
+                      style={[styles.coinGuideModalItem, item.reward && styles.coinGuideModalRewardItem]}>
+                      <View
+                        style={[
+                          styles.coinGuideModalBadge,
+                          styles.coinGuideModalBenefitBadge,
+                          item.reward && styles.coinGuideModalRewardBadge,
+                        ]}>
+                        <Text style={styles.coinGuideModalBadgeText}>{item.badge}</Text>
+                      </View>
+                      <View style={styles.coinGuideModalItemText}>
+                        <Text style={styles.coinGuideModalItemTitle}>{item.title}</Text>
+                        <Text style={styles.coinGuideModalItemDescription}>{item.description}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              <AnimatedPressable
+                accessibilityRole="button"
+                onPress={dismissCoinGuide}
+                style={styles.coinGuideModalConfirmButton}>
+                <Text style={styles.coinGuideModalConfirmText}>확인</Text>
+              </AnimatedPressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="fade"
@@ -1170,6 +1312,150 @@ const styles = StyleSheet.create({
   },
   attendanceDayLabelChecked: {
     color: '#FFFFFF',
+  },
+  coinGuideModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  coinGuideModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  coinGuideModalCard: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 390,
+    maxHeight: '82%',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: '#171717',
+    padding: 16,
+    shadowColor: '#000000',
+    shadowOffset: {width: 0, height: 14},
+    shadowOpacity: 0.32,
+    shadowRadius: 22,
+    elevation: 16,
+  },
+  coinGuideModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  coinGuideModalEyebrow: {
+    color: '#E50914',
+    ...FONTS.font11B,
+    lineHeight: 14,
+  },
+  coinGuideModalTitleRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  coinGuideModalTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font20B,
+    lineHeight: 26,
+  },
+  coinGuideModalLottie: {
+    width: 34,
+    height: 34,
+  },
+  coinGuideModalCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinGuideModalCloseIcon: {
+    width: 18,
+    height: 18,
+    tintColor: '#A9ABB2',
+  },
+  coinGuideModalSection: {
+    marginTop: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    backgroundColor: '#131315',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  coinGuideModalSectionTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 19,
+  },
+  coinGuideModalSectionLead: {
+    marginTop: 6,
+    color: '#D6D7DB',
+    ...FONTS.font12M,
+    lineHeight: 18,
+  },
+  coinGuideModalList: {
+    marginTop: 10,
+    gap: 2,
+  },
+  coinGuideModalItem: {
+    minHeight: 38,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+  },
+  coinGuideModalBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    backgroundColor: '#E50914',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 9,
+  },
+  coinGuideModalBenefitBadge: {
+    backgroundColor: '#2D2D2D',
+  },
+  coinGuideModalRewardItem: {
+    backgroundColor: 'rgba(229,9,20,0.055)',
+  },
+  coinGuideModalRewardBadge: {
+    backgroundColor: '#E50914',
+  },
+  coinGuideModalBadgeText: {
+    color: '#FFFFFF',
+    ...FONTS.font11B,
+    lineHeight: 14,
+  },
+  coinGuideModalItemText: {
+    flex: 1,
+  },
+  coinGuideModalItemTitle: {
+    color: '#FFFFFF',
+    ...FONTS.font12B,
+    lineHeight: 16,
+  },
+  coinGuideModalItemDescription: {
+    marginTop: 1,
+    color: '#C7C8CC',
+    ...FONTS.font11M,
+    lineHeight: 15,
+  },
+  coinGuideModalConfirmButton: {
+    height: 44,
+    marginTop: 14,
+    borderRadius: 10,
+    backgroundColor: '#E50914',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coinGuideModalConfirmText: {
+    color: '#FFFFFF',
+    ...FONTS.font14B,
+    lineHeight: 18,
   },
   attendanceModalOverlay: {
     flex: 1,
